@@ -15,8 +15,125 @@ namespace Test
     [TestFixture]
     public static class MultiProteaseParsimonyTest
     {
+        /// <summary>
+        /// In this test, we are simulating a single peptide (pepA) with the same base sequence coming from two different protease digestions.
+        /// The proteases cleave at the same spots (mimicking the overlap of peptides between Trypsin and either ArgC or LysC). 
+        /// So pepA is a shared peptide between protein 1 and protein 2 for both proteases.
+        /// With only pepA being observed a protein group containign protien1|protein2 would exist.
+        /// If for only one protease we observe a unique peptide (pepB) for protein 2 we would then know for certain that protein2 exists in our sample.
+        /// </summary>
         [Test]
-        public static void MultiProteaseUniqueTest()
+        public static void MultiProteaseSamePeptideSameProteinsDifferentProteases()
+        {
+            string[] sequences = {
+                "-XYZ--ABC",
+                "-XYZ-EFG-ABC",
+            };
+            //both proteases are cleaving at the same spots to simulate trypsin and argC producing the same peptides
+            List<Tuple<string, FragmentationTerminus>> sequencesInducingCleavage = new List<Tuple<string, FragmentationTerminus>> { new Tuple<string, FragmentationTerminus>("-", FragmentationTerminus.C), new Tuple<string, FragmentationTerminus>("Z", FragmentationTerminus.C) };
+            
+            var protease1 = new Protease("proteaseA", sequencesInducingCleavage, new List<Tuple<string, FragmentationTerminus>>(), CleavageSpecificity.Full, null, null, null);
+            ProteaseDictionary.Dictionary.Add(protease1.Name, protease1);
+            var protease2 = new Protease("proteaseB", sequencesInducingCleavage, new List<Tuple<string, FragmentationTerminus>>(), CleavageSpecificity.Full, null, null, null);
+            ProteaseDictionary.Dictionary.Add(protease2.Name, protease2);
+
+            //a hashset of peptideWithSetModifications from all proteases
+            var pwsmList = new HashSet<PeptideWithSetModifications>();
+
+            var proteinList = new List<Protein>();
+            List<Tuple<string, string>> gn = new List<Tuple<string, string>>();
+            for (int i = 0; i < sequences.Length; i++)
+            {
+                proteinList.Add(new Protein(sequences[i], (i + 1).ToString(), null, gn, new Dictionary<int, List<Modification>>()));
+            }
+
+            DigestionParams digestionParams = new DigestionParams(protease: protease1.Name, minPeptideLength: 1);
+            DigestionParams digestionParams2 = new DigestionParams(protease: protease2.Name, minPeptideLength: 1);
+
+            foreach (var protein in proteinList)
+            {
+                //using protease #1
+                foreach (var pwsm in protein.Digest(digestionParams, new List<Modification>(), new List<Modification>()))
+                {
+                    switch (pwsm.BaseSequence)
+                    {
+                        case "ABC": pwsmList.Add(pwsm); break;                        
+                        case "EFG-": pwsmList.Add(pwsm); break;
+                    }
+                }
+                //using protease #2
+                foreach (var pwsm in protein.Digest(digestionParams2, new List<Modification>(), new List<Modification>()))
+                {
+                    switch (pwsm.BaseSequence)
+                    {
+                        case "ABC": pwsmList.Add(pwsm); break;                        
+                    }
+                }
+            }
+
+            // builds psm list to match to peptides
+            List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch>();
+
+            // dummy scan
+            MsDataScan dfb = new MsDataScan(new MzSpectrum(new double[] { 1 }, new double[] { 1 }, false), 0, 1, true, Polarity.Positive, double.NaN, null, null, MZAnalyzerType.Orbitrap, double.NaN, null, null, "scan=1", double.NaN, null, null, double.NaN, null, DissociationType.AnyActivationType, 0, null);
+            Ms2ScanWithSpecificMass scan = new Ms2ScanWithSpecificMass(dfb, 2, 0, "File");
+
+            foreach (var peptide in pwsmList)
+            {
+                switch (peptide.BaseSequence)
+                {
+                    case "ABC":
+                        if (peptide.DigestionParams == digestionParams)
+                        {
+                            psms.Add(new PeptideSpectralMatch(peptide, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>()));
+                            break;
+                        }
+                        if (peptide.DigestionParams == digestionParams2)
+                        {
+                            psms.Add(new PeptideSpectralMatch(peptide, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>()));
+                            break;
+                        }
+                        else { break; }
+
+                    case "EFG-": psms.Add(new PeptideSpectralMatch(peptide, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>())); break;
+                    
+                }
+            }
+
+            psms.ForEach(p => p.ResolveAllAmbiguities());
+            psms.ForEach(p => p.SetFdrValues(1, 0, 0, 1, 0, 0, double.NaN, double.NaN, double.NaN, false));
+
+            HashSet<DigestionParams> digestionParamsList = new HashSet<DigestionParams>();
+            digestionParamsList.Add(digestionParams);
+            digestionParamsList.Add(digestionParams2);
+            ModificationMotif.TryGetMotif("M", out ModificationMotif motif1);
+            Modification mod = new Modification(_originalId: "Oxidation of M", _modificationType: "Common Variable", _target: motif1, _locationRestriction: "Anywhere.", _monoisotopicMass: 15.99491461957);
+            List<Modification> modVarList = new List<Modification> { mod };
+
+            ModificationMotif.TryGetMotif("M", out ModificationMotif motif2);
+            Modification mod2 = new Modification(_originalId: "Oxidation of M", _modificationType: "Common Variable", _target: motif2, _locationRestriction: "Anyhwere.", _monoisotopicMass: 15.99491461957);
+            List<Modification> modFixedList = new List<Modification> { mod };
+
+            ProteinParsimonyEngine ppe = new ProteinParsimonyEngine(psms, false, new CommonParameters(), null);
+            var proteinAnalysisResults = (ProteinParsimonyResults)ppe.Run();
+
+            // score protein groups and merge indistinguishable ones
+            ProteinScoringAndFdrEngine proteinScoringEngine = new ProteinScoringAndFdrEngine(proteinAnalysisResults.ProteinGroups, psms, false, true, true, new CommonParameters(), new List<string>());
+            var results = (ProteinScoringAndFdrResults)proteinScoringEngine.Run();
+
+            List<ProteinGroup> proteinGroups = results.SortedAndScoredProteinGroups;
+            // should result in 1 protein group (protein2) 
+            Assert.AreEqual(1, proteinGroups.Count);
+            Assert.AreEqual("2", proteinGroups.ElementAt(0).ProteinGroupName);
+        }
+
+        /// <summary>
+        /// In this test, we are ensuring that although two peptides may have the same base sequence (ABC) if they result from only a single protein in the "proteome" 
+        /// when digested with a  protease they should be considered unique.
+        /// Therefore, ABC should be a unique peptide for protein 1 with protease A and for protein 2 with protease B.
+        /// </summary>
+        [Test]
+        public static void MultiProteaseParsimony_SharedSequenceCanBeUniquePeptide()
         {
             string[] sequences = {
                 "-XYZ--ABC",
@@ -150,11 +267,14 @@ namespace Test
         }
 
         /// <summary>
-        /// These protein groups would normally be indistinguishable but not with multiprotease
-        /// We expect 2 protein groups out at the end!
+        /// In this test, we want to ensure that protein groups that are actually distinguishable becasue of multiprotease data are not being merged. 
+        /// Without taking into account the protease peptides would result from, these two proteins (1 and2) would have the same peptide base sequences supporting them.
+        /// If that was all that was considered for merging indistinguishable protein groups then we would end up with "1|2", but this would be incorrect.
+        /// Becasue of multiple proteases, these two proteins are actually distinguishable ABC can only come from protein 1 with protease A and only from protein2 wiht proteaseB.
+        /// The same can be said for EFG. Therefore, we should end up with a protein list contianing both protein 1 and protein 2 supported by 2 unique peptides for each!
         /// </summary>
         [Test]
-        public static void MultiProteaseIndistiguishableTest()
+        public static void MultiProteaseParsimony_IndistringuishableProteinsNowDistinguishable()
         {
             string[] sequences = {
                 "ABCEFG",
@@ -256,8 +376,12 @@ namespace Test
             Assert.That(pg2.UniquePeptides.Count == 2);
         }
 
+        /// <summary>
+        /// In this test, we are showing that peptide ABC although coming from the same protein, same location can be 2 separate unique peptides
+        /// because of the digestion of the two proteases. The resultant Protein 1 protien group should contian 2 unique peptides both of which have sequence ABC.
+        /// </summary>
         [Test]
-        public static void MultiProteaseOneProteinProduceSameUniquePeptideFor2Proteases()
+        public static void MultiProteaseParsimony_SameAminoAcidsResultInTwoUniquePeptidesForOneProtein()
         {
             string[] sequences = {
                 "-XYZ-EFGABC"
