@@ -49,10 +49,10 @@ namespace Test
             Ms2ScanWithSpecificMass scan = new Ms2ScanWithSpecificMass(dfb, 2, 0, "File");
 
             PeptideSpectralMatch psmPEPR_T = new PeptideSpectralMatch(pepA_1T,0,10,0,scan, digestionParams_Tryp, new List<MatchedFragmentIon>());
-            psmPEPR_T.AddOrReplace(pepA_2T, 10, 0, false, new List<MatchedFragmentIon>());
-            psmPEPR_T.AddOrReplace(pepA_3T, 10, 0, false, new List<MatchedFragmentIon>());
+            psmPEPR_T.AddOrReplace(pepA_2T, 10, 0, true, new List<MatchedFragmentIon>());
+            psmPEPR_T.AddOrReplace(pepA_3T, 10, 0, true, new List<MatchedFragmentIon>());
             PeptideSpectralMatch psmPEPR_A = new PeptideSpectralMatch(pepA_2A, 0, 10, 0, scan, digestionParams_ArgC, new List<MatchedFragmentIon>());
-            psmPEPR_A.AddOrReplace(pepA_3A, 10, 0, false, new List<MatchedFragmentIon>());            
+            psmPEPR_A.AddOrReplace(pepA_3A, 10, 0, true, new List<MatchedFragmentIon>());            
             PeptideSpectralMatch psmABCK_T = new PeptideSpectralMatch(pepB_1T, 0, 10, 0, scan, digestionParams_Tryp, new List<MatchedFragmentIon>());
 
             List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch> { psmPEPR_T, psmPEPR_A, psmABCK_T };
@@ -78,6 +78,14 @@ namespace Test
             var results = (ProteinScoringAndFdrResults)proteinScoringEngine.Run();
 
             List<ProteinGroup> proteinGroups = results.SortedAndScoredProteinGroups;
+            Assert.AreEqual(2, proteinGroups.Count);
+            var proteinGroup1 = proteinGroups.Where(h => h.ProteinGroupName == "1").First();
+            Assert.AreEqual(1, proteinGroup1.UniquePeptides.Count);
+            Assert.AreEqual(2, proteinGroup1.AllPeptides.Count);
+            var proteinGroup2 = proteinGroups.Where(h => h.ProteinGroupName == "2|3").First();
+            Assert.AreEqual(0, proteinGroup2.UniquePeptides.Count);
+            Assert.AreEqual(2, proteinGroup2.AllPeptides.Count);
+
         }
 
         /// <summary>
@@ -97,9 +105,9 @@ namespace Test
             //both proteases are cleaving at the same spots to simulate trypsin and argC producing the same peptides
             List<Tuple<string, FragmentationTerminus>> sequencesInducingCleavage = new List<Tuple<string, FragmentationTerminus>> { new Tuple<string, FragmentationTerminus>("-", FragmentationTerminus.C), new Tuple<string, FragmentationTerminus>("Z", FragmentationTerminus.C) };
             
-            var protease1 = new Protease("proteaseA", sequencesInducingCleavage, new List<Tuple<string, FragmentationTerminus>>(), CleavageSpecificity.Full, null, null, null);
+            var protease1 = new Protease("proteaseA1", sequencesInducingCleavage, new List<Tuple<string, FragmentationTerminus>>(), CleavageSpecificity.Full, null, null, null);
             ProteaseDictionary.Dictionary.Add(protease1.Name, protease1);
-            var protease2 = new Protease("proteaseB", sequencesInducingCleavage, new List<Tuple<string, FragmentationTerminus>>(), CleavageSpecificity.Full, null, null, null);
+            var protease2 = new Protease("proteaseB1", sequencesInducingCleavage, new List<Tuple<string, FragmentationTerminus>>(), CleavageSpecificity.Full, null, null, null);
             ProteaseDictionary.Dictionary.Add(protease2.Name, protease2);
 
             //a hashset of peptideWithSetModifications from all proteases
@@ -115,55 +123,23 @@ namespace Test
             DigestionParams digestionParams = new DigestionParams(protease: protease1.Name, minPeptideLength: 1);
             DigestionParams digestionParams2 = new DigestionParams(protease: protease2.Name, minPeptideLength: 1);
 
-            foreach (var protein in proteinList)
-            {
-                //using protease #1
-                foreach (var pwsm in protein.Digest(digestionParams, new List<Modification>(), new List<Modification>()))
-                {
-                    switch (pwsm.BaseSequence)
-                    {
-                        case "ABC": pwsmList.Add(pwsm); break;                        
-                        case "EFG-": pwsmList.Add(pwsm); break;
-                    }
-                }
-                //using protease #2
-                foreach (var pwsm in protein.Digest(digestionParams2, new List<Modification>(), new List<Modification>()))
-                {
-                    switch (pwsm.BaseSequence)
-                    {
-                        case "ABC": pwsmList.Add(pwsm); break;                        
-                    }
-                }
-            }
+            PeptideWithSetModifications pepA_1Dp1 = new PeptideWithSetModifications(protein: proteinList.ElementAt(0), digestionParams: digestionParams, oneBasedStartResidueInProtein: 7, oneBasedEndResidueInProtein: 9, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepA_2Dp1 = new PeptideWithSetModifications(protein: proteinList.ElementAt(1), digestionParams: digestionParams, oneBasedStartResidueInProtein: 10, oneBasedEndResidueInProtein: 12, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);            
+            PeptideWithSetModifications pepB_2Dp1 = new PeptideWithSetModifications(protein: proteinList.ElementAt(1), digestionParams: digestionParams, oneBasedStartResidueInProtein: 6, oneBasedEndResidueInProtein: 8, peptideDescription: "EFG", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepA_1Dp2 = new PeptideWithSetModifications(protein: proteinList.ElementAt(0), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 7, oneBasedEndResidueInProtein: 9, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepA_2Dp2 = new PeptideWithSetModifications(protein: proteinList.ElementAt(1), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 10, oneBasedEndResidueInProtein: 12, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
 
-            // builds psm list to match to peptides
-            List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch>();
-
-            // dummy scan
             MsDataScan dfb = new MsDataScan(new MzSpectrum(new double[] { 1 }, new double[] { 1 }, false), 0, 1, true, Polarity.Positive, double.NaN, null, null, MZAnalyzerType.Orbitrap, double.NaN, null, null, "scan=1", double.NaN, null, null, double.NaN, null, DissociationType.AnyActivationType, 0, null);
             Ms2ScanWithSpecificMass scan = new Ms2ScanWithSpecificMass(dfb, 2, 0, "File");
 
-            foreach (var peptide in pwsmList)
-            {
-                switch (peptide.BaseSequence)
-                {
-                    case "ABC":
-                        if (peptide.DigestionParams == digestionParams)
-                        {
-                            psms.Add(new PeptideSpectralMatch(peptide, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>()));
-                            break;
-                        }
-                        if (peptide.DigestionParams == digestionParams2)
-                        {
-                            psms.Add(new PeptideSpectralMatch(peptide, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>()));
-                            break;
-                        }
-                        else { break; }
-
-                    case "EFG-": psms.Add(new PeptideSpectralMatch(peptide, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>())); break;
-                    
-                }
-            }
+            PeptideSpectralMatch psmABC_Dp1 = new PeptideSpectralMatch(pepA_1Dp1, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());
+            psmABC_Dp1.AddOrReplace(pepA_2Dp1, 10, 0, true, new List<MatchedFragmentIon>());            
+            PeptideSpectralMatch psmABC_Dp2 = new PeptideSpectralMatch(pepA_1Dp2, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>());
+            psmABC_Dp2.AddOrReplace(pepA_2Dp2, 10, 0, true, new List<MatchedFragmentIon>());
+            PeptideSpectralMatch psmEFG_Dp1 = new PeptideSpectralMatch(pepB_2Dp1, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());
+            
+            // builds psm list to match to peptides
+            List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch>() { psmABC_Dp1, psmABC_Dp2, psmEFG_Dp1 };                       
 
             psms.ForEach(p => p.ResolveAllAmbiguities());
             psms.ForEach(p => p.SetFdrValues(1, 0, 0, 1, 0, 0, double.NaN, double.NaN, double.NaN, false));
@@ -226,61 +202,25 @@ namespace Test
             DigestionParams digestionParams = new DigestionParams(protease: protease1.Name, minPeptideLength: 1);
             DigestionParams digestionParams2 = new DigestionParams(protease: protease2.Name, minPeptideLength: 1);
 
-            foreach (var protein in proteinList)
-            {
-                //using protease #1
-                foreach (var pwsm in protein.Digest(digestionParams, new List<Modification>(), new List<Modification>()))
-                {
-                    switch (pwsm.BaseSequence)
-                    {
-                        case "ABC": pwsmList.Add(pwsm); break;
-                        case "EFGABC": pwsmList.Add(pwsm); break;
-                        case "XYZ": pwsmList.Add(pwsm); break;
-                    }
-                }
-                //using protease #2
-                foreach (var pwsm in protein.Digest(digestionParams2, new List<Modification>(), new List<Modification>()))
-                {
-                    switch (pwsm.BaseSequence)
-                    {
-                        case "ABC": pwsmList.Add(pwsm); break;
-                        case "-XYZ-EFG": pwsmList.Add(pwsm); break;
-                    }
-                }
-            }
+            PeptideWithSetModifications pepA_1Dp1 = new PeptideWithSetModifications(protein: proteinList.ElementAt(0), digestionParams: digestionParams, oneBasedStartResidueInProtein: 2, oneBasedEndResidueInProtein: 4, peptideDescription: "XYZ", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepA_2Dp1 = new PeptideWithSetModifications(protein: proteinList.ElementAt(1), digestionParams: digestionParams, oneBasedStartResidueInProtein: 2, oneBasedEndResidueInProtein: 4, peptideDescription: "XYZ", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepB_1Dp1 = new PeptideWithSetModifications(protein: proteinList.ElementAt(0), digestionParams: digestionParams, oneBasedStartResidueInProtein: 7, oneBasedEndResidueInProtein: 9, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepC_2Dp1 = new PeptideWithSetModifications(protein: proteinList.ElementAt(1), digestionParams: digestionParams, oneBasedStartResidueInProtein: 6, oneBasedEndResidueInProtein: 11, peptideDescription: "EFGABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepB_2Dp2 = new PeptideWithSetModifications(protein: proteinList.ElementAt(1), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 9, oneBasedEndResidueInProtein: 11, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+           
 
-            // builds psm list to match to peptides
-            List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch>();
-
-            // dummy scan
             MsDataScan dfb = new MsDataScan(new MzSpectrum(new double[] { 1 }, new double[] { 1 }, false), 0, 1, true, Polarity.Positive, double.NaN, null, null, MZAnalyzerType.Orbitrap, double.NaN, null, null, "scan=1", double.NaN, null, null, double.NaN, null, DissociationType.AnyActivationType, 0, null);
             Ms2ScanWithSpecificMass scan = new Ms2ScanWithSpecificMass(dfb, 2, 0, "File");
 
-            foreach (var peptide in pwsmList)
-            {
-                switch (peptide.BaseSequence)
-                {
-                    case "ABC":
-                        if (peptide.DigestionParams == digestionParams)
-                        {
-                            psms.Add(new PeptideSpectralMatch(peptide, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>()));
-                            break;
-                        }
-                        if (peptide.DigestionParams == digestionParams2)
-                        {
-                            psms.Add(new PeptideSpectralMatch(peptide, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>()));
-                            break;
-                        }
-                        else { break; }
+            PeptideSpectralMatch psmABC_Dp1 = new PeptideSpectralMatch(pepB_1Dp1, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());            
+            PeptideSpectralMatch psmABC_Dp2 = new PeptideSpectralMatch(pepB_2Dp2, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>());            
+            PeptideSpectralMatch psmEFGABC_Dp1 = new PeptideSpectralMatch(pepC_2Dp1, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());
+            PeptideSpectralMatch psmXYZ_Dp1 = new PeptideSpectralMatch(pepA_1Dp1, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());
+            psmXYZ_Dp1.AddOrReplace(pepA_2Dp1, 10, 0, true, new List<MatchedFragmentIon>());
 
-                    case "EFGABC": psms.Add(new PeptideSpectralMatch(peptide, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>())); break;
-
-                    case "XYZ": psms.Add(new PeptideSpectralMatch(peptide, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>())); break;
-
-                    case "-XYZ-EFG": psms.Add(new PeptideSpectralMatch(peptide, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>())); break;
-                }
-            }
-
+            // builds psm list to match to peptides
+            List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch>() { psmABC_Dp1, psmABC_Dp2, psmEFGABC_Dp1, psmXYZ_Dp1 };
+            
             psms.ForEach(p => p.ResolveAllAmbiguities());
             psms.ForEach(p => p.SetFdrValues(1, 0, 0, 1, 0, 0, double.NaN, double.NaN, double.NaN, false));
 
@@ -315,20 +255,17 @@ namespace Test
             Assert.That(proteinGroup1.UniquePeptides.First().BaseSequence.Equals("ABC"));
 
             var proteinGroup2 = proteinGroups.Where(p => p.ProteinGroupName == "2").First();
-            Assert.AreEqual(4, proteinGroup2.AllPeptides.Count);
-            Assert.AreEqual(3, proteinGroup2.UniquePeptides.Count);
+            Assert.AreEqual(3, proteinGroup2.AllPeptides.Count);
+            Assert.AreEqual(2, proteinGroup2.UniquePeptides.Count);
             var pg2pep1 = proteinGroup2.AllPeptides.Where(p => p.BaseSequence == "XYZ").First();
             Assert.That(pg2pep1.DigestionParams.Protease.Name == "proteaseA");
             var pg2pep2 = proteinGroup2.AllPeptides.Where(p => p.BaseSequence == "ABC").First();
             Assert.That(pg2pep2.DigestionParams.Protease.Name == "proteaseB");
             var pg2pep3 = proteinGroup2.AllPeptides.Where(p => p.BaseSequence == "EFGABC").First();
-            Assert.That(pg2pep3.DigestionParams.Protease.Name == "proteaseA");
-            var pg2pep4 = proteinGroup2.AllPeptides.Where(p => p.BaseSequence == "-XYZ-EFG").First();
-            Assert.That(pg2pep4.DigestionParams.Protease.Name == "proteaseB");
+            Assert.That(pg2pep3.DigestionParams.Protease.Name == "proteaseA");            
             var uniquePeptideSequences = proteinGroup2.UniquePeptides.Select(p => p.BaseSequence).ToList();
             Assert.That(uniquePeptideSequences.Contains("ABC"));
-            Assert.That(uniquePeptideSequences.Contains("EFGABC"));
-            Assert.That(uniquePeptideSequences.Contains("-XYZ-EFG"));
+            Assert.That(uniquePeptideSequences.Contains("EFGABC"));            
         }
 
         /// <summary>
@@ -365,47 +302,25 @@ namespace Test
             DigestionParams digestionParams = new DigestionParams(protease: protease.Name, minPeptideLength: 1);
             DigestionParams digestionParams2 = new DigestionParams(protease: protease2.Name, minPeptideLength: 1);
 
-            //generates HashSet of PeptidesWithSetMods
-            foreach (var protein in p)
-            {
-                foreach (var peptide in protein.Digest(digestionParams, new List<Modification>(), new List<Modification>()))
-                {
-                    switch (peptide.BaseSequence)
-                    {
-                        case "ABC": peptideList.Add(peptide); break;
-                        case "EFG": peptideList.Add(peptide); break;
-                    }
-                }
-                foreach (var peptide in protein.Digest(digestionParams2, new List<Modification>(), new List<Modification>()))
-                {
-                    switch (peptide.BaseSequence)
-                    {
-                        case "ABC": peptideList.Add(peptide); break;
-                        case "EFG": peptideList.Add(peptide); break;
-                    }
-                }
-            }
+            PeptideWithSetModifications pepA_1Dp1 = new PeptideWithSetModifications(protein: p.ElementAt(0), digestionParams: digestionParams, oneBasedStartResidueInProtein: 1, oneBasedEndResidueInProtein: 3, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepA_2Dp2 = new PeptideWithSetModifications(protein: p.ElementAt(1), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 4, oneBasedEndResidueInProtein: 6, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepB_1Dp1 = new PeptideWithSetModifications(protein: p.ElementAt(0), digestionParams: digestionParams, oneBasedStartResidueInProtein: 4, oneBasedEndResidueInProtein: 6, peptideDescription: "EFG", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);            
+            PeptideWithSetModifications pepB_2Dp2 = new PeptideWithSetModifications(protein: p.ElementAt(1), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 1, oneBasedEndResidueInProtein: 3, peptideDescription: "EFG", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
 
-            // builds psm list to match to peptides
-            List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch>();
 
             MsDataScan dfb = new MsDataScan(new MzSpectrum(new double[] { 1 }, new double[] { 1 }, false), 0, 1, true, Polarity.Positive, double.NaN, null, null, MZAnalyzerType.Orbitrap, double.NaN, null, null, "scan=1", double.NaN, null, null, double.NaN, null, DissociationType.AnyActivationType, 0, null);
             Ms2ScanWithSpecificMass scan = new Ms2ScanWithSpecificMass(dfb, 2, 0, "File");
 
-            // creates psms for specific PWSM
-            foreach (var PWSM in peptideList)
-            {
-                if (PWSM.DigestionParams == digestionParams)
-                {
-                    psms.Add(new PeptideSpectralMatch(PWSM, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>()));
-                }
-                if (PWSM.DigestionParams == digestionParams2)
-                {
-                    psms.Add(new PeptideSpectralMatch(PWSM, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>()));
-                }
-                psms.Last().SetFdrValues(0, 0, 0, 0, 0, 0, 0, 0, 0, false);
-                psms.Last().ResolveAllAmbiguities();
-            }
+            PeptideSpectralMatch psmABC_Dp1 = new PeptideSpectralMatch(pepA_1Dp1, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());
+            PeptideSpectralMatch psmABC_Dp2 = new PeptideSpectralMatch(pepA_2Dp2, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>());
+            PeptideSpectralMatch psmEFG_Dp1 = new PeptideSpectralMatch(pepB_1Dp1, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());
+            PeptideSpectralMatch psmEFG_Dp2 = new PeptideSpectralMatch(pepB_2Dp2, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>());           
+
+            // builds psm list to match to peptides
+            List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch>() { psmABC_Dp1, psmABC_Dp2, psmEFG_Dp1, psmEFG_Dp2 };
+
+            psms.ForEach(h => h.ResolveAllAmbiguities());
+            psms.ForEach(h => h.SetFdrValues(1, 0, 0, 1, 0, 0, double.NaN, double.NaN, double.NaN, false));
 
             ProteinParsimonyEngine ppe = new ProteinParsimonyEngine(psms, false, new CommonParameters(), null);
             var proteinAnalysisResults = (ProteinParsimonyResults)ppe.Run();
@@ -545,43 +460,24 @@ namespace Test
             DigestionParams digestionParams = new DigestionParams(protease: protease.Name, minPeptideLength: 1);
             DigestionParams digestionParams2 = new DigestionParams(protease: protease2.Name, minPeptideLength: 1);
 
-            foreach (var protein in p)
-            {
-                foreach (var peptide in protein.Digest(digestionParams, new List<Modification>(), new List<Modification>()))
-                {
-                    switch (peptide.BaseSequence)
-                    {
-                        case "ABC": peptideList.Add(peptide); break;                                               
-                    }
-                }
-                foreach (var peptide in protein.Digest(digestionParams2, new List<Modification>(), new List<Modification>()))
-                {
-                    switch (peptide.BaseSequence)
-                    {
-                        case "ABC": peptideList.Add(peptide); break;                        
-                    }
-                }
-            }
+            PeptideWithSetModifications pepA_1Dp1 = new PeptideWithSetModifications(protein: p.ElementAt(0), digestionParams: digestionParams, oneBasedStartResidueInProtein: 7, oneBasedEndResidueInProtein: 9, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepA_2Dp2 = new PeptideWithSetModifications(protein: p.ElementAt(1), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 9, oneBasedEndResidueInProtein: 11, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepA_3Dp2 = new PeptideWithSetModifications(protein: p.ElementAt(2), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 7, oneBasedEndResidueInProtein: 9, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+           
 
-            // builds psm list to match to peptides
-            List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch>();
             MsDataScan dfb = new MsDataScan(new MzSpectrum(new double[] { 1 }, new double[] { 1 }, false), 0, 1, true, Polarity.Positive, double.NaN, null, null, MZAnalyzerType.Orbitrap, double.NaN, null, null, "scan=1", double.NaN, null, null, double.NaN, null, DissociationType.AnyActivationType, 0, null);
             Ms2ScanWithSpecificMass scan = new Ms2ScanWithSpecificMass(dfb, 2, 0, "File");
 
-            // creates psms for specific PWSM
-            foreach (var pwsm in peptideList)
-            {
-                if (pwsm.DigestionParams == digestionParams)
-                {
-                    psms.Add(new PeptideSpectralMatch(pwsm, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>()));
-                }
-                if (pwsm.DigestionParams == digestionParams2)
-                {
-                    psms.Add(new PeptideSpectralMatch(pwsm, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>()));
-                }
-                psms.Last().SetFdrValues(0, 0, 0, 0, 0, 0, 0, 0, 0, false);
-                psms.Last().ResolveAllAmbiguities();
-            }
+            PeptideSpectralMatch psmABC_Dp1 = new PeptideSpectralMatch(pepA_1Dp1, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());
+            PeptideSpectralMatch psmABC_Dp2 = new PeptideSpectralMatch(pepA_2Dp2, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>());
+            psmABC_Dp2.AddOrReplace(pepA_3Dp2, 10, 0, true, new List<MatchedFragmentIon>());
+
+
+            // builds psm list to match to peptides
+            List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch>() { psmABC_Dp1, psmABC_Dp2};
+
+            psms.ForEach(h => h.ResolveAllAmbiguities());
+            psms.ForEach(h => h.SetFdrValues(1, 0, 0, 1, 0, 0, double.NaN, double.NaN, double.NaN, false));                       
 
             ProteinParsimonyEngine ppe = new ProteinParsimonyEngine(psms, false, new CommonParameters(), null);
             var proteinAnalysisResults = (ProteinParsimonyResults)ppe.Run();
@@ -693,7 +589,7 @@ namespace Test
         /// of PSMs is tested prior to parsimony. Only PSMs with FDR at or below 1% should make it through to parsimony.
         /// </summary>
         [Test]
-        public static void FTestPSMFdrFiltering_Simulated()
+        public static void TestPSMFdrFiltering_Simulated()
         {
             string[] sequences = {
                 "-XYZ--ABC",
