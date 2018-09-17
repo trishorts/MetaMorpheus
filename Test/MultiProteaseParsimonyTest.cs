@@ -16,6 +16,71 @@ namespace Test
     public static class MultiProteaseParsimonyTest
     {
         /// <summary>
+        /// three proteins proteases will be trypsina and argC two proteins will produce the peptide by both arge C and trypsin (cleave at R)
+        /// the  last one can only make it by trypsin. There is unique peptide also for the trypsin only protein. 
+        /// </summary>
+        [Test]
+        public static void MultiProteaseTest()
+        {
+            string[] sequences = {
+                "ABCKPEPR",
+                "BRPEPR",
+                "ARPEPR"
+            };
+
+            var p = new List<Protein>();
+            List<Tuple<string, string>> gn = new List<Tuple<string, string>>();
+            for (int i = 0; i < sequences.Length; i++)
+            {
+                p.Add(new Protein(sequences[i], (i + 1).ToString(), null, gn, new Dictionary<int, List<Modification>>()));
+            }
+
+            DigestionParams digestionParams_Tryp = new DigestionParams(protease: "trypsin", minPeptideLength: 1);
+            DigestionParams digestionParams_ArgC = new DigestionParams(protease: "Arg-C", minPeptideLength: 1);
+
+            PeptideWithSetModifications pepA_1T = new PeptideWithSetModifications(protein: p.ElementAt(0), digestionParams: digestionParams_Tryp, oneBasedStartResidueInProtein: 5, oneBasedEndResidueInProtein:8, peptideDescription: "PEPR", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepA_2T = new PeptideWithSetModifications(protein: p.ElementAt(1), digestionParams: digestionParams_Tryp, oneBasedStartResidueInProtein: 3, oneBasedEndResidueInProtein: 6, peptideDescription: "PEPR", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepA_3T = new PeptideWithSetModifications(protein: p.ElementAt(2), digestionParams: digestionParams_Tryp, oneBasedStartResidueInProtein: 3, oneBasedEndResidueInProtein: 6, peptideDescription: "PEPR", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepB_1T = new PeptideWithSetModifications(protein: p.ElementAt(0), digestionParams: digestionParams_Tryp, oneBasedStartResidueInProtein: 1, oneBasedEndResidueInProtein: 3, peptideDescription: "ABCK", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepA_2A = new PeptideWithSetModifications(protein: p.ElementAt(1), digestionParams: digestionParams_ArgC, oneBasedStartResidueInProtein: 3, oneBasedEndResidueInProtein: 6, peptideDescription: "PEPR", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepA_3A = new PeptideWithSetModifications(protein: p.ElementAt(2), digestionParams: digestionParams_ArgC, oneBasedStartResidueInProtein: 3, oneBasedEndResidueInProtein: 6, peptideDescription: "PEPR", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+
+            MsDataScan dfb = new MsDataScan(new MzSpectrum(new double[] { 1 }, new double[] { 1 }, false), 0, 1, true, Polarity.Positive, double.NaN, null, null, MZAnalyzerType.Orbitrap, double.NaN, null, null, "scan=1", double.NaN, null, null, double.NaN, null, DissociationType.AnyActivationType, 0, null);
+            Ms2ScanWithSpecificMass scan = new Ms2ScanWithSpecificMass(dfb, 2, 0, "File");
+
+            PeptideSpectralMatch psmPEPR_T = new PeptideSpectralMatch(pepA_1T,0,10,0,scan, digestionParams_Tryp, new List<MatchedFragmentIon>());
+            psmPEPR_T.AddOrReplace(pepA_2T, 10, 0, false, new List<MatchedFragmentIon>());
+            psmPEPR_T.AddOrReplace(pepA_3T, 10, 0, false, new List<MatchedFragmentIon>());
+            PeptideSpectralMatch psmPEPR_A = new PeptideSpectralMatch(pepA_2A, 0, 10, 0, scan, digestionParams_ArgC, new List<MatchedFragmentIon>());
+            psmPEPR_A.AddOrReplace(pepA_3A, 10, 0, false, new List<MatchedFragmentIon>());            
+            PeptideSpectralMatch psmABCK_T = new PeptideSpectralMatch(pepB_1T, 0, 10, 0, scan, digestionParams_Tryp, new List<MatchedFragmentIon>());
+
+            List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch> { psmPEPR_T, psmPEPR_A, psmABCK_T };
+            psms.ForEach(j => j.ResolveAllAmbiguities());
+            psms.ForEach(j => j.SetFdrValues(1, 0, 0, 1, 0, 0, double.NaN, double.NaN, double.NaN, false));
+
+            HashSet<DigestionParams> digestionParamsList = new HashSet<DigestionParams>();
+            digestionParamsList.Add(digestionParams_Tryp);
+            digestionParamsList.Add(digestionParams_ArgC);
+            ModificationMotif.TryGetMotif("M", out ModificationMotif motif1);
+            Modification mod = new Modification(_originalId: "Oxidation of M", _modificationType: "Common Variable", _target: motif1, _locationRestriction: "Anywhere.", _monoisotopicMass: 15.99491461957);
+            List<Modification> modVarList = new List<Modification> { mod };
+
+            ModificationMotif.TryGetMotif("M", out ModificationMotif motif2);
+            Modification mod2 = new Modification(_originalId: "Oxidation of M", _modificationType: "Common Variable", _target: motif2, _locationRestriction: "Anyhwere.", _monoisotopicMass: 15.99491461957);
+            List<Modification> modFixedList = new List<Modification> { mod };
+
+            ProteinParsimonyEngine ppe = new ProteinParsimonyEngine(psms, false, new CommonParameters(), null);
+            var proteinAnalysisResults = (ProteinParsimonyResults)ppe.Run();
+
+            // score protein groups and merge indistinguishable ones
+            ProteinScoringAndFdrEngine proteinScoringEngine = new ProteinScoringAndFdrEngine(proteinAnalysisResults.ProteinGroups, psms, false, true, true, new CommonParameters(), new List<string>());
+            var results = (ProteinScoringAndFdrResults)proteinScoringEngine.Run();
+
+            List<ProteinGroup> proteinGroups = results.SortedAndScoredProteinGroups;
+        }
+
+        /// <summary>
         /// In this test, we are simulating a single peptide (pepA) with the same base sequence coming from two different protease digestions.
         /// The proteases cleave at the same spots (mimicking the overlap of peptides between Trypsin and either ArgC or LysC). 
         /// So pepA is a shared peptide between protein 1 and protein 2 for both proteases.
@@ -447,8 +512,13 @@ namespace Test
             Assert.AreEqual(2, proteinGroups.ElementAt(0).UniquePeptides.Count);
         }
 
+        /// <summary>
+        /// In this test, the peptide sequence ABC  results in a unique peptide for protein 1 when the sample is digested with protease test5.
+        /// But when the sample is digested with protease test6 the base sequece ABC is a shared peptide between protein 2 and 3. 
+        /// The protein list should contain protein 1 and the protein group protein2|protein3
+        /// </summary>
         [Test]
-        public static void MultiProteaseUniqueAndSharedBothPresent()
+        public static void MultiProteaseParsimony_TestingPeptideBaseSequenceCanBeBothSharedAndUnique()
         {
             string[] sequences = {
                 "-XYZ--ABC",
@@ -481,8 +551,7 @@ namespace Test
                 {
                     switch (peptide.BaseSequence)
                     {
-                        case "ABC": peptideList.Add(peptide); break;                        
-                        case "XYZ": peptideList.Add(peptide); break;                        
+                        case "ABC": peptideList.Add(peptide); break;                                               
                     }
                 }
                 foreach (var peptide in protein.Digest(digestionParams2, new List<Modification>(), new List<Modification>()))
@@ -542,8 +611,14 @@ namespace Test
             }
         }
 
+        /// <summary>
+        /// In this test, like the previous test, ABC base sewuence can be either unique or shared depending on the protease.
+        /// Unlike the previous test, only a psm corresponding to the test3 protease digesting, producing the unique peptide occurs.
+        /// Therefore, only protein 1 is listed in the protein list. This test ensures in another manner that unique peptide assignment 
+        /// is operating correctly.
+        /// </summary>
         [Test]
-        public static void MultiProteaseUniqueAndSharedUniquePresent()
+        public static void MultiProteaseParsimony_BaseSequenceCanBeSharedOrUniqueButOnlyUnqiuePSMSeen()
         {
             string[] sequences = {
                 "-XYZ--ABC",
@@ -613,8 +688,12 @@ namespace Test
             Assert.AreEqual("ABC", proteinGroups.ElementAt(0).UniquePeptides.ElementAt(0).FullSequence);
         }
 
+        /// <summary>
+        /// In this test, generated PSMs are set to various good or bad FDR levels (above or below 1% FDR) and the filterng
+        /// of PSMs is tested prior to parsimony. Only PSMs with FDR at or below 1% should make it through to parsimony.
+        /// </summary>
         [Test]
-        public static void FdrFilteringPsmsTest()
+        public static void FTestPSMFdrFiltering_Simulated()
         {
             string[] sequences = {
                 "-XYZ--ABC",
@@ -747,8 +826,14 @@ namespace Test
             Assert.AreEqual(false, test6);
         }
 
+        /// <summary>
+        /// This test again check the PSM FDR filtering capabilities prior to parsimony, unlike the previous test,
+        /// this test utilizes a sample file with real speectra generating FDR from target decoy analysis instead of simulated values.
+        /// This test actually checks the code inside the post search analysis test.
+        /// </summary>
+
         [Test]
-        public static void FdrFilteredParsimonyTest()
+        public static void TestPSMFdrFitering_RealFile()
         {
             SearchTask Task1 = new SearchTask
             {
