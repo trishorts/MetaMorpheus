@@ -38,7 +38,7 @@ namespace Test
             DigestionParams digestionParams_Tryp = new DigestionParams(protease: "trypsin", minPeptideLength: 1);
             DigestionParams digestionParams_ArgC = new DigestionParams(protease: "Arg-C", minPeptideLength: 1);
 
-            PeptideWithSetModifications pepA_1T = new PeptideWithSetModifications(protein: p.ElementAt(0), digestionParams: digestionParams_Tryp, oneBasedStartResidueInProtein: 5, oneBasedEndResidueInProtein:8, peptideDescription: "PEPR", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepA_1T = new PeptideWithSetModifications(protein: p.ElementAt(0), digestionParams: digestionParams_Tryp, oneBasedStartResidueInProtein: 5, oneBasedEndResidueInProtein: 8, peptideDescription: "PEPR", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
             PeptideWithSetModifications pepA_2T = new PeptideWithSetModifications(protein: p.ElementAt(1), digestionParams: digestionParams_Tryp, oneBasedStartResidueInProtein: 3, oneBasedEndResidueInProtein: 6, peptideDescription: "PEPR", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
             PeptideWithSetModifications pepA_3T = new PeptideWithSetModifications(protein: p.ElementAt(2), digestionParams: digestionParams_Tryp, oneBasedStartResidueInProtein: 3, oneBasedEndResidueInProtein: 6, peptideDescription: "PEPR", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
             PeptideWithSetModifications pepB_1T = new PeptideWithSetModifications(protein: p.ElementAt(0), digestionParams: digestionParams_Tryp, oneBasedStartResidueInProtein: 1, oneBasedEndResidueInProtein: 3, peptideDescription: "ABCK", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
@@ -48,11 +48,11 @@ namespace Test
             MsDataScan dfb = new MsDataScan(new MzSpectrum(new double[] { 1 }, new double[] { 1 }, false), 0, 1, true, Polarity.Positive, double.NaN, null, null, MZAnalyzerType.Orbitrap, double.NaN, null, null, "scan=1", double.NaN, null, null, double.NaN, null, DissociationType.AnyActivationType, 0, null);
             Ms2ScanWithSpecificMass scan = new Ms2ScanWithSpecificMass(dfb, 2, 0, "File");
 
-            PeptideSpectralMatch psmPEPR_T = new PeptideSpectralMatch(pepA_1T,0,10,0,scan, digestionParams_Tryp, new List<MatchedFragmentIon>());
+            PeptideSpectralMatch psmPEPR_T = new PeptideSpectralMatch(pepA_1T, 0, 10, 0, scan, digestionParams_Tryp, new List<MatchedFragmentIon>());
             psmPEPR_T.AddOrReplace(pepA_2T, 10, 0, true, new List<MatchedFragmentIon>());
             psmPEPR_T.AddOrReplace(pepA_3T, 10, 0, true, new List<MatchedFragmentIon>());
             PeptideSpectralMatch psmPEPR_A = new PeptideSpectralMatch(pepA_2A, 0, 10, 0, scan, digestionParams_ArgC, new List<MatchedFragmentIon>());
-            psmPEPR_A.AddOrReplace(pepA_3A, 10, 0, true, new List<MatchedFragmentIon>());            
+            psmPEPR_A.AddOrReplace(pepA_3A, 10, 0, true, new List<MatchedFragmentIon>());
             PeptideSpectralMatch psmABCK_T = new PeptideSpectralMatch(pepB_1T, 0, 10, 0, scan, digestionParams_Tryp, new List<MatchedFragmentIon>());
 
             List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch> { psmPEPR_T, psmPEPR_A, psmABCK_T };
@@ -104,7 +104,7 @@ namespace Test
             };
             //both proteases are cleaving at the same spots to simulate trypsin and argC producing the same peptides
             List<Tuple<string, FragmentationTerminus>> sequencesInducingCleavage = new List<Tuple<string, FragmentationTerminus>> { new Tuple<string, FragmentationTerminus>("-", FragmentationTerminus.C), new Tuple<string, FragmentationTerminus>("Z", FragmentationTerminus.C) };
-            
+
             var protease1 = new Protease("proteaseA1", sequencesInducingCleavage, new List<Tuple<string, FragmentationTerminus>>(), CleavageSpecificity.Full, null, null, null);
             ProteaseDictionary.Dictionary.Add(protease1.Name, protease1);
             var protease2 = new Protease("proteaseB1", sequencesInducingCleavage, new List<Tuple<string, FragmentationTerminus>>(), CleavageSpecificity.Full, null, null, null);
@@ -124,7 +124,7 @@ namespace Test
             DigestionParams digestionParams2 = new DigestionParams(protease: protease2.Name, minPeptideLength: 1);
 
             PeptideWithSetModifications pepA_1Dp1 = new PeptideWithSetModifications(protein: proteinList.ElementAt(0), digestionParams: digestionParams, oneBasedStartResidueInProtein: 7, oneBasedEndResidueInProtein: 9, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
-            PeptideWithSetModifications pepA_2Dp1 = new PeptideWithSetModifications(protein: proteinList.ElementAt(1), digestionParams: digestionParams, oneBasedStartResidueInProtein: 10, oneBasedEndResidueInProtein: 12, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);            
+            PeptideWithSetModifications pepA_2Dp1 = new PeptideWithSetModifications(protein: proteinList.ElementAt(1), digestionParams: digestionParams, oneBasedStartResidueInProtein: 10, oneBasedEndResidueInProtein: 12, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
             PeptideWithSetModifications pepB_2Dp1 = new PeptideWithSetModifications(protein: proteinList.ElementAt(1), digestionParams: digestionParams, oneBasedStartResidueInProtein: 6, oneBasedEndResidueInProtein: 8, peptideDescription: "EFG", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
             PeptideWithSetModifications pepA_1Dp2 = new PeptideWithSetModifications(protein: proteinList.ElementAt(0), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 7, oneBasedEndResidueInProtein: 9, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
             PeptideWithSetModifications pepA_2Dp2 = new PeptideWithSetModifications(protein: proteinList.ElementAt(1), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 10, oneBasedEndResidueInProtein: 12, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
@@ -133,13 +133,13 @@ namespace Test
             Ms2ScanWithSpecificMass scan = new Ms2ScanWithSpecificMass(dfb, 2, 0, "File");
 
             PeptideSpectralMatch psmABC_Dp1 = new PeptideSpectralMatch(pepA_1Dp1, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());
-            psmABC_Dp1.AddOrReplace(pepA_2Dp1, 10, 0, true, new List<MatchedFragmentIon>());            
+            psmABC_Dp1.AddOrReplace(pepA_2Dp1, 10, 0, true, new List<MatchedFragmentIon>());
             PeptideSpectralMatch psmABC_Dp2 = new PeptideSpectralMatch(pepA_1Dp2, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>());
             psmABC_Dp2.AddOrReplace(pepA_2Dp2, 10, 0, true, new List<MatchedFragmentIon>());
             PeptideSpectralMatch psmEFG_Dp1 = new PeptideSpectralMatch(pepB_2Dp1, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());
-            
+
             // builds psm list to match to peptides
-            List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch>() { psmABC_Dp1, psmABC_Dp2, psmEFG_Dp1 };                       
+            List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch>() { psmABC_Dp1, psmABC_Dp2, psmEFG_Dp1 };
 
             psms.ForEach(p => p.ResolveAllAmbiguities());
             psms.ForEach(p => p.SetFdrValues(1, 0, 0, 1, 0, 0, double.NaN, double.NaN, double.NaN, false));
@@ -207,20 +207,20 @@ namespace Test
             PeptideWithSetModifications pepB_1Dp1 = new PeptideWithSetModifications(protein: proteinList.ElementAt(0), digestionParams: digestionParams, oneBasedStartResidueInProtein: 7, oneBasedEndResidueInProtein: 9, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
             PeptideWithSetModifications pepC_2Dp1 = new PeptideWithSetModifications(protein: proteinList.ElementAt(1), digestionParams: digestionParams, oneBasedStartResidueInProtein: 6, oneBasedEndResidueInProtein: 11, peptideDescription: "EFGABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
             PeptideWithSetModifications pepB_2Dp2 = new PeptideWithSetModifications(protein: proteinList.ElementAt(1), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 9, oneBasedEndResidueInProtein: 11, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
-           
+
 
             MsDataScan dfb = new MsDataScan(new MzSpectrum(new double[] { 1 }, new double[] { 1 }, false), 0, 1, true, Polarity.Positive, double.NaN, null, null, MZAnalyzerType.Orbitrap, double.NaN, null, null, "scan=1", double.NaN, null, null, double.NaN, null, DissociationType.AnyActivationType, 0, null);
             Ms2ScanWithSpecificMass scan = new Ms2ScanWithSpecificMass(dfb, 2, 0, "File");
 
-            PeptideSpectralMatch psmABC_Dp1 = new PeptideSpectralMatch(pepB_1Dp1, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());            
-            PeptideSpectralMatch psmABC_Dp2 = new PeptideSpectralMatch(pepB_2Dp2, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>());            
+            PeptideSpectralMatch psmABC_Dp1 = new PeptideSpectralMatch(pepB_1Dp1, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());
+            PeptideSpectralMatch psmABC_Dp2 = new PeptideSpectralMatch(pepB_2Dp2, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>());
             PeptideSpectralMatch psmEFGABC_Dp1 = new PeptideSpectralMatch(pepC_2Dp1, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());
             PeptideSpectralMatch psmXYZ_Dp1 = new PeptideSpectralMatch(pepA_1Dp1, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());
             psmXYZ_Dp1.AddOrReplace(pepA_2Dp1, 10, 0, true, new List<MatchedFragmentIon>());
 
             // builds psm list to match to peptides
             List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch>() { psmABC_Dp1, psmABC_Dp2, psmEFGABC_Dp1, psmXYZ_Dp1 };
-            
+
             psms.ForEach(p => p.ResolveAllAmbiguities());
             psms.ForEach(p => p.SetFdrValues(1, 0, 0, 1, 0, 0, double.NaN, double.NaN, double.NaN, false));
 
@@ -262,10 +262,10 @@ namespace Test
             var pg2pep2 = proteinGroup2.AllPeptides.Where(p => p.BaseSequence == "ABC").First();
             Assert.That(pg2pep2.DigestionParams.Protease.Name == "proteaseB");
             var pg2pep3 = proteinGroup2.AllPeptides.Where(p => p.BaseSequence == "EFGABC").First();
-            Assert.That(pg2pep3.DigestionParams.Protease.Name == "proteaseA");            
+            Assert.That(pg2pep3.DigestionParams.Protease.Name == "proteaseA");
             var uniquePeptideSequences = proteinGroup2.UniquePeptides.Select(p => p.BaseSequence).ToList();
             Assert.That(uniquePeptideSequences.Contains("ABC"));
-            Assert.That(uniquePeptideSequences.Contains("EFGABC"));            
+            Assert.That(uniquePeptideSequences.Contains("EFGABC"));
         }
 
         /// <summary>
@@ -304,7 +304,7 @@ namespace Test
 
             PeptideWithSetModifications pepA_1Dp1 = new PeptideWithSetModifications(protein: p.ElementAt(0), digestionParams: digestionParams, oneBasedStartResidueInProtein: 1, oneBasedEndResidueInProtein: 3, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
             PeptideWithSetModifications pepA_2Dp2 = new PeptideWithSetModifications(protein: p.ElementAt(1), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 4, oneBasedEndResidueInProtein: 6, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
-            PeptideWithSetModifications pepB_1Dp1 = new PeptideWithSetModifications(protein: p.ElementAt(0), digestionParams: digestionParams, oneBasedStartResidueInProtein: 4, oneBasedEndResidueInProtein: 6, peptideDescription: "EFG", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);            
+            PeptideWithSetModifications pepB_1Dp1 = new PeptideWithSetModifications(protein: p.ElementAt(0), digestionParams: digestionParams, oneBasedStartResidueInProtein: 4, oneBasedEndResidueInProtein: 6, peptideDescription: "EFG", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
             PeptideWithSetModifications pepB_2Dp2 = new PeptideWithSetModifications(protein: p.ElementAt(1), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 1, oneBasedEndResidueInProtein: 3, peptideDescription: "EFG", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
 
 
@@ -314,7 +314,7 @@ namespace Test
             PeptideSpectralMatch psmABC_Dp1 = new PeptideSpectralMatch(pepA_1Dp1, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());
             PeptideSpectralMatch psmABC_Dp2 = new PeptideSpectralMatch(pepA_2Dp2, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>());
             PeptideSpectralMatch psmEFG_Dp1 = new PeptideSpectralMatch(pepB_1Dp1, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());
-            PeptideSpectralMatch psmEFG_Dp2 = new PeptideSpectralMatch(pepB_2Dp2, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>());           
+            PeptideSpectralMatch psmEFG_Dp2 = new PeptideSpectralMatch(pepB_2Dp2, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>());
 
             // builds psm list to match to peptides
             List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch>() { psmABC_Dp1, psmABC_Dp2, psmEFG_Dp1, psmEFG_Dp2 };
@@ -463,7 +463,7 @@ namespace Test
             PeptideWithSetModifications pepA_1Dp1 = new PeptideWithSetModifications(protein: p.ElementAt(0), digestionParams: digestionParams, oneBasedStartResidueInProtein: 7, oneBasedEndResidueInProtein: 9, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
             PeptideWithSetModifications pepA_2Dp2 = new PeptideWithSetModifications(protein: p.ElementAt(1), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 9, oneBasedEndResidueInProtein: 11, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
             PeptideWithSetModifications pepA_3Dp2 = new PeptideWithSetModifications(protein: p.ElementAt(2), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 7, oneBasedEndResidueInProtein: 9, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
-           
+
 
             MsDataScan dfb = new MsDataScan(new MzSpectrum(new double[] { 1 }, new double[] { 1 }, false), 0, 1, true, Polarity.Positive, double.NaN, null, null, MZAnalyzerType.Orbitrap, double.NaN, null, null, "scan=1", double.NaN, null, null, double.NaN, null, DissociationType.AnyActivationType, 0, null);
             Ms2ScanWithSpecificMass scan = new Ms2ScanWithSpecificMass(dfb, 2, 0, "File");
@@ -474,10 +474,10 @@ namespace Test
 
 
             // builds psm list to match to peptides
-            List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch>() { psmABC_Dp1, psmABC_Dp2};
+            List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch>() { psmABC_Dp1, psmABC_Dp2 };
 
             psms.ForEach(h => h.ResolveAllAmbiguities());
-            psms.ForEach(h => h.SetFdrValues(1, 0, 0, 1, 0, 0, double.NaN, double.NaN, double.NaN, false));                       
+            psms.ForEach(h => h.SetFdrValues(1, 0, 0, 1, 0, 0, double.NaN, double.NaN, double.NaN, false));
 
             ProteinParsimonyEngine ppe = new ProteinParsimonyEngine(psms, false, new CommonParameters(), null);
             var proteinAnalysisResults = (ProteinParsimonyResults)ppe.Run();
@@ -492,7 +492,7 @@ namespace Test
             if (proteinGroups.ElementAt(0).ProteinGroupName == "1")
             {
                 Assert.AreEqual("1", proteinGroups.ElementAt(0).ProteinGroupName);
-                Assert.AreEqual(1, proteinGroups.ElementAt(0).UniquePeptides.Count);               
+                Assert.AreEqual(1, proteinGroups.ElementAt(0).UniquePeptides.Count);
                 Assert.AreEqual("ABC", proteinGroups.ElementAt(0).UniquePeptides.ElementAt(0).FullSequence);
                 Assert.AreEqual("2|3", proteinGroups.ElementAt(1).ProteinGroupName);
                 Assert.AreEqual(0, proteinGroups.ElementAt(1).UniquePeptides.Count);
@@ -550,9 +550,9 @@ namespace Test
                     switch (peptide.BaseSequence)
                     {
                         case "ABC": peptideList.Add(peptide); break;
-                        
+
                     }
-                }                
+                }
             }
 
             // builds psm list to match to peptides
@@ -566,7 +566,7 @@ namespace Test
                 if (pwsm.DigestionParams == digestionParams)
                 {
                     psms.Add(new PeptideSpectralMatch(pwsm, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>()));
-                }                
+                }
                 psms.Last().SetFdrValues(0, 0, 0, 0, 0, 0, 0, 0, 0, false);
                 psms.Last().ResolveAllAmbiguities();
             }
@@ -770,7 +770,7 @@ namespace Test
                 "-XYZ-XYGABC",
                 "-ABGEFG-XYZ",
                 "-XYZ-GEFGABC",
-                               
+
             };
             var p = new List<Protein>();
             List<Tuple<string, string>> gn = new List<Tuple<string, string>>();
@@ -795,12 +795,12 @@ namespace Test
             PeptideWithSetModifications pepABC_4Beta = new PeptideWithSetModifications(protein: p.ElementAt(3), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 10, oneBasedEndResidueInProtein: 12, peptideDescription: "ABC", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
             PeptideWithSetModifications pepEFG_4Beta = new PeptideWithSetModifications(protein: p.ElementAt(3), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 7, oneBasedEndResidueInProtein: 9, peptideDescription: "EFG", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
             PeptideWithSetModifications pepEFG_3Beta = new PeptideWithSetModifications(protein: p.ElementAt(2), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 5, oneBasedEndResidueInProtein: 7, peptideDescription: "EFG", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
-           
+
 
             MsDataScan dfb = new MsDataScan(new MzSpectrum(new double[] { 1 }, new double[] { 1 }, false), 0, 1, true, Polarity.Positive, double.NaN, null, null, MZAnalyzerType.Orbitrap, double.NaN, null, null, "scan=1", double.NaN, null, null, double.NaN, null, DissociationType.AnyActivationType, 0, null);
             Ms2ScanWithSpecificMass scan = new Ms2ScanWithSpecificMass(dfb, 2, 0, "File");
 
-            PeptideSpectralMatch psmABC_Alpha = new PeptideSpectralMatch(pepABC_1Alpha, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());            
+            PeptideSpectralMatch psmABC_Alpha = new PeptideSpectralMatch(pepABC_1Alpha, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());
             PeptideSpectralMatch psmABC_Beta = new PeptideSpectralMatch(pepABC_2Beta, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>());
             psmABC_Beta.AddOrReplace(pepABC_4Beta, 10, 0, true, new List<MatchedFragmentIon>());
             PeptideSpectralMatch psmEFG_Beta = new PeptideSpectralMatch(pepEFG_3Beta, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>());
@@ -836,6 +836,145 @@ namespace Test
             var proteinGroup2 = proteinGroups.Where(h => h.ProteinGroupName == "4").First();
             Assert.AreEqual(0, proteinGroup2.UniquePeptides.Count);
             Assert.AreEqual(2, proteinGroup2.AllPeptides.Count);
+
+        }
+
+
+        [Test]
+        public static void MultiProteaseParsimony_TestingActuallyIndistinguisableProteins()
+        {
+            string[] sequences = {
+                "KABCKXYZK",
+                "KXYZKABCK",
+
+
+            };
+            var p = new List<Protein>();
+            List<Tuple<string, string>> gn = new List<Tuple<string, string>>();
+            for (int i = 0; i < sequences.Length; i++)
+            {
+                p.Add(new Protein(sequences[i], (i + 1).ToString(), null, gn, new Dictionary<int, List<Modification>>()));
+            }
+
+
+            DigestionParams digestionParams = new DigestionParams(protease: "trypsin", minPeptideLength: 1);
+            DigestionParams digestionParams2 = new DigestionParams(protease: "Lys-C (don't cleave before proline)", minPeptideLength: 1);
+
+            PeptideWithSetModifications pepABCK_1T = new PeptideWithSetModifications(protein: p.ElementAt(0), digestionParams: digestionParams, oneBasedStartResidueInProtein: 2, oneBasedEndResidueInProtein: 4, peptideDescription: "ABCK", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepABCK_2T = new PeptideWithSetModifications(protein: p.ElementAt(1), digestionParams: digestionParams, oneBasedStartResidueInProtein: 6, oneBasedEndResidueInProtein: 8, peptideDescription: "ABCK", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepABCK_1L = new PeptideWithSetModifications(protein: p.ElementAt(0), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 2, oneBasedEndResidueInProtein: 4, peptideDescription: "ABCK", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepABCK_2L = new PeptideWithSetModifications(protein: p.ElementAt(1), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 6, oneBasedEndResidueInProtein: 8, peptideDescription: "ABCK", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepXYZK_1T = new PeptideWithSetModifications(protein: p.ElementAt(0), digestionParams: digestionParams, oneBasedStartResidueInProtein: 6, oneBasedEndResidueInProtein: 8, peptideDescription: "XYZK", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepXYZK_2T = new PeptideWithSetModifications(protein: p.ElementAt(1), digestionParams: digestionParams, oneBasedStartResidueInProtein: 2, oneBasedEndResidueInProtein: 4, peptideDescription: "XYZK", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepXYZK_1L = new PeptideWithSetModifications(protein: p.ElementAt(0), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 6, oneBasedEndResidueInProtein: 8, peptideDescription: "XYZK", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepXYZK_2L = new PeptideWithSetModifications(protein: p.ElementAt(1), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 2, oneBasedEndResidueInProtein: 4, peptideDescription: "XYZK", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+
+            MsDataScan dfb = new MsDataScan(new MzSpectrum(new double[] { 1 }, new double[] { 1 }, false), 0, 1, true, Polarity.Positive, double.NaN, null, null, MZAnalyzerType.Orbitrap, double.NaN, null, null, "scan=1", double.NaN, null, null, double.NaN, null, DissociationType.AnyActivationType, 0, null);
+            Ms2ScanWithSpecificMass scan = new Ms2ScanWithSpecificMass(dfb, 2, 0, "File");
+
+            PeptideSpectralMatch psmABCK_T = new PeptideSpectralMatch(pepABCK_1T, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());
+            psmABCK_T.AddOrReplace(pepABCK_2T, 10, 0, true, new List<MatchedFragmentIon>());
+            PeptideSpectralMatch psmABCK_L = new PeptideSpectralMatch(pepABCK_1L, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>());
+            psmABCK_L.AddOrReplace(pepABCK_2L, 10, 0, true, new List<MatchedFragmentIon>());
+            PeptideSpectralMatch psmXYZK_T = new PeptideSpectralMatch(pepXYZK_1T, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>());
+            psmXYZK_T.AddOrReplace(pepXYZK_2T, 10, 0, true, new List<MatchedFragmentIon>());
+            PeptideSpectralMatch psmXYZK_L = new PeptideSpectralMatch(pepXYZK_1L, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>());
+            psmXYZK_L.AddOrReplace(pepXYZK_2L, 10, 0, true, new List<MatchedFragmentIon>());
+
+            List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch> { psmABCK_T, psmABCK_L, psmXYZK_T, psmXYZK_L };
+            psms.ForEach(j => j.ResolveAllAmbiguities());
+            psms.ForEach(j => j.SetFdrValues(1, 0, 0, 1, 0, 0, double.NaN, double.NaN, double.NaN, false));
+
+            HashSet<DigestionParams> digestionParamsList = new HashSet<DigestionParams>();
+            digestionParamsList.Add(digestionParams);
+            digestionParamsList.Add(digestionParams2);
+            ModificationMotif.TryGetMotif("M", out ModificationMotif motif1);
+            Modification mod = new Modification(_originalId: "Oxidation of M", _modificationType: "Common Variable", _target: motif1, _locationRestriction: "Anywhere.", _monoisotopicMass: 15.99491461957);
+            List<Modification> modVarList = new List<Modification> { mod };
+
+            ModificationMotif.TryGetMotif("M", out ModificationMotif motif2);
+            Modification mod2 = new Modification(_originalId: "Oxidation of M", _modificationType: "Common Variable", _target: motif2, _locationRestriction: "Anyhwere.", _monoisotopicMass: 15.99491461957);
+            List<Modification> modFixedList = new List<Modification> { mod };
+
+            ProteinParsimonyEngine ppe = new ProteinParsimonyEngine(psms, false, new CommonParameters(), null);
+            var proteinAnalysisResults = (ProteinParsimonyResults)ppe.Run();
+
+            // score protein groups and merge indistinguishable ones
+            ProteinScoringAndFdrEngine proteinScoringEngine = new ProteinScoringAndFdrEngine(proteinAnalysisResults.ProteinGroups, psms, false, true, true, new CommonParameters(), new List<string>());
+            var results = (ProteinScoringAndFdrResults)proteinScoringEngine.Run();
+
+            List<ProteinGroup> proteinGroups = results.SortedAndScoredProteinGroups;
+            Assert.AreEqual(1, proteinGroups.Count);
+            Assert.AreEqual("1|2", proteinGroups.ElementAt(0).ProteinGroupName);
+            Assert.AreEqual(8, proteinGroups.ElementAt(0).AllPeptides.Count);            
+        }
+
+        [Test]
+        public static void MultiProteaseParsimony_TestingGreedyAlgorithm()
+        {
+            string[] sequences = {
+                "-ABC-XYZ",
+                "-ABC-GABC",
+                "-XYZ-GABC"
+            };
+            var p = new List<Protein>();
+            List<Tuple<string, string>> gn = new List<Tuple<string, string>>();
+            for (int i = 0; i < sequences.Length; i++)
+            {
+                p.Add(new Protein(sequences[i], (i + 1).ToString(), null, gn, new Dictionary<int, List<Modification>>()));
+            }
+
+            List<Tuple<string, FragmentationTerminus>> sequencesInducingCleavage = new List<Tuple<string, FragmentationTerminus>> { new Tuple<string, FragmentationTerminus>("-", FragmentationTerminus.C), new Tuple<string, FragmentationTerminus>("-", FragmentationTerminus.N) };
+            List<Tuple<string, FragmentationTerminus>> sequencesInducingCleavage2 = new List<Tuple<string, FragmentationTerminus>> { new Tuple<string, FragmentationTerminus>("G", FragmentationTerminus.C) };
+
+            var protease = new Protease("proteaseDash", sequencesInducingCleavage, new List<Tuple<string, FragmentationTerminus>>(), CleavageSpecificity.Full, null, null, null);
+            ProteaseDictionary.Dictionary.Add(protease.Name, protease);
+            var protease2 = new Protease("proteaseG", sequencesInducingCleavage2, new List<Tuple<string, FragmentationTerminus>>(), CleavageSpecificity.Full, null, null, null);
+            ProteaseDictionary.Dictionary.Add(protease2.Name, protease2);
+
+            DigestionParams digestionParams = new DigestionParams(protease: protease.Name, minPeptideLength: 1);
+            DigestionParams digestionParams2 = new DigestionParams(protease: protease2.Name, minPeptideLength: 1);
+
+            PeptideWithSetModifications pepABC_1Dash = new PeptideWithSetModifications(protein: p.ElementAt(0), digestionParams: digestionParams, oneBasedStartResidueInProtein: 2, oneBasedEndResidueInProtein: 4, peptideDescription: "ABCK", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepABC_2Dash = new PeptideWithSetModifications(protein: p.ElementAt(1), digestionParams: digestionParams, oneBasedStartResidueInProtein: 7, oneBasedEndResidueInProtein: 9, peptideDescription: "ABCK", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepABC_2G = new PeptideWithSetModifications(protein: p.ElementAt(1), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 2, oneBasedEndResidueInProtein: 4, peptideDescription: "ABCK", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+            PeptideWithSetModifications pepABC_3G = new PeptideWithSetModifications(protein: p.ElementAt(2), digestionParams: digestionParams2, oneBasedStartResidueInProtein: 7, oneBasedEndResidueInProtein: 9, peptideDescription: "ABCK", missedCleavages: 0, allModsOneIsNterminus: new Dictionary<int, Modification>(), numFixedMods: 0);
+
+            MsDataScan dfb = new MsDataScan(new MzSpectrum(new double[] { 1 }, new double[] { 1 }, false), 0, 1, true, Polarity.Positive, double.NaN, null, null, MZAnalyzerType.Orbitrap, double.NaN, null, null, "scan=1", double.NaN, null, null, double.NaN, null, DissociationType.AnyActivationType, 0, null);
+            Ms2ScanWithSpecificMass scan = new Ms2ScanWithSpecificMass(dfb, 2, 0, "File");
+
+            PeptideSpectralMatch psmABC_Dash = new PeptideSpectralMatch(pepABC_1Dash, 0, 10, 0, scan, digestionParams, new List<MatchedFragmentIon>());
+            psmABC_Dash.AddOrReplace(pepABC_2Dash, 10, 0, true, new List<MatchedFragmentIon>());
+            PeptideSpectralMatch psmABC_G = new PeptideSpectralMatch(pepABC_2G, 0, 10, 0, scan, digestionParams2, new List<MatchedFragmentIon>());
+            psmABC_G.AddOrReplace(pepABC_3G, 10, 0, true, new List<MatchedFragmentIon>());
+            
+            List<PeptideSpectralMatch> psms = new List<PeptideSpectralMatch> { psmABC_Dash, psmABC_G };
+            psms.ForEach(j => j.ResolveAllAmbiguities());
+            psms.ForEach(j => j.SetFdrValues(1, 0, 0, 1, 0, 0, double.NaN, double.NaN, double.NaN, false));
+
+            HashSet<DigestionParams> digestionParamsList = new HashSet<DigestionParams>();
+            digestionParamsList.Add(digestionParams);
+            digestionParamsList.Add(digestionParams2);
+            ModificationMotif.TryGetMotif("M", out ModificationMotif motif1);
+            Modification mod = new Modification(_originalId: "Oxidation of M", _modificationType: "Common Variable", _target: motif1, _locationRestriction: "Anywhere.", _monoisotopicMass: 15.99491461957);
+            List<Modification> modVarList = new List<Modification> { mod };
+
+            ModificationMotif.TryGetMotif("M", out ModificationMotif motif2);
+            Modification mod2 = new Modification(_originalId: "Oxidation of M", _modificationType: "Common Variable", _target: motif2, _locationRestriction: "Anyhwere.", _monoisotopicMass: 15.99491461957);
+            List<Modification> modFixedList = new List<Modification> { mod };
+
+            ProteinParsimonyEngine ppe = new ProteinParsimonyEngine(psms, false, new CommonParameters(), null);
+            var proteinAnalysisResults = (ProteinParsimonyResults)ppe.Run();
+
+            // score protein groups and merge indistinguishable ones
+            ProteinScoringAndFdrEngine proteinScoringEngine = new ProteinScoringAndFdrEngine(proteinAnalysisResults.ProteinGroups, psms, false, true, true, new CommonParameters(), new List<string>());
+            var results = (ProteinScoringAndFdrResults)proteinScoringEngine.Run();
+
+            List<ProteinGroup> proteinGroups = results.SortedAndScoredProteinGroups;
+            Assert.AreEqual(1, proteinGroups.Count);
+            Assert.AreEqual("2", proteinGroups.ElementAt(0).ProteinGroupName);
+            Assert.AreEqual(2, proteinGroups.ElementAt(0).AllPeptides.Count);
+
 
         }
     }
