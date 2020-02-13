@@ -11,6 +11,7 @@ namespace EngineLayer
         private readonly bool TreatModPeptidesAsDifferentPeptides;
         private readonly bool MergeIndistinguishableProteinGroups;
         private readonly List<ProteinGroup> ProteinGroups;
+        private readonly CommonParameters LocalCommonParameters;
 
         public ProteinScoringAndFdrEngine(List<ProteinGroup> proteinGroups, List<PeptideSpectralMatch> newPsms, bool noOneHitWonders, bool treatModPeptidesAsDifferentPeptides, bool mergeIndistinguishableProteinGroups, CommonParameters commonParameters, List<(string fileName, CommonParameters fileSpecificParameters)> fileSpecificParameters, List<string> nestedIds) : base(commonParameters, fileSpecificParameters, nestedIds)
         {
@@ -19,6 +20,7 @@ namespace EngineLayer
             NoOneHitWonders = noOneHitWonders;
             TreatModPeptidesAsDifferentPeptides = treatModPeptidesAsDifferentPeptides;
             MergeIndistinguishableProteinGroups = mergeIndistinguishableProteinGroups;
+            LocalCommonParameters = commonParameters;
         }
 
         protected override MetaMorpheusEngineResults RunSpecific()
@@ -42,17 +44,14 @@ namespace EngineLayer
             var peptideToPsmMatching = new Dictionary<PeptideWithSetModifications, HashSet<PeptideSpectralMatch>>();
             foreach (var psm in psmList)
             {
-                if (psm.FdrInfo.QValueNotch <= 0.01 && psm.FdrInfo.QValue <= 0.01)
+                if ((TreatModPeptidesAsDifferentPeptides && psm.FullSequence != null) || (!TreatModPeptidesAsDifferentPeptides && psm.BaseSequence != null))
                 {
-                    if ((TreatModPeptidesAsDifferentPeptides && psm.FullSequence != null) || (!TreatModPeptidesAsDifferentPeptides && psm.BaseSequence != null))
+                    foreach (var pepWithSetMods in psm.BestMatchingPeptides.Select(p => p.Peptide))
                     {
-                        foreach (var pepWithSetMods in psm.BestMatchingPeptides.Select(p => p.Peptide))
-                        {
-                            if (!peptideToPsmMatching.TryGetValue(pepWithSetMods, out HashSet<PeptideSpectralMatch> psmsForThisPeptide))
-                                peptideToPsmMatching.Add(pepWithSetMods, new HashSet<PeptideSpectralMatch> { psm });
-                            else
-                                psmsForThisPeptide.Add(psm);
-                        }
+                        if (!peptideToPsmMatching.TryGetValue(pepWithSetMods, out HashSet<PeptideSpectralMatch> psmsForThisPeptide))
+                            peptideToPsmMatching.Add(pepWithSetMods, new HashSet<PeptideSpectralMatch> { psm });
+                        else
+                            psmsForThisPeptide.Add(psm);
                     }
                 }
             }
@@ -131,7 +130,7 @@ namespace EngineLayer
             //Do Classic protein FDR (all targets, all decoys)
             // order protein groups by notch-QValue
             var sortedProteinGroups = proteinGroups.OrderBy(b => b.BestPeptideQValue).ThenByDescending(p => p.BestPeptideScore).ToList();
-            AssignQValuesToProteins(sortedProteinGroups);
+            AssignPandQValuesToProteins(sortedProteinGroups);
 
             // Do "Picked" protein FDR
             // adapted from "A Scalable Approach for Protein False Discovery Rate Estimation in Large Proteomic Data Sets" ~ MCP, 2015, Savitski
@@ -174,13 +173,13 @@ namespace EngineLayer
             }
 
             sortedProteinGroups = proteinGroups.OrderBy(b => b.BestPeptideQValue).ThenByDescending(p => p.BestPeptideScore).ToList();
-            AssignQValuesToProteins(sortedProteinGroups);
+            AssignPandQValuesToProteins(sortedProteinGroups);
 
             //Rescue the removed TARGET proteins that have the classic protein fdr.
             //This isn't super transparent, but the "Picked" TDS (target-decoy strategy) does a good job of removing a lot of decoys from accumulating in large datasets.
             //It sounds biased, but the Picked TDS is actually necessary to keep the chance of a random assignment being assigned as a target or a decoy at 50:50.
             //The targets that we're re-adding have higher q-values (for their score) from the Classic TDS than the Picked TDS (the classic is conservative).
-            //If we add the decoys, it will raise questions on if the FDR is being calculated correctly, 
+            //If we add the decoys, it will raise questions on if the FDR is being calculated correctly,
             //because lots of decoys (which are out-competed in the Picked TDS) will be written with high(ish) scores
             //so really, we're only outputting targets for a cleanliness of output (but the decoys are still there for the classic TDS)
             //TL;DR 99% of the protein output is from the Picked TDS, but a small fraction is from the Classic TDS.
@@ -189,7 +188,7 @@ namespace EngineLayer
             return sortedProteinGroups.OrderBy(b => b.QValue).ToList();
         }
 
-        private void AssignQValuesToProteins(List<ProteinGroup> sortedProteinGroups)
+        private void AssignPandQValuesToProteins(List<ProteinGroup> sortedProteinGroups)
         {
             // sum targets and decoys
             int cumulativeTarget = 0;
@@ -220,7 +219,55 @@ namespace EngineLayer
                     maxQValue = currentQValue;
                 }
                 proteinGroup.QValue = maxQValue;
+                if (proteinGroup.UniquePeptides.Count() > 0)
+                {
+                    proteinGroup.PValue = GetProteinGroupPValue(proteinGroup);
+                }
+                else // no unique peptides
+                {
+                    proteinGroup.PValue = -1;
+                }
             }
+        }
+
+        /// <summary>
+        /// This adapted from Anal. Chem. 2003, 75, 4646-4658
+        /// Equation 3. Protein P value is 1 - the product of peptide pep values.
+        /// P is 1 for true and 0 for false
+        /// Interestingly, this procedure uses peptides with different charge state precursors as separate observations.
+        /// </summary>
+        public double GetProteinGroupPValue(ProteinGroup proteinGroup)
+        {
+            List<double> peptidePIPValues = new List<double>();
+            foreach (PeptideWithSetModifications pwsm in proteinGroup.UniquePeptides)
+            {
+                var groups = proteinGroup.AllPsmsBelowOnePercentFDR.GroupBy(z => z.ScanPrecursorCharge);
+
+                foreach (var group in groups)
+                {
+                    List<double> localPsmPeptidePIPvalues = new List<double>();
+                    foreach (PeptideSpectralMatch psm in group)
+                    {
+                        foreach ((int, PeptideWithSetModifications) bmp in psm.BestMatchingPeptides)
+                        {
+                            if (bmp.Item2.Equals(pwsm))
+                            {
+                                localPsmPeptidePIPvalues.Add(1 - psm.FdrInfo.PEP);
+                            }
+                        }
+                    }
+                    if (localPsmPeptidePIPvalues.Count > 0)
+                    {
+                        peptidePIPValues.Add(localPsmPeptidePIPvalues.Max());
+                    }
+                }
+            }
+            double pepridePEPvalueProduct = 1;
+            foreach (double pip in peptidePIPValues)
+            {
+                pepridePEPvalueProduct *= (1 - pip);
+            }
+            return (1 - pepridePEPvalueProduct);
         }
     }
 }
