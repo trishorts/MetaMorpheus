@@ -66,6 +66,7 @@ namespace EngineLayer.ClassicSearch
                 Parallel.ForEach(threads, (i) =>
                 {
                     var peptideTheorProducts = new List<Product>();
+                    var decoyPeptideTheorProducts = new List<Product>();
 
                     for (; i < Proteins.Count; i += maxThreadsPerFile)
                     {
@@ -76,6 +77,10 @@ namespace EngineLayer.ClassicSearch
                         foreach (PeptideWithSetModifications peptide in Proteins[i].Digest(CommonParameters.DigestionParams, FixedModifications, VariableModifications, SilacLabels, TurnoverLabels))
                         {
                             peptide.Fragment(CommonParameters.DissociationType, CommonParameters.DigestionParams.FragmentationTerminus, peptideTheorProducts);
+                            int[] newAAlocations = new int[peptide.BaseSequence.Length];
+                            PeptideWithSetModifications decoy = DecoyOnTheFly.GetReverseDecoyFromTarget(peptide, newAAlocations);
+                            decoy.Fragment(CommonParameters.DissociationType, CommonParameters.DigestionParams.FragmentationTerminus, decoyPeptideTheorProducts);
+
 
                             foreach (ScanWithIndexAndNotchInfo scan in GetAcceptableScans(peptide.MonoisotopicMass, SearchMode))
                             {
@@ -85,9 +90,11 @@ namespace EngineLayer.ClassicSearch
                                 }
 
                                 List<MatchedFragmentIon> matchedIons = MatchFragmentIons(scan.TheScan, peptideTheorProducts, CommonParameters);
+                                List<MatchedFragmentIon> decoyMatchedIons = MatchFragmentIons(scan.TheScan, decoyPeptideTheorProducts, CommonParameters);
 
                                 double thisScore = CalculatePeptideScore(scan.TheScan.TheScan, matchedIons);
-                                bool meetsScoreCutoff = thisScore >= CommonParameters.ScoreCutoff;
+                                double decoyScore = CalculatePeptideScore(scan.TheScan.TheScan, decoyMatchedIons);
+                                bool meetsScoreCutoff = Math.Max(thisScore, decoyScore) >= CommonParameters.ScoreCutoff;
 
                                 // this is thread-safe because even if the score improves from another thread writing to this PSM,
                                 // the lock combined with AddOrReplace method will ensure thread safety
@@ -96,17 +103,32 @@ namespace EngineLayer.ClassicSearch
                                     // valid hit (met the cutoff score); lock the scan to prevent other threads from accessing it
                                     lock (myLocks[scan.ScanIndex])
                                     {
-                                        bool scoreImprovement = PeptideSpectralMatches[scan.ScanIndex] == null || (thisScore - PeptideSpectralMatches[scan.ScanIndex].RunnerUpScore) > -PeptideSpectralMatch.ToleranceForScoreDifferentiation;
+                                        bool scoreImprovement = PeptideSpectralMatches[scan.ScanIndex] == null || (Math.Max(thisScore, decoyScore) - PeptideSpectralMatches[scan.ScanIndex].RunnerUpScore) > -PeptideSpectralMatch.ToleranceForScoreDifferentiation;
 
                                         if (scoreImprovement)
                                         {
                                             if (PeptideSpectralMatches[scan.ScanIndex] == null)
                                             {
-                                                PeptideSpectralMatches[scan.ScanIndex] = new PeptideSpectralMatch(peptide, scan.Notch, thisScore, scan.ScanIndex, scan.TheScan, CommonParameters, matchedIons, 0);
+                                                if (thisScore >= decoyScore)
+                                                {
+                                                    PeptideSpectralMatches[scan.ScanIndex] = new PeptideSpectralMatch(peptide, scan.Notch, thisScore, scan.ScanIndex, scan.TheScan, CommonParameters, matchedIons, 0);
+                                                }
+                                                else
+                                                {
+                                                    PeptideSpectralMatches[scan.ScanIndex] = new PeptideSpectralMatch(decoy, scan.Notch, decoyScore, scan.ScanIndex, scan.TheScan, CommonParameters, decoyMatchedIons, 0);
+                                                }
                                             }
                                             else
                                             {
-                                                PeptideSpectralMatches[scan.ScanIndex].AddOrReplace(peptide, thisScore, scan.Notch, CommonParameters.ReportAllAmbiguity, matchedIons, 0);
+                                                if (thisScore >= decoyScore)
+                                                {
+                                                    PeptideSpectralMatches[scan.ScanIndex].AddOrReplace(peptide, thisScore, scan.Notch, CommonParameters.ReportAllAmbiguity, matchedIons, 0);
+                                                }
+                                                else
+                                                {
+                                                    PeptideSpectralMatches[scan.ScanIndex].AddOrReplace(decoy, decoyScore, scan.Notch, CommonParameters.ReportAllAmbiguity, decoyMatchedIons, 0);
+                                                }
+                                                    
                                             }
                                         }
                                     }
