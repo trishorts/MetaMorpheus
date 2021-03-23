@@ -2,6 +2,7 @@
 using MassSpectrometry;
 using MzLibUtil;
 using NUnit.Framework;
+using Proteomics;
 using Proteomics.ProteolyticDigestion;
 using System;
 using System.Collections.Generic;
@@ -15,8 +16,14 @@ namespace Test
     [TestFixture]
     public static class Ms2ScanWithSpecificMass_Test
     {
+        /// <summary>
+        /// Generated an isotope distribution for a charge=1 peptide with sequence "PEPTIDE" using protein prospector.
+        /// There were seven m/z peaks with greater than 0 intensity. These I stored in the included text file.
+        /// I computed the IsotopicEnvelope from this data providing the most abundant mass as the closest.
+        /// I then compared the monoisotopic mass to that computed from the PeptideWithSetMods function.
+        /// </summary>
         [Test]
-        public static void MyTest()
+        public static void TestOneIsotopicEnvelope()
         {
             string spectrumFilePath = Path.Combine(TestContext.CurrentContext.TestDirectory, @"TestData\Ms2ScanTestData\PEPTIDE_MS1_Z1.txt");
             MzSpectrum mzs = ReadMzAndIntensity(spectrumFilePath);
@@ -34,10 +41,8 @@ namespace Test
             Ms2ScanWithSpecificMass mwsm = new Ms2ScanWithSpecificMass(msd, precursorMonoisotopicPeakMz, precursorCharge, spectrumFilePath, new CommonParameters(), null);
             IsotopicEnvelope closestExperimentalMass = mwsm.GetClosestExperimentalIsotopicEnvelope(range.Minimum);
 
-
-
-
-            Assert.AreEqual(1, 2);
+            PeptideWithSetModifications pep = new PeptideWithSetModifications("PEPTIDE", new Dictionary<string, Modification>(), 0, null, null, 1, 7, 0, CleavageSpecificity.None, null);
+            Assert.That(pep.MonoisotopicMass, Is.EqualTo(closestExperimentalMass.MonoisotopicMass).Within(0.001));
         }
 
         public static MzSpectrum ReadMzAndIntensity(string file)
