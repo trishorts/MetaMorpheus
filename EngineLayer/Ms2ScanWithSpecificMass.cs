@@ -21,6 +21,7 @@ namespace EngineLayer
 
             if (commonParam.DissociationType != DissociationType.LowCID)
             {
+                //if you pass in an empty array for neutralExperimentalFragments then this will automatically deconvolute the spectrum
                 ExperimentalFragments = neutralExperimentalFragments ?? GetNeutralExperimentalFragments(mzLibScan, commonParam);
             }
 
@@ -54,6 +55,12 @@ namespace EngineLayer
 
         public double TotalIonCurrent => TheScan.TotalIonCurrent;
 
+        /// <summary>
+        /// This is where deconvolution happens
+        /// </summary>
+        /// <param name="scan"></param>
+        /// <param name="commonParam"></param>
+        /// <returns></returns>
         public static IsotopicEnvelope[] GetNeutralExperimentalFragments(MsDataScan scan, CommonParameters commonParam)
         {
             int minZ = 1;

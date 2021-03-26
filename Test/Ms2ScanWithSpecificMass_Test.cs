@@ -39,7 +39,10 @@ namespace Test
 
             MsDataScan msd = new MsDataScan(mzs, newOneBasedScanNumber, 2, isCentroid, Polarity.Positive, newRetentionTime, range, "", MZAnalyzerType.Orbitrap, totalIonCurrent, injectionTime, noiseData, "", null, null, null, null, null, DissociationType.HCD, null, null);
             Ms2ScanWithSpecificMass mwsm = new Ms2ScanWithSpecificMass(msd, precursorMonoisotopicPeakMz, precursorCharge, spectrumFilePath, new CommonParameters(), null);
-            IsotopicEnvelope closestExperimentalMass = mwsm.GetClosestExperimentalIsotopicEnvelope(range.Minimum);
+
+            var jj = mwsm.ExperimentalFragments;
+
+            IsotopicEnvelope closestExperimentalMass = mwsm.GetClosestExperimentalIsotopicEnvelope(800.36724);
 
             PeptideWithSetModifications pep = new PeptideWithSetModifications("PEPTIDE", new Dictionary<string, Modification>(), 0, null, null, 1, 7, 0, CleavageSpecificity.None, null);
             Assert.That(pep.MonoisotopicMass, Is.EqualTo(closestExperimentalMass.MonoisotopicMass).Within(0.001));
