@@ -70,6 +70,7 @@ namespace TaskLayer
             WritePsmResults();
             WriteProteinResults();
             WriteQuantificationResults();
+            
             WritePrunedDatabase();
             if (Parameters.ProteinList.Any((p => p.AppliedSequenceVariations.Count() > 0)))
             {
@@ -141,7 +142,61 @@ namespace TaskLayer
                 psm.ResolveAllAmbiguities();
             }
 
+            WritePsmTable(Parameters.AllPsms, proteinScoringAndFdrResults.SortedAndScoredProteinGroups);
+
             Status("Done constructing protein groups!", Parameters.SearchTaskId);
+        }
+
+        private void WritePsmTable(List<PeptideSpectralMatch> allPsms, List<EngineLayer.ProteinGroup> sortedAndScoredProteinGroups)
+        {
+            List<string> files = allPsms.Select(f => f.FullFilePath).Distinct().ToList();
+            List<string> fileNames = allPsms.Select(f => Path.GetFileNameWithoutExtension(f.FullFilePath)).Distinct().ToList();
+            List<string> outRows = new List<string>();
+
+
+            outRows.Add("Protein Group Name" + "\t"  + "Genes" + "\t" + "Organism" + "\t" + "Protein Full Name" + "\t" + "Protein Decoy/Contaminant/Target" + "\t" + "Protein QValue" + "\t" + String.Join("\t", fileNames));
+
+            List<EngineLayer.ProteinGroup> trimmedPgs = sortedAndScoredProteinGroups.Where(pg => pg.QValue < 0.01).ToList();
+
+            foreach (EngineLayer.ProteinGroup pg in trimmedPgs)
+            {
+                List<int> psmCount = new List<int>();
+                foreach (string fn in files)
+                {
+                    psmCount.Add(pg.AllPsmsBelowOnePercentFDR.Where(p => p.FullFilePath == fn).Count());
+                }
+
+                // genes
+                string genes = String.Join("|", pg.Proteins.Select(p => p.GeneNames.Select(x => x.Item2).FirstOrDefault()));
+
+                // organisms
+                string organism = String.Join("|", pg.Proteins.Select(p => p.Organism).Distinct());
+
+                // list of protein names
+                string proteinName = String.Join("|", pg.Proteins.Select(p => p.FullName).Distinct());
+
+                string pgt = "";
+
+                foreach (Protein p in pg.Proteins)
+                {
+                    if (p.IsDecoy)
+                    {
+                        pgt += "D|";
+                    }
+                    else if (p.IsContaminant)
+                    {
+                        pgt += "C|";
+                    }
+                    else
+                    {
+                        pgt += "T|";
+                    }
+                }
+
+                outRows.Add(pg.ProteinGroupName + "\t" + genes + "\t" + organism +"\t" + proteinName +"\t" + pgt + "\t" + pg.QValue + "\t" + String.Join("\t", psmCount));
+            }
+
+            File.WriteAllLines(@"E:\Projects\beer\FinalHighResPsmTable.txt", outRows);
         }
 
         private void DoMassDifferenceLocalizationAnalysis()
@@ -596,7 +651,7 @@ namespace TaskLayer
                 // write protein groups to tsv
                 string writtenFile = Path.Combine(Parameters.OutputFolder, fileName);
                 WriteProteinGroupsToTsv(ProteinGroups, writtenFile, new List<string> { Parameters.SearchTaskId }, CommonParameters.QValueOutputFilter);
-
+                
                 //If SILAC and no light, we need to update the psms (which were found in the "light" file) and say they were found in the "heavy" file)
                 if (Parameters.SearchParameters.SilacLabels != null)
                 {
