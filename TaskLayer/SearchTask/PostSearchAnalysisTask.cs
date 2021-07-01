@@ -196,7 +196,7 @@ namespace TaskLayer
                 outRows.Add(pg.ProteinGroupName + "\t" + genes + "\t" + organism +"\t" + proteinName +"\t" + pgt + "\t" + pg.QValue + "\t" + String.Join("\t", psmCount));
             }
 
-            File.WriteAllLines(@"E:\Projects\beer\FinalHighResPsmTable.txt", outRows);
+            File.WriteAllLines(@"E:\Projects\beer\FinalLowResPsmTable_210623.txt", outRows);
         }
 
         private void DoMassDifferenceLocalizationAnalysis()
