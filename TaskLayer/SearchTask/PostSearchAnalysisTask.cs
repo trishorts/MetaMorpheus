@@ -1010,7 +1010,7 @@ namespace TaskLayer
             {
                 spectraLibrary.Add(new LibrarySpectrum(peptide.FullSequence, peptide.ScanPrecursorMonoisotopicPeakMz, peptide.ScanPrecursorCharge, peptide.MatchedFragmentIons, peptide.ScanRetentionTime, false));
             }
-
+            WriteSpectralLibrary(spectraLibrary, Parameters.OutputFolder);
 
             foreach (var file in PsmsGroupedByFile)
             {
@@ -1036,9 +1036,16 @@ namespace TaskLayer
             }
         }
 
-        private void WriteSpectralLibrary()
+        private void WriteSpectralLibrary(List<LibrarySpectrum> spectralLibrary, string outputFolder)
         {
-
+            string spectrumFilePath = outputFolder + "\\spectralLibrary.msp";
+            using (StreamWriter output = new StreamWriter(spectrumFilePath))
+            {
+                foreach (var item in spectralLibrary)
+                {
+                    output.WriteLine(item.ToString());
+                }
+            }
         }
         private void CompressIndividualFileResults()
         {
