@@ -1004,6 +1004,14 @@ namespace TaskLayer
 
             Parameters.SearchTaskResults.AddPsmPeptideProteinSummaryText("All target " + GlobalVariables.AnalyteType.ToLower() + "s within 1% FDR: " + peptides.Count(a => a.FdrInfo.QValue <= 0.01 && !a.IsDecoy));
 
+
+            var spectraLibrary = new List<LibrarySpectrum>();
+            foreach (var peptide in peptides)
+            {
+                spectraLibrary.Add(new LibrarySpectrum(peptide.FullSequence, peptide.ScanPrecursorMonoisotopicPeakMz, peptide.ScanPrecursorCharge, peptide.MatchedFragmentIons, peptide.ScanRetentionTime, false));
+            }
+
+
             foreach (var file in PsmsGroupedByFile)
             {
                 // write summary text
@@ -1028,6 +1036,10 @@ namespace TaskLayer
             }
         }
 
+        private void WriteSpectralLibrary()
+        {
+
+        }
         private void CompressIndividualFileResults()
         {
             if (Parameters.SearchParameters.CompressIndividualFiles && Directory.Exists(Parameters.IndividualResultsOutputFolder))
