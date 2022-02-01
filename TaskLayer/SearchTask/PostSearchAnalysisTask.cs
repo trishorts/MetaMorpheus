@@ -533,6 +533,7 @@ namespace TaskLayer
             // write PSMs
             string writtenFile = Path.Combine(Parameters.OutputFolder, "AllPSMs.psmtsv");
             WritePsmsToTsv(FilteredPsmListForOutput, writtenFile, Parameters.SearchParameters.ModsToWriteSelection);
+            WriteAllPeaksFragmented(Parameters.AllPsms, Path.Combine(Parameters.OutputFolder, "AllPeaksFragmented.tsv"), true);
             FinishedWritingFile(writtenFile, new List<string> { Parameters.SearchTaskId });
 
             // write PSMs for percolator
@@ -577,6 +578,20 @@ namespace TaskLayer
                     WritePsmsForPercolator(psmsForThisFile, writtenFile);
                     FinishedWritingFile(writtenFile, new List<string> { Parameters.SearchTaskId, "Individual Spectra Files", file.First().FullFilePath });
                 }
+            }
+        }
+
+        private static void WriteAllPeaksFragmented(List<PeptideSpectralMatch> allPsms, string v1, bool v2)
+        {
+            if (v2)
+            {
+                List<string> allPeaksOutput = new List<string>();
+                allPeaksOutput.Add("File Name" + "\t" + "Scan Number" + "\t" + "Precursor Scan Number" + "\t" + "Scan Retention Time" + "\t" + "Precursor Charge" + "\t" + "Precursor MZ" + "\t" + "Precursor Mass" + "\t" + "Precursor Mass");
+                foreach (PeptideSpectralMatch psm in allPsms)
+                {
+                    allPeaksOutput.Add(psm.FullFilePath + "\t" + psm.ScanNumber + "\t" + psm.PrecursorScanNumber + "\t" + psm.ScanRetentionTime + "\t" + psm.ScanPrecursorCharge + "\t" + psm.ScanPrecursorMonoisotopicPeakMz + "\t" + psm.ScanPrecursorMass);
+                }
+                File.WriteAllLines(v1, allPeaksOutput);
             }
         }
 
