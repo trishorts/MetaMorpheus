@@ -25,7 +25,7 @@ namespace TaskLayer
         private List<EngineLayer.ProteinGroup> ProteinGroups { get; set; }
         private IEnumerable<IGrouping<string, PeptideSpectralMatch>> PsmsGroupedByFile { get; set; }
 
-        private Dictionary<Identification, PeptideSpectralMatch> IdentificationToPSMConverter { get; set; };
+        private Dictionary<Identification, PeptideSpectralMatch> IdentificationToPSMConverter { get; set; }
 
         public PostSearchAnalysisTask()
             : base(MyTask.Search)
