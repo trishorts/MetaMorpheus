@@ -514,7 +514,7 @@ namespace TaskLayer
             {
                 var file = Parameters.CurrentRawFileList[i];
 
-                // experimental design info passed in here for each spectra file
+                // experimental design info may need to be completed later
                 spectraFileInfo.Add(new SpectraFileInfo(fullFilePathWithExtension: file, condition: "", biorep: i, fraction: 0, techrep: 0));
             }
 
@@ -536,7 +536,7 @@ namespace TaskLayer
             }
 
             //return new MyTaskResults(new MetaMorpheusTask);
->>>>>>> OnFire
+
         }
 
         private void HistogramAnalysis()
@@ -752,23 +752,37 @@ namespace TaskLayer
 
         private void PostQuantificationMbrAnalysis()
         {
-
-            List<ChromatographicPeak> peaks = (List<ChromatographicPeak>)Parameters.FlashLfqResults.Peaks.Select(p => p.Value);
-            var mbrPeaks = peaks.Where(p => p.IsMbrPeak).GroupBy(p=>p.SpectraFileInfo.FullFilePathWithExtension).ToList();
-            List<PeptideSpectralMatch> allPeptides = GetAllPeptides();
-            List<string> spectraFileFullFilePaths = peaks.Select(p => p.SpectraFileInfo.FullFilePathWithExtension).Distinct().ToList();
-
-            foreach (string spectraFile in spectraFileFullFilePaths)
+            List<SpectraFileInfo> spectraFileInfo = new List<SpectraFileInfo>();
+            for (int i = 0; i < Parameters.CurrentRawFileList.Count; i++)
             {
-                if (mbrPeaks.ke) ;
+                var file = Parameters.CurrentRawFileList[i];
 
-                foreach (ChromatographicPeak mbrPeak in mbrPeaks)
+                // experimental design info may need to be included later
+                spectraFileInfo.Add(new SpectraFileInfo(fullFilePathWithExtension: file, condition: "", biorep: i, fraction: 0, techrep: 0));
+            }
+
+            List<PeptideSpectralMatch> allPeptides = GetAllPeptides();
+            List<string> spectraFileFullFilePaths = spectraFileInfo.Select(p => p.FullFilePathWithExtension).Distinct().ToList();
+            IEnumerable<ChromatographicPeak> allMbrPeaks = new List<ChromatographicPeak>;
+
+
+            foreach (SpectraFileInfo AcceptorFile in spectraFileInfo)
+            {
+                var runSpecificMbrPeaks = Parameters.FlashLfqResults.Peaks[AcceptorFile].Where(s => s.IsMbrPeak);
+                allMbrPeaks = allMbrPeaks.Concat(runSpecificMbrPeaks);
+
+                foreach (ChromatographicPeak peak in runSpecificMbrPeaks)
                 {
                     PeptideSpectralMatch bestDonorPsm = allPeptides.Where(p => p.FullSequence == mbrPeak.Identifications.First().ModifiedSequence).First();
                     PeptideWithSetModifications bestDonorPwsm = bestDonorPsm.BestMatchingPeptides.First().Peptide;
                     double monoIsotopicMass = bestDonorPsm.PeptideMonisotopicMass.Value;
+                    double apexRT = peak.Apex.IndexedPeak.RetentionTime;
+                    double apexMz = peak.Apex.IndexedPeak.Mz;
+                    double peakHalfWidth = 1.0; //Placeholder value to determine retention time window
+
                 }
             }
+
 
         }
 
