@@ -25,7 +25,11 @@ namespace TaskLayer
         private List<EngineLayer.ProteinGroup> ProteinGroups { get; set; }
         private IEnumerable<IGrouping<string, PeptideSpectralMatch>> PsmsGroupedByFile { get; set; }
 
+<<<<<<< HEAD
         
+=======
+        private Dictionary<Identification, PeptideSpectralMatch> IdentificationToPSMConverter { get; set; }
+>>>>>>> OnFire
 
         public PostSearchAnalysisTask()
             : base(MyTask.Search)
@@ -452,6 +456,8 @@ namespace TaskLayer
                 {
                     flashLFQIdentifications.Add(new Identification(rawfileinfo, psm.BaseSequence, psm.FullSequence,
                         psm.PeptideMonisotopicMass.Value, psm.ScanRetentionTime, psm.ScanPrecursorCharge, psmToProteinGroups[psm]));
+
+                    IdentificationToPSMConverter.Add(flashLFQIdentifications[flashLFQIdentifications.Count - 1], psm);
                 }
             }
 
@@ -499,336 +505,38 @@ namespace TaskLayer
             }
         }
 
-        private void MbrPeakAnalysis()
+        private void MbrValidationTask(string OutputFolder, List<DbForTask> dbFilenameList,
+            List<string> currentRawFileList, string taskId, FileSpecificParameters[] fileSettingsList)
         {
-           // TODO: Edit SearchParameters and add a DoQuantification field
-           // if (!Parameters.SearchParameters.DoQuantification)
-           // {
-           //    return;
-           // }
+            var spectraFileInfo = new List<SpectraFileInfo>();
 
-            // pass quantification parameters to FlashLFQ
-            Status("Quantifying...", Parameters.SearchTaskId);
-
-            foreach (var file in Parameters.CurrentRawFileList)
+            for (int i = 0; i < Parameters.CurrentRawFileList.Count; i++)
             {
-                Parameters.MyFileManager.DoneWithFile(file);
+                var file = Parameters.CurrentRawFileList[i];
+
+                // experimental design info passed in here for each spectra file
+                spectraFileInfo.Add(new SpectraFileInfo(fullFilePathWithExtension: file, condition: "", biorep: i, fraction: 0, techrep: 0));
             }
 
-            // construct file info for indexing into FlashLfqResults
-            List<SpectraFileInfo> spectraFileInfo;
-
-            // get experimental design info
-            string pathToFirstSpectraFile = Directory.GetParent(Parameters.CurrentRawFileList.First()).FullName;
-            string assumedExperimentalDesignPath = Path.Combine(pathToFirstSpectraFile, GlobalVariables.ExperimentalDesignFileName);
-
-            // Unneccesary for MBR Validation
-            /*if (File.Exists(assumedExperimentalDesignPath))
+            //MyFileManager myFileManager = new MyFileManager(SearchParameters.DisposeOfFileWhenDone);
+            //MsDataFile myMsDataFile = myFileManager.LoadFile(origDataFile, combinedParams);
+            foreach (SpectraFileInfo AcceptorFile in spectraFileInfo)
             {
-                // copy experimental design file to output folder
-                string writtenFile = Path.Combine(Parameters.OutputFolder, Path.GetFileName(assumedExperimentalDesignPath));
-                try
+                var mbrPeaks = Parameters.FlashLfqResults.Peaks[AcceptorFile].Where(s => s.IsMbrPeak);
+
+                foreach (ChromatographicPeak peak in mbrPeaks)
                 {
-                    File.Copy(assumedExperimentalDesignPath, writtenFile, overwrite: true);
-                    FinishedWritingFile(writtenFile, new List<string> { Parameters.SearchTaskId });
-                }
-                catch (Exception e)
-                {
-                    Warn("Could not copy Experimental Design file to search task output. That's ok, the search will continue");
-                }
+                    double apexRT = peak.Apex.IndexedPeak.RetentionTime;
+                    double apexMz = peak.Apex.IndexedPeak.Mz;
+                    double peakHalfWidth = 1.0; //Placeholder value to determine retention time window
 
-                spectraFileInfo = ExperimentalDesign.ReadExperimentalDesign(assumedExperimentalDesignPath, Parameters.CurrentRawFileList, out var errors);
+                    Ms2ScanWithSpecificMass[] arrayOfMs2ScansSortedByMass = GetMs2Scans(myMsDataFile, origDataFile, combinedParams).OrderBy(b => b.PrecursorMass).ToArray();
 
-                if (errors.Any())
-                {
-                    Warn("Error reading experimental design file: " + errors.First() + ". Skipping quantification");
-                    return;
-                }
-            }
-            else if (Parameters.SearchParameters.Normalize)
-            {
-                Warn("Could not find experimental design file at " + assumedExperimentalDesignPath + ", which is required for normalization. Skipping quantification");
-                return;
-            }
-            else */
-            //{
-                spectraFileInfo = new List<SpectraFileInfo>();
-
-                for (int i = 0; i < Parameters.CurrentRawFileList.Count; i++)
-                {
-                    var file = Parameters.CurrentRawFileList[i];
-
-                    // experimental design info passed in here for each spectra file
-                    spectraFileInfo.Add(new SpectraFileInfo(fullFilePathWithExtension: file, condition: "", biorep: i, fraction: 0, techrep: 0));
-                }
-            //}
-
-            // get PSMs to pass to FlashLFQ
-            var unambiguousPsmsBelowOnePercentFdr = Parameters.AllPsms.Where(p =>
-                p.FdrInfo.QValue <= 0.01
-                && p.FdrInfo.QValueNotch <= 0.01
-                && !p.IsDecoy
-                && p.FullSequence != null).ToList(); //if ambiguous, there's no full sequence
-
-            // pass protein group info for each PSM
-            var psmToProteinGroups = new Dictionary<PeptideSpectralMatch, List<FlashLFQ.ProteinGroup>>();
-            if (ProteinGroups != null && ProteinGroups.Count != 0) //ProteinGroups can be null if parsimony wasn't done, and it can be empty if you're doing the two peptide rule
-            {
-                foreach (var proteinGroup in ProteinGroups)
-                {
-                    var proteinsOrderedByAccession = proteinGroup.Proteins.OrderBy(p => p.Accession);
-
-                    var flashLfqProteinGroup = new FlashLFQ.ProteinGroup(proteinGroup.ProteinGroupName,
-                        string.Join("|", proteinsOrderedByAccession.Select(p => p.GeneNames.Select(x => x.Item2).FirstOrDefault())),
-                        string.Join("|", proteinsOrderedByAccession.Select(p => p.Organism).Distinct()));
-
-                    foreach (var psm in proteinGroup.AllPsmsBelowOnePercentFDR.Where(v => v.FullSequence != null))
-                    {
-                        if (psmToProteinGroups.TryGetValue(psm, out var flashLfqProteinGroups))
-                        {
-                            flashLfqProteinGroups.Add(flashLfqProteinGroup);
-                        }
-                        else
-                        {
-                            psmToProteinGroups.Add(psm, new List<FlashLFQ.ProteinGroup> { flashLfqProteinGroup });
-                        }
-                    }
-                }
-            }
-            else
-            {
-                // if protein groups were not constructed, just use accession numbers
-                var accessionToPg = new Dictionary<string, FlashLFQ.ProteinGroup>();
-                foreach (var psm in unambiguousPsmsBelowOnePercentFdr)
-                {
-                    var proteins = psm.BestMatchingPeptides.Select(b => b.Peptide.Protein).Distinct();
-
-                    foreach (var protein in proteins)
-                    {
-                        if (!accessionToPg.ContainsKey(protein.Accession))
-                        {
-                            accessionToPg.Add(protein.Accession, new FlashLFQ.ProteinGroup(protein.Accession, string.Join("|", protein.GeneNames.Select(p => p.Item2).Distinct()), protein.Organism));
-                        }
-
-                        if (psmToProteinGroups.TryGetValue(psm, out var proteinGroups))
-                        {
-                            proteinGroups.Add(accessionToPg[protein.Accession]);
-                        }
-                        else
-                        {
-                            psmToProteinGroups.Add(psm, new List<FlashLFQ.ProteinGroup> { accessionToPg[protein.Accession] });
-                        }
-                    }
                 }
             }
 
-            //If SILAC (Pre-Quantification) preparation
-            //setup variables
-            List<SilacLabel> allSilacLabels = Parameters.SearchParameters.SilacLabels;
-            SilacLabel startLabel = Parameters.SearchParameters.StartTurnoverLabel;
-            SilacLabel endLabel = Parameters.SearchParameters.EndTurnoverLabel;
-            bool quantifyUnlabeledPeptides = Parameters.ListOfDigestionParams.Any(x => x.GeneratehUnlabeledProteinsForSilac);
-            if (Parameters.SearchParameters.SilacLabels != null)
-            {
-                bool turnoverWithMultipleLabels = startLabel != null && endLabel != null; //used to check multiple labels
-                //go through all the psms and duplicate them until a psm copy exists for the unlabeled and labeled proteins
-                //The number of psms should roughly increase by a factor of N, where N is the number of labels.
-                //It may not increase exactly by a factor of N if the amino acid(s) that gets labeled doesn't exist in the peptide
-
-                List<PeptideSpectralMatch> silacPsms = new List<PeptideSpectralMatch>(); //populate with duplicate psms for heavy/light
-
-                //multiply the psms by the number of labels
-                foreach (PeptideSpectralMatch psm in unambiguousPsmsBelowOnePercentFdr)
-                {
-                    //get the original proteinGroup to give to the other psm clones
-                    List<FlashLFQ.ProteinGroup> originalProteinGroups = psmToProteinGroups.ContainsKey(psm) ? psmToProteinGroups[psm] : new List<FlashLFQ.ProteinGroup>();
-
-                    //see which label, if any, this peptide has
-                    string peptideBaseSequence = psm.BaseSequence;
-                    SilacLabel observedLabel = SilacConversions.GetRelevantLabelFromBaseSequence(peptideBaseSequence, allSilacLabels); //returns null if no label
-
-                    //if it's not the light form, make a light form to start as a base.
-                    PeptideSpectralMatch lightPsm = observedLabel == null ? psm : SilacConversions.GetSilacPsm(psm, observedLabel);
-
-                    //get easy access to values we need for new psm generation
-                    string unlabeledBaseSequence = lightPsm.BaseSequence;
-                    int notch = psm.BestMatchingPeptides.First().Notch;
-                    PeptideWithSetModifications pwsm = psm.BestMatchingPeptides.First().Peptide;
-
-                    //check if turnover or multiplex experiment
-                    if (startLabel == null && endLabel == null) //if multiplex
-                    {
-                        //If we need the light form, then add it
-                        if (quantifyUnlabeledPeptides)
-                        {
-                            silacPsms.Add(lightPsm);
-                            if (originalProteinGroups != null)
-                            {
-                                psmToProteinGroups[lightPsm] = originalProteinGroups; //add proteingroup info
-                            }
-                        }
-                        //take the unlabeled sequence and modify everything for each label
-                        foreach (SilacLabel label in allSilacLabels)
-                        {
-                            if (!label.Equals(observedLabel)) //if we need to change the psm
-                            {
-                                string labeledBaseSequence = SilacConversions.GetLabeledBaseSequence(unlabeledBaseSequence, label);
-
-                                //check we're not adding a duplicate (happens if none of the heavy amino acids are present in the peptide)
-                                if (!labeledBaseSequence.Equals(unlabeledBaseSequence))
-                                {
-                                    PeptideSpectralMatch labeledPsm = SilacConversions.GetLabeledPsm(psm, notch, pwsm, labeledBaseSequence);
-                                    if (originalProteinGroups != null)
-                                    {
-                                        psmToProteinGroups[labeledPsm] = originalProteinGroups; //add proteingroup info
-                                    }
-                                    silacPsms.Add(labeledPsm);
-                                }
-                            }
-                            else
-                            {
-                                silacPsms.Add(psm);
-                            }
-                        }
-                    }
-                    else //if turnover
-                    {
-                        //if it's possible that mixtures exist, then multiple labels must be removed
-                        if (turnoverWithMultipleLabels)
-                        {
-                            observedLabel = SilacConversions.GetRelevantLabelFromBaseSequence(unlabeledBaseSequence, allSilacLabels); //returns null if no label
-                            lightPsm = observedLabel == null ? lightPsm : SilacConversions.GetSilacPsm(lightPsm, observedLabel);
-                            unlabeledBaseSequence = lightPsm.BaseSequence;
-                        }
-
-                        //Convert everything to the startLabel
-                        string startLabeledBaseSequence = SilacConversions.GetLabeledBaseSequence(unlabeledBaseSequence, startLabel);
-
-                        //Convert everything to the endLabel
-                        string endLabeledBaseSequence = SilacConversions.GetLabeledBaseSequence(unlabeledBaseSequence, endLabel);
-
-                        //figure out which residues can be changed
-                        List<int> differentResidues = new List<int>();
-                        List<char> startUniqueResidues = new List<char>();
-                        List<char> endUniqueResidues = new List<char>();
-                        for (int i = 0; i < startLabeledBaseSequence.Length; i++)
-                        {
-                            char startChar = startLabeledBaseSequence[i];
-                            char endChar = endLabeledBaseSequence[i];
-                            if (startChar != endChar)
-                            {
-                                differentResidues.Add(i);
-                                startUniqueResidues.Add(startChar);
-                                endUniqueResidues.Add(endChar);
-                            }
-                        }
-
-                        //create missed cleavage combinations (only create HL; don't make HL and LH or FlashLFQ freaks at the ambiguity)
-                        List<string> labeledBaseSequences = new List<string> { startLabeledBaseSequence };
-                        string sequenceToModify = startLabeledBaseSequence;
-                        for (int i = 0; i < differentResidues.Count; i++)
-                        {
-                            char[] charArray = sequenceToModify.ToCharArray();
-                            charArray[differentResidues[i]] = endUniqueResidues[i];
-                            sequenceToModify = string.Concat(charArray);
-                            labeledBaseSequences.Add(sequenceToModify);
-                        }
-                        //add them
-                        foreach (string sequence in labeledBaseSequences)
-                        {
-                            PeptideSpectralMatch labeledPsm = SilacConversions.GetLabeledPsm(psm, notch, pwsm, sequence);
-                            silacPsms.Add(labeledPsm);
-                            psmToProteinGroups[labeledPsm] = originalProteinGroups; //add proteingroup info
-                        }
-                    }
-                }
-                //update the list for FlashLFQ
-                silacPsms.ForEach(x => x.ResolveAllAmbiguities()); //update the monoisotopic mass
-                unambiguousPsmsBelowOnePercentFdr = silacPsms;
-            }
-
-            //group psms by file
-            var psmsGroupedByFile = unambiguousPsmsBelowOnePercentFdr.GroupBy(p => p.FullFilePath);
-
-            // some PSMs may not have protein groups (if 2 peptides are required to construct a protein group, some PSMs will be left over)
-            // the peptides should still be quantified but not considered for protein quantification
-            var undefinedPg = new FlashLFQ.ProteinGroup("UNDEFINED", "", "");
-            //sort the unambiguous psms by protease to make MBR compatible with multiple proteases
-            Dictionary<Protease, List<PeptideSpectralMatch>> proteaseSortedPsms = new Dictionary<Protease, List<PeptideSpectralMatch>>();
-            Dictionary<Protease, FlashLfqResults> proteaseSortedFlashLFQResults = new Dictionary<Protease, FlashLfqResults>();
-
-            foreach (DigestionParams dp in Parameters.ListOfDigestionParams)
-            {
-                if (!proteaseSortedPsms.ContainsKey(dp.Protease))
-                {
-                    proteaseSortedPsms.Add(dp.Protease, new List<PeptideSpectralMatch>());
-                }
-            }
-            foreach (var psm in unambiguousPsmsBelowOnePercentFdr)
-            {
-                if (!psmToProteinGroups.ContainsKey(psm))
-                {
-                    psmToProteinGroups.Add(psm, new List<FlashLFQ.ProteinGroup> { undefinedPg });
-                }
-
-                proteaseSortedPsms[psm.DigestionParams.Protease].Add(psm);
-            }
-
-            // pass PSM info to FlashLFQ
-            var flashLFQIdentifications = new List<Identification>();
-            foreach (var spectraFile in psmsGroupedByFile)
-            {
-                var rawfileinfo = spectraFileInfo.Where(p => p.FullFilePathWithExtension.Equals(spectraFile.Key)).First();
-
-                foreach (var psm in spectraFile)
-                {
-                    flashLFQIdentifications.Add(new Identification(rawfileinfo, psm.BaseSequence, psm.FullSequence,
-                        psm.PeptideMonisotopicMass.Value, psm.ScanRetentionTime, psm.ScanPrecursorCharge, psmToProteinGroups[psm]));
-                }
-            }
-
-            // run FlashLFQ
-            var FlashLfqEngine = new FlashLfqEngine(
-                allIdentifications: flashLFQIdentifications,
-                normalize: Parameters.SearchParameters.Normalize,
-                ppmTolerance: Parameters.SearchParameters.QuantifyPpmTol,
-                matchBetweenRuns: Parameters.SearchParameters.MatchBetweenRuns,
-                silent: true,
-                maxThreads: CommonParameters.MaxThreadsToUsePerFile);
-
-            if (flashLFQIdentifications.Any())
-            {
-                Parameters.FlashLfqResults = FlashLfqEngine.Run();
-            }
-
-            // get protein intensity back from FlashLFQ
-            if (ProteinGroups != null && Parameters.FlashLfqResults != null)
-            {
-                foreach (var proteinGroup in ProteinGroups)
-                {
-                    proteinGroup.FilesForQuantification = spectraFileInfo;
-                    proteinGroup.IntensitiesByFile = new Dictionary<SpectraFileInfo, double>();
-
-                    foreach (var spectraFile in proteinGroup.FilesForQuantification)
-                    {
-                        if (Parameters.FlashLfqResults.ProteinGroups.TryGetValue(proteinGroup.ProteinGroupName, out var flashLfqProteinGroup))
-                        {
-                            proteinGroup.IntensitiesByFile.Add(spectraFile, flashLfqProteinGroup.GetIntensity(spectraFile));
-                        }
-                        else
-                        {
-                            proteinGroup.IntensitiesByFile.Add(spectraFile, 0);
-                        }
-                    }
-                }
-            }
-
-            //Silac stuff for post-quantification
-            if (Parameters.SearchParameters.SilacLabels != null) //if we're doing silac
-            {
-                SilacConversions.SilacConversionsPostQuantification(allSilacLabels, startLabel, endLabel, spectraFileInfo, ProteinGroups, Parameters.ListOfDigestionParams,
-                    Parameters.FlashLfqResults, Parameters.AllPsms, Parameters.SearchParameters.ModsToWriteSelection, quantifyUnlabeledPeptides);
-            }
+            //return new MyTaskResults(new MetaMorpheusTask);
+>>>>>>> OnFire
         }
 
         private void HistogramAnalysis()
