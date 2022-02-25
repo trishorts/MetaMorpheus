@@ -718,17 +718,10 @@ namespace TaskLayer
 
         private void PostQuantificationMbrAnalysis()
         {
-            List<SpectraFileInfo> spectraFileInfo = new List<SpectraFileInfo>();
-            for (int i = 0; i < Parameters.CurrentRawFileList.Count; i++)
-            {
-                var file = Parameters.CurrentRawFileList[i];
 
-                // experimental design info may need to be included later
-                spectraFileInfo.Add(new SpectraFileInfo(fullFilePathWithExtension: file, condition: "", biorep: i, fraction: 0, techrep: 0));
-            }
-
+            List<SpectraFileInfo> spectraFileInfo = Parameters.FlashLfqResults.SpectraFiles.Distinct().ToList();
             List<PeptideSpectralMatch> allPeptides = GetAllPeptides();
-            List<string> spectraFileFullFilePaths = spectraFileInfo.Select(p => p.FullFilePathWithExtension).Distinct().ToList();
+            // List<string> spectraFileFullFilePaths = spectraFileInfo.Select(p => p.FullFilePathWithExtension).Distinct().ToList(); 
             IEnumerable<ChromatographicPeak> allMbrPeaks = Enumerable.Empty<ChromatographicPeak>();
 
 
