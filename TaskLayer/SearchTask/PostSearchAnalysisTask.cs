@@ -16,6 +16,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using UsefulProteomicsDatabases;
+using TaskLayer; //Think this is needed for GetMassDiffAcceptor
 
 namespace TaskLayer
 {
@@ -25,11 +26,7 @@ namespace TaskLayer
         private List<EngineLayer.ProteinGroup> ProteinGroups { get; set; }
         private IEnumerable<IGrouping<string, PeptideSpectralMatch>> PsmsGroupedByFile { get; set; }
 
-<<<<<<< HEAD
-        
-=======
         private Dictionary<Identification, PeptideSpectralMatch> IdentificationToPSMConverter { get; set; }
->>>>>>> OnFire
 
         public PostSearchAnalysisTask()
             : base(MyTask.Search)
@@ -724,11 +721,15 @@ namespace TaskLayer
             // List<string> spectraFileFullFilePaths = spectraFileInfo.Select(p => p.FullFilePathWithExtension).Distinct().ToList(); 
             IEnumerable<ChromatographicPeak> allMbrPeaks = Enumerable.Empty<ChromatographicPeak>();
 
-
             foreach (SpectraFileInfo AcceptorFile in spectraFileInfo)
             {
                 var runSpecificMbrPeaks = Parameters.FlashLfqResults.Peaks[AcceptorFile].Where(s => s.IsMbrPeak);
                 allMbrPeaks = allMbrPeaks.Concat(runSpecificMbrPeaks);
+
+                // These variables are required to integrate with Search task
+                string acceptorDataFile = AcceptorFile.FullFilePathWithExtension;
+                string taskId = "PostMbrValidation";
+                
 
                 foreach (ChromatographicPeak peak in runSpecificMbrPeaks)
                 {
@@ -739,6 +740,48 @@ namespace TaskLayer
                     double apexMz = peak.Apex.IndexedPeak.Mz;
                     double peakHalfWidth = 1.0; //Placeholder value to determine retention time window
 
+                    // mark the file as in-progress
+                    StartingDataFile(acceptorDataFile, new List<string> { taskId, "Individual Spectra Files", acceptorDataFile });
+
+                    MassDiffAcceptor massDiffAcceptor = SearchTask.GetMassDiffAcceptor(combinedParams.PrecursorMassTolerance, SearchParameters.MassDiffAcceptorType, SearchParameters.CustomMdac);
+
+
+                }
+            }
+
+            //currentRawFileList is just a list of strings. 
+            Dictionary<string, int[]> numMs2SpectraPerFile = new Dictionary<string, int[]>();
+            for (int spectraFileIndex = 0; spectraFileIndex < currentRawFileList.Count; spectraFileIndex++)
+            {
+                if (GlobalVariables.StopLoops) { break; }
+
+                var origDataFile = currentRawFileList[spectraFileIndex];
+
+
+                CommonParameters combinedParams = SetAllFileSpecificCommonParams(CommonParameters, fileSettingsList[spectraFileIndex]);
+
+                MassDiffAcceptor massDiffAcceptor = GetMassDiffAcceptor(combinedParams.PrecursorMassTolerance, SearchParameters.MassDiffAcceptorType, SearchParameters.CustomMdac);
+
+                var thisId = new List<string> { taskId, "Individual Spectra Files", origDataFile };
+                NewCollection(Path.GetFileName(origDataFile), thisId);
+                Status("Loading spectra file...", thisId);
+                MsDataFile myMsDataFile = myFileManager.LoadFile(origDataFile, combinedParams);
+                Status("Getting ms2 scans...", thisId);
+                Ms2ScanWithSpecificMass[] arrayOfMs2ScansSortedByMass = GetMs2Scans(myMsDataFile, origDataFile, combinedParams).OrderBy(b => b.PrecursorMass).ToArray();
+                numMs2SpectraPerFile.Add(Path.GetFileNameWithoutExtension(origDataFile), new int[] { myMsDataFile.GetAllScansList().Count(p => p.MsnOrder == 2), arrayOfMs2ScansSortedByMass.Length });
+                myFileManager.DoneWithFile(origDataFile);
+
+                PeptideSpectralMatch[] fileSpecificPsms = new PeptideSpectralMatch[arrayOfMs2ScansSortedByMass.Length];
+
+
+                //if (SearchParameters.SearchType == SearchType.Classic)
+                {
+                    Status("Starting search...", thisId);
+                    var newClassicSearchEngine = new ClassicSearchEngine(fileSpecificPsms, arrayOfMs2ScansSortedByMass, variableModifications, fixedModifications, SearchParameters.SilacLabels,
+                       SearchParameters.StartTurnoverLabel, SearchParameters.EndTurnoverLabel, proteinList, massDiffAcceptor, combinedParams, this.FileSpecificParameters, spectralLibrary, thisId, SearchParameters.WriteSpectralLibrary);
+                    newClassicSearchEngine.Run();
+
+                    ReportProgress(new ProgressEventArgs(100, "Done with search!", thisId));
                 }
             }
 
