@@ -756,14 +756,19 @@ namespace TaskLayer
             // List<string> spectraFileFullFilePaths = spectraFileInfo.Select(p => p.FullFilePathWithExtension).Distinct().ToList(); 
             IEnumerable<ChromatographicPeak> allMbrPeaks = Enumerable.Empty<ChromatographicPeak>();
 
+            //Idk if I'm doing this right
+            SpectralLibrary spectralLibrary = new SpectralLibrary(new List<string> { Parameters.OutputFolder });
+            //List<LibrarySpectrum> librarySpectra = testLibraryWithoutDecoy.GetAllLibrarySpectra().ToList();
+
             foreach (SpectraFileInfo AcceptorFile in spectraFileInfo)
             {
                 var runSpecificMbrPeaks = Parameters.FlashLfqResults.Peaks[AcceptorFile].Where(s => s.IsMbrPeak);
-                allMbrPeaks = allMbrPeaks.Concat(runSpecificMbrPeaks);
+                allMbrPeaks = allMbrPeaks.Concat(runSpecificMbrPeaks); // Idk if we need to retain a record of every mbr peak
 
                 // These variables are required to integrate with Search task
                 string acceptorDataFile = AcceptorFile.FullFilePathWithExtension;
                 string taskId = "PostMbrValidation";
+                
 
                 // mark the file as in-progress
                 StartingDataFile(acceptorDataFile, new List<string> { taskId, "Individual Spectra Files", acceptorDataFile });
@@ -801,8 +806,9 @@ namespace TaskLayer
                     int endIndex = Array.BinarySearch(arrayOfRTs, peakEnd); // I think this misses some scans on the tail (assuming multiple scans have the same RT)
                     Ms2ScanWithSpecificMass[] arrayOfMs2ScansSortedByMass = arrayOfMs2ScansSortedByRT[startIndex..endIndex].OrderBy(b => b.PrecursorMass).ToArray();
 
+                    //What/where are fileSpecificIDs?
                     var newMiniSearchEngine = new MiniClassicSearchEngine(bestDonorPwsm, arrayOfMs2ScansSortedByMass, Parameters.VariableModifications,
-                        Parameters.FixedModifications, massDiffAcceptor, combinedParams, FileSpecificParameters, Parameters.spectralLibray, fileSpecificIDs)
+                        Parameters.FixedModifications, massDiffAcceptor, combinedParams, FileSpecificParameters, spectralLibrary, fileSpecificIDs)
                     newMiniSearchEngine.Run();
                 }
             }
