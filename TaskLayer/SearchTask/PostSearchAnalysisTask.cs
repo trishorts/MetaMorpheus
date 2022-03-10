@@ -766,9 +766,9 @@ namespace TaskLayer
                 List<ChromatographicPeak> fileSpecificMbrPeaks = mbrPeaks[spectraFile].ToList();
                 MyFileManager myFileManager = new MyFileManager(true);
                 MsDataFile myMsDataFile = myFileManager.LoadFile(spectraFile, CommonParameters);
+                MassDiffAcceptor MassDiffAcceptor = SearchTask.GetMassDiffAcceptor(CommonParameters.PrecursorMassTolerance, Parameters.SearchParameters.MassDiffAcceptorType, Parameters.SearchParameters.CustomMdac);
                 Ms2ScanWithSpecificMass[] arrayOfMs2ScansSortedByRT = GetMs2Scans(myMsDataFile, spectraFile, CommonParameters).OrderBy(b => b.TheScan.RetentionTime).ToArray();
                 Double[] arrayOfRTs = arrayOfMs2ScansSortedByRT.Select(p => p.TheScan.RetentionTime).ToArray();
-                MassDiffAcceptor MassDiffAcceptor = SearchTask.GetMassDiffAcceptor(CommonParameters.PrecursorMassTolerance, Parameters.SearchParameters.MassDiffAcceptorType, Parameters.SearchParameters.CustomMdac);
 
                 foreach (ChromatographicPeak pk in fileSpecificMbrPeaks)
                 {
