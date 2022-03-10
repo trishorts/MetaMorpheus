@@ -29,8 +29,6 @@ namespace TaskLayer
         private List<EngineLayer.ProteinGroup> ProteinGroups { get; set; }
         private IEnumerable<IGrouping<string, PeptideSpectralMatch>> PsmsGroupedByFile { get; set; }
 
-        private Dictionary<Identification, PeptideSpectralMatch> IdentificationToPSMConverter { get; set; }
-
         public PostSearchAnalysisTask()
             : base(MyTask.Search)
         {
@@ -461,7 +459,6 @@ namespace TaskLayer
                     flashLFQIdentifications.Add(new Identification(rawfileinfo, psm.BaseSequence, psm.FullSequence,
                         psm.PeptideMonisotopicMass.Value, psm.ScanRetentionTime, psm.ScanPrecursorCharge, psmToProteinGroups[psm]));
 
-                    IdentificationToPSMConverter.Add(flashLFQIdentifications[flashLFQIdentifications.Count - 1], psm);
                 }
             }
 
