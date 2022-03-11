@@ -1,13 +1,24 @@
 ﻿using Chemistry;
 using MassSpectrometry;
+<<<<<<< HEAD
+=======
+using MassSpectrometry.MzSpectra;
+using MzLibUtil;
+>>>>>>> trishorts/SingleCellProteomics
 using Proteomics.Fragmentation;
+using Proteomics.ProteolyticDigestion;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+<<<<<<< HEAD
 using Proteomics.ProteolyticDigestion;
 using System.Threading.Tasks;
 using Easy.Common.Extensions;
 using MassSpectrometry.MzSpectra;
+=======
+using System.Text;
+using System.Threading.Tasks;
+>>>>>>> trishorts/SingleCellProteomics
 
 namespace EngineLayer
 {
@@ -60,7 +71,7 @@ namespace EngineLayer
                                         var decoyPeptideTheorProducts = new List<Product>();
                                         Peptide.Fragment(commonParameters.DissociationType, commonParameters.DigestionParams.FragmentationTerminus, decoyPeptideTheorProducts);
                                         var decoylibrarySpectrum = GetDecoyLibrarySpectrumFromTargetByReverse(targetlibrarySpectrum, decoyPeptideTheorProducts);
-                                        SpectralSimilarity s = new SpectralSimilarity(scan.TheScan.MassSpectrum, decoylibrarySpectrum.Select(x => x.Mz).ToArray(),decoylibrarySpectrum.Select(x => x.Intensity).ToArray(), SpectralSimilarity.SpectrumNormalizationScheme.squareRootSpectrumSum, commonParameters.ProductMassTolerance.Value, false);
+                                        SpectralSimilarity s = new SpectralSimilarity(scan.TheScan.MassSpectrum, decoylibrarySpectrum.Select(x => x.Mz).ToArray(), decoylibrarySpectrum.Select(x => x.Intensity).ToArray(), SpectralSimilarity.SpectrumNormalizationScheme.squareRootSpectrumSum, commonParameters.ProductMassTolerance.Value, false);
                                         if (s.SpectralContrastAngle().HasValue)
                                         {
                                             pwsms.Add((Notch, Peptide));
@@ -103,4 +114,5 @@ namespace EngineLayer
             return decoyFragmentIons;
         }
     }
+
 }
