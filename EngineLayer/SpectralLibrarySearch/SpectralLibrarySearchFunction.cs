@@ -1,24 +1,14 @@
 ﻿using Chemistry;
 using MassSpectrometry;
-<<<<<<< HEAD
-=======
 using MassSpectrometry.MzSpectra;
 using MzLibUtil;
->>>>>>> trishorts/SingleCellProteomics
 using Proteomics.Fragmentation;
 using Proteomics.ProteolyticDigestion;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-<<<<<<< HEAD
-using Proteomics.ProteolyticDigestion;
-using System.Threading.Tasks;
-using Easy.Common.Extensions;
-using MassSpectrometry.MzSpectra;
-=======
 using System.Text;
 using System.Threading.Tasks;
->>>>>>> trishorts/SingleCellProteomics
 
 namespace EngineLayer
 {
