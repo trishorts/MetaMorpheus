@@ -138,11 +138,9 @@ namespace EngineLayer.FdrAnalysis
         public float IsIntra { get; set; }
 
         [LoadColumn(22)]
-
         public bool Label { get; set; }
 
         [LoadColumn(23)]
-
         public float SpectralAngle { get; set; }
 
         [LoadColumn(24)]
