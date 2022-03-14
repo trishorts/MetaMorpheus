@@ -746,23 +746,23 @@ namespace TaskLayer
             }
         }
 
-        private void PostQuantificationMbrAnalysis()
+        // Shouldn't be public, just for testing
+        public void PostQuantificationMbrAnalysis()
         {
 
-            List<ChromatographicPeak> peaks = (List<ChromatographicPeak>)Parameters.FlashLfqResults.Peaks.Select(p => p.Value);
-
-            var mbrPeaks = peaks.Where(p=>p.IsMbrPeak).ToLookup(p => p.SpectraFileInfo.FullFilePathWithExtension, p => p);
+            List<SpectraFileInfo> spectraFiles = Parameters.FlashLfqResults.Peaks.Select(p => p.Key).ToList();
 
             List<PeptideSpectralMatch> allPeptides = GetAllPeptides();
-            List<string> spectraFileFullFilePaths = peaks.Select(p => p.SpectraFileInfo.FullFilePathWithExtension).Distinct().ToList(); 
 
-            foreach (string spectraFile in spectraFileFullFilePaths)
+            foreach (SpectraFileInfo spectraFile in spectraFiles)
             {
-                List<ChromatographicPeak> fileSpecificMbrPeaks = mbrPeaks[spectraFile].ToList();
+                List<ChromatographicPeak> fileSpecificMbrPeaks = Parameters.FlashLfqResults.Peaks[spectraFile].Where(p=>p.IsMbrPeak).ToList();
+                if (fileSpecificMbrPeaks == null || (!fileSpecificMbrPeaks.Any())) break;
+
                 MyFileManager myFileManager = new MyFileManager(true);
-                MsDataFile myMsDataFile = myFileManager.LoadFile(spectraFile, CommonParameters);
+                MsDataFile myMsDataFile = myFileManager.LoadFile(spectraFile.FullFilePathWithExtension, CommonParameters);
                 MassDiffAcceptor MassDiffAcceptor = SearchTask.GetMassDiffAcceptor(CommonParameters.PrecursorMassTolerance, Parameters.SearchParameters.MassDiffAcceptorType, Parameters.SearchParameters.CustomMdac);
-                Ms2ScanWithSpecificMass[] arrayOfMs2ScansSortedByRT = GetMs2Scans(myMsDataFile, spectraFile, CommonParameters).OrderBy(b => b.TheScan.RetentionTime).ToArray();
+                Ms2ScanWithSpecificMass[] arrayOfMs2ScansSortedByRT = GetMs2Scans(myMsDataFile, spectraFile.FullFilePathWithExtension, CommonParameters).OrderBy(b => b.TheScan.RetentionTime).ToArray();
                 Double[] arrayOfRTs = arrayOfMs2ScansSortedByRT.Select(p => p.TheScan.RetentionTime).ToArray();
 
                 foreach (ChromatographicPeak pk in fileSpecificMbrPeaks)

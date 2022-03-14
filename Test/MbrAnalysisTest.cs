@@ -18,7 +18,11 @@ namespace Test
         public static void MbrPostSearchAnalysisTest()
         {
 
-            PostSearchAnalysisTask searchTask = new PostSearchAnalysisTask();
+            PostSearchAnalysisTask searchTask = new PostSearchAnalysisTask()
+            {
+                Parameters = new PostSearchAnalysisParameters()
+            };
+
             string psmFile = Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData", @"MbrTestData\PSMsForMbrTest.psmtsv");
 
             SpectraFileInfo f1r1 = new SpectraFileInfo(Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData", @"MbrTestData\f1r1_sliced_mbr.raw"), "a", 0, 0, 0);
@@ -73,12 +77,15 @@ namespace Test
             var engine = new FlashLfqEngine(ids, matchBetweenRuns: true, requireMsmsIdInCondition: false, maxThreads: 1);
             searchTask.Parameters.FlashLfqResults = engine.Run();
 
-            // Get SpectralLibrary - Currently points to YuLing's
+            // Get SpectralLibrary 
             var path = Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData", @"MbrTestData\myPrositLib_mbrTestData_f1r1.msp");
             searchTask.Parameters.SpectralLibrary = new SpectralLibrary(new List<string> { path });
 
+            searchTask.PostQuantificationMbrAnalysis();
+
         }
 
+        /*
         public static void RealDataMbrTest()
         {
             string psmFile = Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData", @"PSMsForMbrTest.psmtsv");
@@ -183,6 +190,7 @@ namespace Test
                 Assert.That(results.ProteinGroups[protein.ProteinGroupName].GetIntensity(f1r2) == 0);
             }
         }
+        */
 
     }
 }
