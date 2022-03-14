@@ -144,6 +144,7 @@ namespace EngineLayer.FdrAnalysis
         public float SpectralAngle { get; set; }
 
         [LoadColumn(24)]
+
         public float HasSpectralAngle { get; set; }
     }
 }

@@ -17,6 +17,7 @@ namespace TaskLayer
         public HashSet<DigestionParams> ListOfDigestionParams { get; set; }
         public List<PeptideSpectralMatch> AllPsms { get; set; }
         public FlashLfqResults FlashLfqResults { get; set; }
+        public SpectralLibrary SpectralLibrary { get; set; }
         public int NumNotches { get; set; }
         public string OutputFolder { get; set; }
         public string IndividualResultsOutputFolder { get; set; }
