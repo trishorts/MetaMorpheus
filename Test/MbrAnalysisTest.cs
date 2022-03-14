@@ -21,6 +21,10 @@ namespace Test
             PostSearchAnalysisTask searchTask = new PostSearchAnalysisTask()
             {
                 Parameters = new PostSearchAnalysisParameters()
+                {
+                    SearchParameters = new SearchParameters()
+                },
+                CommonParameters = new CommonParameters(),
             };
 
             string psmFile = Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData", @"MbrTestData\PSMsForMbrTest.psmtsv");
