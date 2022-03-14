@@ -756,8 +756,6 @@ namespace TaskLayer
             List<PeptideSpectralMatch> allPeptides = GetAllPeptides();
             List<string> spectraFileFullFilePaths = peaks.Select(p => p.SpectraFileInfo.FullFilePathWithExtension).Distinct().ToList(); 
 
-            SpectralLibrary mySpectralLibrary = new SpectralLibrary(new List<string> { Parameters.OutputFolder });
-
             foreach (string spectraFile in spectraFileFullFilePaths)
             {
                 List<ChromatographicPeak> fileSpecificMbrPeaks = mbrPeaks[spectraFile].ToList();
@@ -781,7 +779,7 @@ namespace TaskLayer
                     Ms2ScanWithSpecificMass[] arrayOfMs2ScansSortedByMass = arrayOfMs2ScansSortedByRT[startIndex..endIndex].OrderBy(b => b.PrecursorMass).ToArray();
                     
                     MiniClassicSearchEngine mcse = new(bestDonorPwsm, arrayOfMs2ScansSortedByMass, Parameters.VariableModifications, Parameters.FixedModifications,
-                        MassDiffAcceptor, CommonParameters, FileSpecificParameters, mySpectralLibrary, new List<string> { Parameters.SearchTaskId });
+                        MassDiffAcceptor, CommonParameters, FileSpecificParameters, Parameters.SpectralLibrary, new List<string> { Parameters.SearchTaskId });
                     mcse.Run(); 
                 }
             }
@@ -799,7 +797,7 @@ namespace TaskLayer
             if (targetVal > sortedArray[r])
             {
                 return r;
-            }
+            } 
 
             while (l <= r)
             {

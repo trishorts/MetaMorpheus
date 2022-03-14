@@ -7,6 +7,7 @@ using System.Linq;
 using TaskLayer;
 using EngineLayer;
 using FlashLFQ;
+using MathNet.Numerics.Statistics; // Necessary for calculating correlation 
 
 namespace Test
 {
@@ -16,14 +17,65 @@ namespace Test
         [Test]
         public static void MbrPostSearchAnalysisTest()
         {
-            
-            SearchTask searchTask = new SearchTask();
-            
-            //Get SpectralLibrary
-            var path = Path.Combine(TestContext.CurrentContext.TestDirectory, @"TestData\myPrositLib.msp");
-            var testLibraryWithoutDecoy = new SpectralLibrary(new List<string> { path });
-            var librarySpectra = testLibraryWithoutDecoy.GetAllLibrarySpectra().ToList();
 
+            PostSearchAnalysisTask searchTask = new PostSearchAnalysisTask();
+            string psmFile = Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData", @"MbrTestData\PSMsForMbrTest.psmtsv");
+
+            SpectraFileInfo f1r1 = new SpectraFileInfo(Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData", @"MbrTestData\f1r1_sliced_mbr.raw"), "a", 0, 0, 0);
+            SpectraFileInfo f1r2 = new SpectraFileInfo(Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData", @"MbrTestData\f1r2_sliced_mbr.raw"), "a", 1, 0, 0);
+
+            List<Identification> ids = new List<Identification>();
+            Dictionary<string, FlashLFQ.ProteinGroup> allProteinGroups = new Dictionary<string, FlashLFQ.ProteinGroup>();
+            foreach (string line in File.ReadAllLines(psmFile))
+            {
+                var split = line.Split(new char[] { '\t' });
+
+                if (split.Contains("File Name") || string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                SpectraFileInfo file = null;
+
+                if (split[0].Contains("f1r1"))
+                {
+                    file = f1r1;
+                }
+                else if (split[0].Contains("f1r2"))
+                {
+                    file = f1r2;
+                }
+
+                string baseSequence = split[12];
+                string fullSequence = split[13];
+                double monoMass = double.Parse(split[21]);
+                double rt = double.Parse(split[2]);
+                int z = (int)double.Parse(split[6]);
+                var proteins = split[24].Split(new char[] { '|' });
+                List<FlashLFQ.ProteinGroup> proteinGroups = new List<FlashLFQ.ProteinGroup>();
+                foreach (var protein in proteins)
+                {
+                    if (allProteinGroups.TryGetValue(protein, out var proteinGroup))
+                    {
+                        proteinGroups.Add(proteinGroup);
+                    }
+                    else
+                    {
+                        allProteinGroups.Add(protein, new FlashLFQ.ProteinGroup(protein, "", ""));
+                        proteinGroups.Add(allProteinGroups[protein]);
+                    }
+                }
+
+                Identification id = new Identification(file, baseSequence, fullSequence, monoMass, rt, z, proteinGroups);
+                ids.Add(id);
+            }
+
+            var engine = new FlashLfqEngine(ids, matchBetweenRuns: true, requireMsmsIdInCondition: false, maxThreads: 1);
+            searchTask.Parameters.FlashLfqResults = engine.Run();
+
+            // Get SpectralLibrary - Currently points to YuLing's
+            var path = Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData", @"MbrTestData\myPrositLib_mbrTestData_f1r1.msp");
+            searchTask.Parameters.SpectralLibrary = new SpectralLibrary(new List<string> { path });
 
         }
 
@@ -62,7 +114,7 @@ namespace Test
                 double rt = double.Parse(split[2]);
                 int z = (int)double.Parse(split[6]);
                 var proteins = split[24].Split(new char[] { '|' });
-                List<FlashLFQ.ProteinGroup> proteinGroups = new List<ProteinGroup>();
+                List<FlashLFQ.ProteinGroup> proteinGroups = new List<FlashLFQ.ProteinGroup>();
                 foreach (var protein in proteins)
                 {
                     if (allProteinGroups.TryGetValue(protein, out var proteinGroup))
@@ -71,7 +123,7 @@ namespace Test
                     }
                     else
                     {
-                        allProteinGroups.Add(protein, new ProteinGroup(protein, "", ""));
+                        allProteinGroups.Add(protein, new FlashLFQ.ProteinGroup(protein, "", ""));
                         proteinGroups.Add(allProteinGroups[protein]);
                     }
                 }
