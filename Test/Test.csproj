@@ -175,6 +175,9 @@
     <None Update="TestData\MbrTestData\f1r2_sliced_mbr.raw">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="TestData\MbrTestData\MbrDataPrunedDB.fasta">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="TestData\MbrTestData\myPrositLib_mbrTestData_f1r1.msp">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>

@@ -8,6 +8,7 @@ using TaskLayer;
 using EngineLayer;
 using FlashLFQ;
 using MathNet.Numerics.Statistics; // Necessary for calculating correlation 
+using System.Text.RegularExpressions;
 
 namespace Test
 {
@@ -17,8 +18,9 @@ namespace Test
         [Test]
         public static void MbrPostSearchAnalysisTest()
         {
+            SearchTask classicSearch = new SearchTask();
 
-            PostSearchAnalysisTask searchTask = new PostSearchAnalysisTask()
+            PostSearchAnalysisTask postSearchTask = new PostSearchAnalysisTask()
             {
                 Parameters = new PostSearchAnalysisParameters()
                 {
@@ -26,6 +28,20 @@ namespace Test
                 },
                 CommonParameters = new CommonParameters(),
             };
+            List<int> counts = new List<int>();
+
+            List<string> rawSlices = new List<string> { Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData", @"MbrTestData\f1r1_sliced_mbr.raw"),
+                Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData", @"MbrTestData\f1r2_sliced_mbr.raw") };
+            string fastaName = @"TestData\MbrTestData\MbrDataPrunedDB.fasta";
+            string outputFolder = Path.Combine(TestContext.CurrentContext.TestDirectory, @"TestMbrAnalysisOutput");
+
+            var engine = new EverythingRunnerEngine(new List<(string, MetaMorpheusTask)> { ("ClassicSearch", classicSearch) , ("PostSearchAnalysis", postSearchTask) }, rawSlices, new List<DbForTask> { new DbForTask(fastaName, false) }, outputFolder);
+            engine.Run();
+
+            // Running the engine obviates everything below this point. Now, all that's required is that the mbr 
+
+            string classicPath = Path.Combine(outputFolder, @"ClassicSearch\AllPSMs.psmtsv");
+            var classicPsms = File.ReadAllLines(classicPath).ToList();
 
             string psmFile = Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData", @"MbrTestData\PSMsForMbrTest.psmtsv");
 
@@ -60,6 +76,13 @@ namespace Test
                 double rt = double.Parse(split[2]);
                 int z = (int)double.Parse(split[6]);
                 var proteins = split[24].Split(new char[] { '|' });
+
+                // Data for protein object
+                Regex re = new Regex(@"\d+");
+                List<string> oneBasedResiduePositions = re.Matches(split[34]).Cast<Match>().Select(match => match.Value).ToList();
+                int startResidue = int.Parse(oneBasedResiduePositions[0]);
+                int endResidue = int.Parse(oneBasedResiduePositions[1]);
+
                 List<FlashLFQ.ProteinGroup> proteinGroups = new List<FlashLFQ.ProteinGroup>();
                 foreach (var protein in proteins)
                 {
@@ -78,16 +101,19 @@ namespace Test
                 ids.Add(id);
             }
 
-            var engine = new FlashLfqEngine(ids, matchBetweenRuns: true, requireMsmsIdInCondition: false, maxThreads: 1);
-            searchTask.Parameters.FlashLfqResults = engine.Run();
+            var flashLfqEngine = new FlashLfqEngine(ids, matchBetweenRuns: true, requireMsmsIdInCondition: false, maxThreads: 1);
+            postSearchTask.Parameters.FlashLfqResults = flashLfqEngine.Run();
 
             // Get SpectralLibrary 
             var path = Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData", @"MbrTestData\myPrositLib_mbrTestData_f1r1.msp");
-            searchTask.Parameters.SpectralLibrary = new SpectralLibrary(new List<string> { path });
+            postSearchTask.Parameters.SpectralLibrary = new SpectralLibrary(new List<string> { path });
 
-            searchTask.PostQuantificationMbrAnalysis();
+            postSearchTask.PostQuantificationMbrAnalysis();
 
         }
+
+
+    
 
         /*
         public static void RealDataMbrTest()

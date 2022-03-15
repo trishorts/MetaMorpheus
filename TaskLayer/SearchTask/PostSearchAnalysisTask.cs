@@ -67,6 +67,7 @@ namespace TaskLayer
             DoMassDifferenceLocalizationAnalysis();
             ProteinAnalysis();
             QuantificationAnalysis();
+            PostQuantificationMbrAnalysis();
 
             ReportProgress(new ProgressEventArgs(100, "Done!", new List<string> { Parameters.SearchTaskId, "Individual Spectra Files" }));
 
@@ -749,6 +750,10 @@ namespace TaskLayer
         // Shouldn't be public, just for testing
         public void PostQuantificationMbrAnalysis()
         {
+            if (!Parameters.SearchParameters.DoMbrAnalysis)
+            {
+                return;
+            }
 
             List<SpectraFileInfo> spectraFiles = Parameters.FlashLfqResults.Peaks.Select(p => p.Key).ToList();
 
@@ -785,7 +790,6 @@ namespace TaskLayer
             }
 
         }
-
 
         private int FindNearest(double[] sortedArray, double targetVal)
         {
