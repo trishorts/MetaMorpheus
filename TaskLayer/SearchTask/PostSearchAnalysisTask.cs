@@ -752,7 +752,7 @@ namespace TaskLayer
 
             List<SpectraFileInfo> spectraFiles = Parameters.FlashLfqResults.Peaks.Select(p => p.Key).ToList();
 
-            // List<PeptideSpectralMatch> allPeptides = GetAllPeptides(); This breaks using test data, will have to fix later
+            List<PeptideSpectralMatch> allPeptides = GetAllPeptides(); //This breaks using test data, will have to fix later
 
             foreach (SpectraFileInfo spectraFile in spectraFiles)
             {
@@ -767,9 +767,9 @@ namespace TaskLayer
 
                 foreach (ChromatographicPeak pk in fileSpecificMbrPeaks)
                 {
-                    //PeptideSpectralMatch bestDonorPsm = allPeptides.Where(p => p.FullSequence == pk.Identifications.First().ModifiedSequence).First();
-                    //PeptideWithSetModifications bestDonorPwsm = bestDonorPsm.BestMatchingPeptides.First().Peptide;
-                    //double monoIsotopicMass = bestDonorPsm.PeptideMonisotopicMass.Value;
+                    PeptideSpectralMatch bestDonorPsm = allPeptides.Where(p => p.FullSequence == pk.Identifications.First().ModifiedSequence).First();
+                    PeptideWithSetModifications bestDonorPwsm = bestDonorPsm.BestMatchingPeptides.First().Peptide;
+                    double monoIsotopicMass = bestDonorPsm.PeptideMonisotopicMass.Value;
 
                     // Find MS2 scans falling within the relevant time window.
                     double apexRT = pk.Apex.IndexedPeak.RetentionTime;
@@ -778,9 +778,9 @@ namespace TaskLayer
                     int endIndex = FindNearest(arrayOfRTs, apexRT + peakHalfWidth);
                     Ms2ScanWithSpecificMass[] arrayOfMs2ScansSortedByMass = arrayOfMs2ScansSortedByRT[startIndex..endIndex].OrderBy(b => b.PrecursorMass).ToArray();
                     
-                   // MiniClassicSearchEngine mcse = new(bestDonorPwsm, arrayOfMs2ScansSortedByMass, Parameters.VariableModifications, Parameters.FixedModifications,
-                   //     MassDiffAcceptor, CommonParameters, FileSpecificParameters, Parameters.SpectralLibrary, new List<string> { Parameters.SearchTaskId });
-                   // mcse.Run(); 
+                   MiniClassicSearchEngine mcse = new(bestDonorPwsm, arrayOfMs2ScansSortedByMass, Parameters.VariableModifications, Parameters.FixedModifications,
+                       MassDiffAcceptor, CommonParameters, FileSpecificParameters, Parameters.SpectralLibrary, new List<string> { Parameters.SearchTaskId });
+                   mcse.Run(); 
                 }
             }
 
