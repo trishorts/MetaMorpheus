@@ -38,7 +38,8 @@ namespace Test
             var engine = new EverythingRunnerEngine(new List<(string, MetaMorpheusTask)> { ("ClassicSearch", classicSearch) , ("PostSearchAnalysis", postSearchTask) }, rawSlices, new List<DbForTask> { new DbForTask(fastaName, false) }, outputFolder);
             engine.Run();
 
-            // Running the engine obviates everything below this point. Now, all that's required is that the mbr 
+
+            // Running the engine obviates everything below this point. Now, all that's required is that the mbr results get saved
 
             string classicPath = Path.Combine(outputFolder, @"ClassicSearch\AllPSMs.psmtsv");
             var classicPsms = File.ReadAllLines(classicPath).ToList();
