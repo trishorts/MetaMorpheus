@@ -756,8 +756,7 @@ namespace TaskLayer
             }
 
             List<SpectraFileInfo> spectraFiles = Parameters.FlashLfqResults.Peaks.Select(p => p.Key).ToList();
-
-            List<PeptideSpectralMatch> allPeptides = GetAllPeptides(); //This breaks using test data, will have to fix later
+            List<PeptideSpectralMatch> allPeptides = GetAllPeptides();
 
             foreach (SpectraFileInfo spectraFile in spectraFiles)
             {
