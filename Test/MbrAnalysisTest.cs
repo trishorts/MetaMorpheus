@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using TaskLayer;
+using TaskLayer.SearchTask2_PtmReturn;
 using EngineLayer;
 using FlashLFQ;
 using MathNet.Numerics.Statistics; // Necessary for calculating correlation 
@@ -13,7 +14,8 @@ using System.Text.RegularExpressions;
 namespace Test
 {
     [TestFixture]
-    public static class MbrAnalysisTest
+    public static class 
+    MbrAnalysisTest
     {
         [Test]
         public static void MbrPostSearchAnalysisTest()
@@ -55,8 +57,49 @@ namespace Test
           
         }
 
+        public static void FalseMbrMCSETest()
+        {
+            SearchTask2_PtmReturn classicSearch = new SearchTask2_PtmReturn()
+            {
+                SearchParameters = new SearchParameters()
+                {
+                    MatchBetweenRuns = true
+                }
+            };
 
-    
+            
+
+            List<string> rawSlices = new List<string> { Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData", @"MbrTestData\f1r1_sliced_mbr.raw") };
+            string fastaName = @"TestData\MbrTestData\MbrDataPrunedDB.fasta";
+            string outputFolder = Path.Combine(TestContext.CurrentContext.TestDirectory, @"TestMbrAnalysisOutput");
+
+            MyTaskResults taskResult = classicSearch.RunTask(outputFolder, new List<DbForTask> { new DbForTask(fastaName, false) }, rawSlices, "ClassicSearch");
+            List<PeptideSpectralMatch> allPsms = classicSearch.RunForPTMs(outputFolder, new List<DbForTask> { new DbForTask(fastaName, false) }, rawSlices, "PtmReturn", ) ;
+
+            var engine = new EverythingRunnerEngine(new List<(string, MetaMorpheusTask)> { ("ClassicSearch", classicSearch) }, rawSlices, new List<DbForTask> { new DbForTask(fastaName, false) }, outputFolder);
+            engine.Run();
+
+            bool hold = true;
+
+            while (hold)
+            {
+                
+
+
+
+                hold = true;
+            }
+
+            // Not sure what's going on here
+            // Still have to determine best way to write the results of MBR analysis
+            string classicPath = Path.Combine(outputFolder, @"ClassicSearch\AllPSMs.psmtsv");
+            var classicPsms = File.ReadAllLines(classicPath).ToList();
+
+
+        }
+
+
+
 
         /*
         public static void RealDataMbrTest()
