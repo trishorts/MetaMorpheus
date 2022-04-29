@@ -205,6 +205,9 @@
     <None Update="TestData\PrunedDbSpectra.mzml">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="TestData\SearchTaskTester.toml">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="TestData\semiTest.fasta">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>

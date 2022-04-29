@@ -5,11 +5,17 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using TaskLayer;
-using TaskLayer.SearchTask2_PtmReturn;
 using EngineLayer;
 using FlashLFQ;
 using MathNet.Numerics.Statistics; // Necessary for calculating correlation 
 using System.Text.RegularExpressions;
+using MassSpectrometry;
+using MzLibUtil;
+using Proteomics;
+using Proteomics.Fragmentation;
+using Proteomics.ProteolyticDigestion;
+using EngineLayer.ClassicSearch;
+
 
 namespace Test
 {
@@ -57,9 +63,10 @@ namespace Test
           
         }
 
+        [Test]
         public static void FalseMbrMCSETest()
         {
-            SearchTask2_PtmReturn classicSearch = new SearchTask2_PtmReturn()
+            SearchTask classicSearch = new SearchTask()
             {
                 SearchParameters = new SearchParameters()
                 {
@@ -67,34 +74,22 @@ namespace Test
                 }
             };
 
-            
-
             List<string> rawSlices = new List<string> { Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData", @"MbrTestData\f1r1_sliced_mbr.raw") };
             string fastaName = @"TestData\MbrTestData\MbrDataPrunedDB.fasta";
             string outputFolder = Path.Combine(TestContext.CurrentContext.TestDirectory, @"TestMbrAnalysisOutput");
 
-            MyTaskResults taskResult = classicSearch.RunTask(outputFolder, new List<DbForTask> { new DbForTask(fastaName, false) }, rawSlices, "ClassicSearch");
-            List<PeptideSpectralMatch> allPsms = classicSearch.RunForPTMs(outputFolder, new List<DbForTask> { new DbForTask(fastaName, false) }, rawSlices, "PtmReturn", ) ;
+            FileSpecificParameters[] fileSpecificParameters = new FileSpecificParameters[1];
+            var filePath = Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData\\SearchTaskTester.toml");
+            var fileSpecificToml = Toml.ReadFile(filePath, MetaMorpheusTask.tomlConfig);
+            fileSpecificParameters[0] = new FileSpecificParameters(fileSpecificToml);
+
+            List<PeptideSpectralMatch> allPsms = classicSearch.RunForPTMs(outputFolder, new List<DbForTask> { new DbForTask(fastaName, false) }, rawSlices, "PtmReturn", fileSpecificParameters);
 
             var engine = new EverythingRunnerEngine(new List<(string, MetaMorpheusTask)> { ("ClassicSearch", classicSearch) }, rawSlices, new List<DbForTask> { new DbForTask(fastaName, false) }, outputFolder);
             engine.Run();
 
-            bool hold = true;
-
-            while (hold)
-            {
-                
-
-
-
-                hold = true;
-            }
-
-            // Not sure what's going on here
-            // Still have to determine best way to write the results of MBR analysis
             string classicPath = Path.Combine(outputFolder, @"ClassicSearch\AllPSMs.psmtsv");
             var classicPsms = File.ReadAllLines(classicPath).ToList();
-
 
         }
 
