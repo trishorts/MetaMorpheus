@@ -1,12 +1,15 @@
 ﻿using EngineLayer;
+using EngineLayer.ClassicSearch;
 using EngineLayer.FdrAnalysis;
 using EngineLayer.HistogramAnalysis;
 using EngineLayer.Localization;
 using EngineLayer.ModificationAnalysis;
+using EngineLayer.ClassicSearch;
 using FlashLFQ;
 using MassSpectrometry;
 using MathNet.Numerics.Distributions;
 using Proteomics;
+using Proteomics.Fragmentation;
 using Proteomics.ProteolyticDigestion;
 using System;
 using System.Collections.Generic;
@@ -16,6 +19,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using UsefulProteomicsDatabases;
+using TaskLayer; //Think this is needed for GetMassDiffAcceptor
 
 namespace TaskLayer
 {
@@ -63,6 +67,7 @@ namespace TaskLayer
             DoMassDifferenceLocalizationAnalysis();
             ProteinAnalysis();
             QuantificationAnalysis();
+            PostQuantificationMbrAnalysis();
 
             ReportProgress(new ProgressEventArgs(100, "Done!", new List<string> { Parameters.SearchTaskId, "Individual Spectra Files" }));
 
@@ -454,6 +459,7 @@ namespace TaskLayer
                 {
                     flashLFQIdentifications.Add(new Identification(rawfileinfo, psm.BaseSequence, psm.FullSequence,
                         psm.PeptideMonisotopicMass.Value, psm.ScanRetentionTime, psm.ScanPrecursorCharge, psmToProteinGroups[psm]));
+
                 }
             }
 
@@ -612,6 +618,35 @@ namespace TaskLayer
             WriteSpectralLibrary(spectraLibrary, Parameters.OutputFolder);
         }
 
+        //for those spectra matching the same peptide/protein with same charge, save the one with highest score
+        private void SpectralLibraryGeneration()
+        {
+            var FilteredPsmList = Parameters.AllPsms
+               .Where(p => p.FdrInfo.PEP_QValue <= 0.01 && p.FdrInfo.QValueNotch <= CommonParameters.QValueOutputFilter).ToList();
+            FilteredPsmList.RemoveAll(b => b.IsDecoy);
+            FilteredPsmList.RemoveAll(b => b.IsContaminant);
+            //group psms by peptide and charge, the psms having same sequence and same charge will be in the same group
+            Dictionary<(String, int), List<PeptideSpectralMatch>> PsmsGroupByPeptideAndCharge = new Dictionary<(String, int), List<PeptideSpectralMatch>>();
+            foreach (var x in FilteredPsmList)
+            {
+                List<PeptideSpectralMatch> psmsWithSamePeptideAndSameCharge = FilteredPsmList.Where(b => b.FullSequence == x.FullSequence && b.ScanPrecursorCharge == x.ScanPrecursorCharge).OrderByDescending(p => p.Score).ToList();
+                (String, int) peptideWithChargeState = (x.FullSequence, x.ScanPrecursorCharge);
+                
+                if (!PsmsGroupByPeptideAndCharge.ContainsKey(peptideWithChargeState))
+                {
+                    PsmsGroupByPeptideAndCharge.Add(peptideWithChargeState, psmsWithSamePeptideAndSameCharge);
+                }
+            }
+            var spectraLibrary = new List<LibrarySpectrum>();
+            foreach(var psm in PsmsGroupByPeptideAndCharge)
+            {
+                var standardSpectrum = new LibrarySpectrum(psm.Value[0].FullSequence, psm.Value[0].ScanPrecursorMonoisotopicPeakMz, psm.Value[0].ScanPrecursorCharge, psm.Value[0].MatchedFragmentIons, psm.Value[0].ScanRetentionTime);
+                spectraLibrary.Add(standardSpectrum);
+            }
+            WriteSpectralLibrary(spectraLibrary, Parameters.OutputFolder);
+
+        }
+       
         private void WriteProteinResults()
         {
             if (Parameters.SearchParameters.DoParsimony)
@@ -737,6 +772,139 @@ namespace TaskLayer
                     }
                 }
             }
+        }
+
+
+        // Shouldn't be public, just for testing
+        // Extremely temporary
+        public void PostQuantificationMbrAnalysis()
+        {
+            if (!Parameters.SearchParameters.DoMbrAnalysis)
+            {
+                return;
+            }
+
+            // Need to write a temporary method to get all Peptides, get best spectral match for each
+            // Then iterate through, calling the MiniClassicSearchEngine for each, to ensure that the correct scan is being picked up
+
+
+
+        }
+
+        // Shouldn't be public, just for testing
+        public void PostQuantificationMbrAnalysis2()
+        {
+            if (!Parameters.SearchParameters.DoMbrAnalysis)
+            {
+                return;
+            }
+
+            List<SpectraFileInfo> spectraFiles = Parameters.FlashLfqResults.Peaks.Select(p => p.Key).ToList();
+            List<PeptideSpectralMatch> allPeptides = GetAllPeptides();
+
+            foreach (SpectraFileInfo spectraFile in spectraFiles)
+            {
+                List<ChromatographicPeak> fileSpecificMbrPeaks = Parameters.FlashLfqResults.Peaks[spectraFile].Where(p=>p.IsMbrPeak).ToList();
+                if (fileSpecificMbrPeaks == null || (!fileSpecificMbrPeaks.Any())) break;
+
+                MyFileManager myFileManager = new MyFileManager(true);
+                MsDataFile myMsDataFile = myFileManager.LoadFile(spectraFile.FullFilePathWithExtension, CommonParameters);
+                MassDiffAcceptor MassDiffAcceptor = SearchTask.GetMassDiffAcceptor(CommonParameters.PrecursorMassTolerance, Parameters.SearchParameters.MassDiffAcceptorType, Parameters.SearchParameters.CustomMdac);
+                Ms2ScanWithSpecificMass[] arrayOfMs2ScansSortedByRT = GetMs2Scans(myMsDataFile, spectraFile.FullFilePathWithExtension, CommonParameters).OrderBy(b => b.TheScan.RetentionTime).ToArray();
+                Double[] arrayOfRTs = arrayOfMs2ScansSortedByRT.Select(p => p.TheScan.RetentionTime).ToArray();
+
+                foreach (ChromatographicPeak pk in fileSpecificMbrPeaks)
+                {
+                    PeptideSpectralMatch bestDonorPsm = allPeptides.Where(p => p.FullSequence == pk.Identifications.First().ModifiedSequence).First();
+                    PeptideWithSetModifications bestDonorPwsm = bestDonorPsm.BestMatchingPeptides.First().Peptide;
+                    double monoIsotopicMass = bestDonorPsm.PeptideMonisotopicMass.Value;
+
+                    // Find MS2 scans falling within the relevant time window.
+                    double apexRT = pk.Apex.IndexedPeak.RetentionTime;
+                    double peakHalfWidth = 1.0; //Placeholder value to determine retention time window
+                    //int startIndex = FindNearest(arrayOfRTs, apexRT - peakHalfWidth);
+                    int startIndex = Array.BinarySearch(arrayOfRTs, apexRT - peakHalfWidth);
+                    if (startIndex < 0)
+                        startIndex = ~startIndex;
+                    int endIndex = Array.BinarySearch(arrayOfRTs, apexRT + peakHalfWidth);
+                    if (endIndex < 0)
+                        endIndex = ~endIndex;
+                    Ms2ScanWithSpecificMass[] arrayOfMs2ScansSortedByMass = arrayOfMs2ScansSortedByRT[startIndex..endIndex].OrderBy(b => b.PrecursorMass).ToArray();
+                    
+                   MiniClassicSearchEngine mcse = new(bestDonorPwsm, arrayOfMs2ScansSortedByMass, Parameters.VariableModifications, Parameters.FixedModifications,
+                       MassDiffAcceptor, CommonParameters, FileSpecificParameters, Parameters.SpectralLibrary, new List<string> { Parameters.SearchTaskId });
+                    
+                   mcse.Run(); 
+                }
+            }
+
+        }
+
+        private int FindNearest(double[] sortedArray, double targetVal)
+        {
+            double epsilon = 0.01;
+            int m = 0;
+            int l = 0;
+            int r = sortedArray.Length - 1;
+
+            if (targetVal > sortedArray[r])
+            {
+                return r;
+            } 
+
+            while (l <= r)
+            {
+                m = l + ((r - l) / 2);
+
+                if (r - l < 2)
+                {
+                    break;
+                }
+                if (sortedArray[m] < targetVal)
+                {
+                    l = m + 1;
+                }
+                else
+                {
+                    r = m - 1;
+                }
+            }
+
+            for (int i = m; i >= 0; i--)
+            {
+                if (Math.Abs(sortedArray[i]-targetVal) < epsilon)
+                {
+                    break;
+                }
+
+                m--;
+            }
+
+            if (m < 0)
+            {
+                m = 0;
+            }
+
+            return m;
+            
+        }
+
+        private List<PeptideSpectralMatch> GetAllPeptides()
+        {
+            List<PeptideSpectralMatch> peptides = Parameters.AllPsms.GroupBy(b => b.FullSequence).Select(b => b.FirstOrDefault()).ToList();
+
+            new FdrAnalysisEngine(peptides, Parameters.NumNotches, CommonParameters, this.FileSpecificParameters, new List<string> { Parameters.SearchTaskId }, "Peptide").Run();
+
+            if (!Parameters.SearchParameters.WriteDecoys)
+            {
+                peptides.RemoveAll(b => b.IsDecoy);
+            }
+            if (!Parameters.SearchParameters.WriteContaminants)
+            {
+                peptides.RemoveAll(b => b.IsContaminant);
+            }
+            peptides.RemoveAll(p => p.FdrInfo.QValue > CommonParameters.QValueOutputFilter);
+            return peptides;
         }
 
         private void WritePrunedDatabase()
