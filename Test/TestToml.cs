@@ -160,6 +160,10 @@ namespace Test
             Assert.AreEqual("Asp-N", fsp.Protease.Name);
             Assert.AreEqual("HPLC", fsp.SeparationType.ToString());
 
+            filePath = Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData\\Task1-SearchTaskconfig.toml");
+            fileSpecificToml = Toml.ReadFile(filePath, MetaMorpheusTask.tomlConfig);
+            fsp = new FileSpecificParameters(fileSpecificToml);
+
             FileSpecificParameters.ValidateFileSpecificVariableNames();
 
             filePath = Path.Combine(TestContext.CurrentContext.TestDirectory, "testFileParams_bad.toml");

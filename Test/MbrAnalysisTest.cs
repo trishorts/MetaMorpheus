@@ -79,14 +79,16 @@ namespace Test
             string outputFolder = Path.Combine(TestContext.CurrentContext.TestDirectory, @"TestMbrAnalysisOutput");
 
             FileSpecificParameters[] fileSpecificParameters = new FileSpecificParameters[1];
-            var filePath = Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData\\SearchTaskTester.toml");
+            var filePath = Path.Combine(TestContext.CurrentContext.TestDirectory, @"TestData\FileSpecificActual.toml");
             var fileSpecificToml = Toml.ReadFile(filePath, MetaMorpheusTask.tomlConfig);
             fileSpecificParameters[0] = new FileSpecificParameters(fileSpecificToml);
 
+            
             List<PeptideSpectralMatch> allPsms = classicSearch.RunForPTMs(outputFolder, new List<DbForTask> { new DbForTask(fastaName, false) }, rawSlices, "PtmReturn", fileSpecificParameters);
 
             var engine = new EverythingRunnerEngine(new List<(string, MetaMorpheusTask)> { ("ClassicSearch", classicSearch) }, rawSlices, new List<DbForTask> { new DbForTask(fastaName, false) }, outputFolder);
             engine.Run();
+
 
             string classicPath = Path.Combine(outputFolder, @"ClassicSearch\AllPSMs.psmtsv");
             var classicPsms = File.ReadAllLines(classicPath).ToList();

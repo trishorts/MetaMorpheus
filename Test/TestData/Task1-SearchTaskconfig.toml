@@ -1,5 +1,3 @@
-TaskType = "Search"
-
 [SearchParameters]
 DisposeOfFileWhenDone = true
 DoParsimony = false

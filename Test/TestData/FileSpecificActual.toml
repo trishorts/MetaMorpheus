@@ -1,0 +1,11 @@
+ProductMassTolerance = "±20.0000 PPM"
+PrecursorMassTolerance = "±5.0000 PPM"
+MinPeptideLength = 7
+MaxPeptideLength = 2147483647
+MaxModsForPeptide = 2
+Protease = "trypsin"
+DissociationType = "LowCID"
+MaxMissedCleavages = 2
+SeparationType = "HPLC"
+
+

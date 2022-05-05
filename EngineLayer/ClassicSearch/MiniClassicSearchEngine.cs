@@ -110,9 +110,11 @@ namespace EngineLayer.ClassicSearch
             //foreach (PeptideSpectralMatch psm in PeptideSpectralMatches.Where(p => p != null))
             IEnumerable<PeptideSpectralMatch> matchedSpectra = PeptideSpectralMatches.Where(p => p != null);
             int numMatches = matchedSpectra.Count();
+            int matchScanNumber = 0;
             foreach (PeptideSpectralMatch psm in matchedSpectra)
             {
                 psm.ResolveAllAmbiguities();
+                matchScanNumber = psm.ScanNumber;
             }
 
             CalculateSpectralAngles(SpectralLibrary, PeptideSpectralMatches, ArrayOfSortedMS2Scans, CommonParameters);
