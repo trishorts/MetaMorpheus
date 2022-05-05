@@ -798,7 +798,7 @@ namespace TaskLayer
 
         }
 
-        // Shouldn't be public, just for testing
+        // This is how the MbrAnalysis will actually be implemented.  The above method is used for temporary testing
         public void PostQuantificationMbrAnalysis2()
         {
             if (!Parameters.SearchParameters.DoMbrAnalysis)
