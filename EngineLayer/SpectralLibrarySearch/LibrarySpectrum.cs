@@ -1,5 +1,4 @@
 ﻿using Proteomics.Fragmentation;
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -19,6 +18,7 @@ namespace EngineLayer
         public int ChargeState { get; set; }
         public List<MatchedFragmentIon> MatchedFragmentIons { get; set; }
         public bool IsDecoy { get; set; }
+
         public double[] XArray { get; private set; }
         public double[] YArray { get; private set; }
         public string Name

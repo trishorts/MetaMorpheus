@@ -80,7 +80,7 @@ namespace TaskLayer
             {
                 SpectralLibraryGeneration();
             }
-            if (Parameters.ProteinList.Any((p => p.AppliedSequenceVariations.Count() > 0)))
+            if (Parameters.ProteinList.Any((p => p.AppliedSequenceVariations.Count > 0)))
             {
                 WriteVariantResults();
             }
@@ -207,7 +207,7 @@ namespace TaskLayer
                     File.Copy(assumedExperimentalDesignPath, writtenFile, overwrite: true);
                     FinishedWritingFile(writtenFile, new List<string> { Parameters.SearchTaskId });
                 }
-                catch (Exception e)
+                catch
                 {
                     Warn("Could not copy Experimental Design file to search task output. That's ok, the search will continue");
                 }
@@ -603,20 +603,19 @@ namespace TaskLayer
             {
                 List<PeptideSpectralMatch> psmsWithSamePeptideAndSameCharge = FilteredPsmList.Where(b => b.FullSequence == x.FullSequence && b.ScanPrecursorCharge == x.ScanPrecursorCharge).OrderByDescending(p => p.Score).ToList();
                 (String, int) peptideWithChargeState = (x.FullSequence, x.ScanPrecursorCharge);
-                
+
                 if (!PsmsGroupByPeptideAndCharge.ContainsKey(peptideWithChargeState))
                 {
                     PsmsGroupByPeptideAndCharge.Add(peptideWithChargeState, psmsWithSamePeptideAndSameCharge);
                 }
             }
             var spectraLibrary = new List<LibrarySpectrum>();
-            foreach(var psm in PsmsGroupByPeptideAndCharge)
+            foreach (var psm in PsmsGroupByPeptideAndCharge)
             {
                 var standardSpectrum = new LibrarySpectrum(psm.Value[0].FullSequence, psm.Value[0].ScanPrecursorMonoisotopicPeakMz, psm.Value[0].ScanPrecursorCharge, psm.Value[0].MatchedFragmentIons, psm.Value[0].ScanRetentionTime);
                 spectraLibrary.Add(standardSpectrum);
             }
             WriteSpectralLibrary(spectraLibrary, Parameters.OutputFolder);
-
         }
        
         private void WriteProteinResults()
@@ -692,15 +691,14 @@ namespace TaskLayer
                         {
                             mzidFilePath = Path.Combine(Parameters.IndividualResultsOutputFolder, strippedFileName + ".mzID");
                         }
-                        MzIdentMLWriter.WriteMzIdentMl(psmsForThisFile.Where(p => p.FdrInfo.QValue <= CommonParameters.QValueOutputFilter), 
+                        MzIdentMLWriter.WriteMzIdentMl(psmsForThisFile.Where(p => p.FdrInfo.QValue <= CommonParameters.QValueOutputFilter),
                             subsetProteinGroupsForThisFile, Parameters.VariableModifications, Parameters.FixedModifications, Parameters.SearchParameters.SilacLabels,
                             new List<Protease> { CommonParameters.DigestionParams.Protease }, CommonParameters.QValueOutputFilter, CommonParameters.ProductMassTolerance,
-                            CommonParameters.PrecursorMassTolerance, CommonParameters.DigestionParams.MaxMissedCleavages, mzidFilePath, 
+                            CommonParameters.PrecursorMassTolerance, CommonParameters.DigestionParams.MaxMissedCleavages, mzidFilePath,
                             Parameters.SearchParameters.IncludeModMotifInMzid);
 
                         FinishedWritingFile(mzidFilePath, new List<string> { Parameters.SearchTaskId, "Individual Spectra Files", fullFilePath });
                     }
-
 
                     // write pepXML
                     if (Parameters.SearchParameters.WritePepXml)
@@ -757,8 +755,44 @@ namespace TaskLayer
                 return;
             }
 
-            // Need to write a temporary method to get all Peptides, get best spectral match for each
-            // Then iterate through, calling the MiniClassicSearchEngine for each, to ensure that the correct scan is being picked up
+            List<PeptideSpectralMatch> allPeptides = GetAllPeptides();
+            string spectraFile = Parameters.CurrentRawFileList.First();
+
+            //List<ChromatographicPeak> fileSpecificMbrPeaks = Parameters.FlashLfqResults.Peaks[spectraFile].Where(p => p.IsMbrPeak).ToList();
+            //if (fileSpecificMbrPeaks == null || (!fileSpecificMbrPeaks.Any())) break;
+
+            MyFileManager myFileManager = new MyFileManager(true);
+            MsDataFile myMsDataFile = myFileManager.LoadFile(spectraFile, CommonParameters);
+            MassDiffAcceptor MassDiffAcceptor = SearchTask.GetMassDiffAcceptor(CommonParameters.PrecursorMassTolerance, Parameters.SearchParameters.MassDiffAcceptorType, Parameters.SearchParameters.CustomMdac);
+            Ms2ScanWithSpecificMass[] arrayOfMs2ScansSortedByRT = GetMs2Scans(myMsDataFile, spectraFile, CommonParameters).OrderBy(b => b.TheScan.RetentionTime).ToArray();
+            Double[] arrayOfRTs = arrayOfMs2ScansSortedByRT.Select(p => p.TheScan.RetentionTime).ToArray();
+
+            foreach (PeptideSpectralMatch psm in Parameters.AllPsms)
+            {
+                PeptideSpectralMatch bestDonorPsm = allPeptides.Where(p => p.FullSequence == psm.FullSequence).First();
+                PeptideWithSetModifications bestDonorPwsm = bestDonorPsm.BestMatchingPeptides.First().Peptide;
+                double monoIsotopicMass = bestDonorPsm.PeptideMonisotopicMass.Value;
+
+                // Find MS2 scans falling within the relevant time window.
+                double apexRT = psm.ScanRetentionTime;
+                double peakHalfWidth = 1.0; //Placeholder value to determine retention time window
+                //int startIndex = FindNearest(arrayOfRTs, apexRT - peakHalfWidth);
+                int startIndex = Array.BinarySearch(arrayOfRTs, apexRT - peakHalfWidth);
+                if (startIndex < 0)
+                    startIndex = ~startIndex;
+                int endIndex = Array.BinarySearch(arrayOfRTs, apexRT + peakHalfWidth);
+                if (endIndex < 0)
+                    endIndex = ~endIndex;
+                Ms2ScanWithSpecificMass[] arrayOfMs2ScansSortedByMass = arrayOfMs2ScansSortedByRT[startIndex..endIndex].OrderBy(b => b.PrecursorMass).ToArray();
+
+                MiniClassicSearchEngine mcse = new(bestDonorPwsm, arrayOfMs2ScansSortedByMass, Parameters.VariableModifications, Parameters.FixedModifications,
+                    MassDiffAcceptor, CommonParameters, FileSpecificParameters, Parameters.SpectralLibrary, new List<string> { Parameters.SearchTaskId });
+
+                int oneBasedScanNum = psm.MsDataScan.OneBasedScanNumber;
+
+                mcse.Run();
+                
+            }
 
 
 
@@ -774,6 +808,7 @@ namespace TaskLayer
 
             List<SpectraFileInfo> spectraFiles = Parameters.FlashLfqResults.Peaks.Select(p => p.Key).ToList();
             List<PeptideSpectralMatch> allPeptides = GetAllPeptides();
+            
 
             foreach (SpectraFileInfo spectraFile in spectraFiles)
             {
@@ -811,55 +846,6 @@ namespace TaskLayer
                 }
             }
 
-        }
-
-        private int FindNearest(double[] sortedArray, double targetVal)
-        {
-            double epsilon = 0.01;
-            int m = 0;
-            int l = 0;
-            int r = sortedArray.Length - 1;
-
-            if (targetVal > sortedArray[r])
-            {
-                return r;
-            } 
-
-            while (l <= r)
-            {
-                m = l + ((r - l) / 2);
-
-                if (r - l < 2)
-                {
-                    break;
-                }
-                if (sortedArray[m] < targetVal)
-                {
-                    l = m + 1;
-                }
-                else
-                {
-                    r = m - 1;
-                }
-            }
-
-            for (int i = m; i >= 0; i--)
-            {
-                if (Math.Abs(sortedArray[i]-targetVal) < epsilon)
-                {
-                    break;
-                }
-
-                m--;
-            }
-
-            if (m < 0)
-            {
-                m = 0;
-            }
-
-            return m;
-            
         }
 
         private List<PeptideSpectralMatch> GetAllPeptides()
@@ -1095,7 +1081,6 @@ namespace TaskLayer
                                 sv.OneBasedModifications.Add(kvp.Key.Item2, kvp.Value);
                             }
                         }
-
                     }
                 }
 
@@ -1145,7 +1130,6 @@ namespace TaskLayer
                             }
                         }
                     }
-
                 }
             }
         }
@@ -1289,7 +1273,7 @@ namespace TaskLayer
                     var residue = mod.Key;
                     var peptideModsIdentified = mod.Value.Intersect(peptideMods).ToList().Count;
                     var modOnVariant = variants.Where(p => p.OneBasedBeginPosition >= residue && p.OneBasedEndPosition <= residue);
-                    if (modOnVariant.Count() > 0 && peptideModsIdentified != 0)
+                    if (modOnVariant.Any() && peptideModsIdentified != 0)
                     {
                         modifiedVariant = true;
                     }
@@ -1566,7 +1550,7 @@ namespace TaskLayer
             using (StreamWriter output = new StreamWriter(writtenFileForPercolator))
             {
                 string searchType;
-                if (psmList.Where(p => p != null).Count() > 0 && psmList[0].DigestionParams.Protease.Name != null && psmList[0].DigestionParams.Protease.Name == "top-down")
+                if (psmList.Where(p => p != null).Any() && psmList[0].DigestionParams.Protease.Name != null && psmList[0].DigestionParams.Protease.Name == "top-down")
                 {
                     searchType = "top-down";
                 }
@@ -1609,7 +1593,6 @@ namespace TaskLayer
                         output.WriteLine();
                     }
                     idNumber++;
-
                 }
             }
         }
