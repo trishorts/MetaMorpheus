@@ -912,7 +912,8 @@ namespace EngineLayer
             return psm.SpectralAngle >= 0;
         }
 
-            public static bool ContainsModificationsThatShiftMobility(IEnumerable<Modification> modifications)
+
+        public static bool ContainsModificationsThatShiftMobility(IEnumerable<Modification> modifications)
         {
             List<string> shiftingModifications = new List<string> { "Acetylation", "Ammonia loss", "Carbamyl", "Deamidation", "Formylation",
                 "N2-acetylarginine", "N6-acetyllysine", "N-acetylalanine", "N-acetylaspartate", "N-acetylcysteine", "N-acetylglutamate", "N-acetylglycine",

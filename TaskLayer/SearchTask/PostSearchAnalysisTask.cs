@@ -617,7 +617,7 @@ namespace TaskLayer
             }
             WriteSpectralLibrary(spectraLibrary, Parameters.OutputFolder);
         }
-       
+        
         private void WriteProteinResults()
         {
             if (Parameters.SearchParameters.DoParsimony)
@@ -821,14 +821,17 @@ namespace TaskLayer
                 Ms2ScanWithSpecificMass[] arrayOfMs2ScansSortedByRT = GetMs2Scans(myMsDataFile, spectraFile.FullFilePathWithExtension, CommonParameters).OrderBy(b => b.TheScan.RetentionTime).ToArray();
                 Double[] arrayOfRTs = arrayOfMs2ScansSortedByRT.Select(p => p.TheScan.RetentionTime).ToArray();
 
-                foreach (ChromatographicPeak pk in fileSpecificMbrPeaks)
+
+                foreach (ChromatographicPeak mbrPeak in fileSpecificMbrPeaks)
                 {
-                    PeptideSpectralMatch bestDonorPsm = allPeptides.Where(p => p.FullSequence == pk.Identifications.First().ModifiedSequence).First();
+                    //TODO: check if this really is the best donor PSM. Is there a way to get the peptide from the flashLFQ results? Maybe this is better anyway, IDK
+                    PeptideSpectralMatch bestDonorPsm = allPeptides.Where(p => p.FullSequence == mbrPeak.Identifications.First().ModifiedSequence).First();
                     PeptideWithSetModifications bestDonorPwsm = bestDonorPsm.BestMatchingPeptides.First().Peptide;
                     double monoIsotopicMass = bestDonorPsm.PeptideMonisotopicMass.Value;
 
                     // Find MS2 scans falling within the relevant time window.
-                    double apexRT = pk.Apex.IndexedPeak.RetentionTime;
+
+                    double apexRT = pk.Apex.IndexedPeak.RetentionTime
                     double peakHalfWidth = 1.0; //Placeholder value to determine retention time window
                     //int startIndex = FindNearest(arrayOfRTs, apexRT - peakHalfWidth);
                     int startIndex = Array.BinarySearch(arrayOfRTs, apexRT - peakHalfWidth);
@@ -845,7 +848,6 @@ namespace TaskLayer
                    mcse.Run(); 
                 }
             }
-
         }
 
         private List<PeptideSpectralMatch> GetAllPeptides()

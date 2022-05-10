@@ -52,15 +52,13 @@ namespace Test
             string fastaName = @"TestData\MbrTestData\MbrDataPrunedDB.fasta";
             string outputFolder = Path.Combine(TestContext.CurrentContext.TestDirectory, @"TestMbrAnalysisOutput");
 
-            var engine = new EverythingRunnerEngine(new List<(string, MetaMorpheusTask)> { ("ClassicSearch", classicSearch) , ("PostSearchAnalysis", postSearchTask) }, rawSlices, new List<DbForTask> { new DbForTask(fastaName, false) }, outputFolder);
+            var engine = new EverythingRunnerEngine(new List<(string, MetaMorpheusTask)> { ("ClassicSearch", classicSearch), ("PostSearchAnalysis", postSearchTask) }, rawSlices, new List<DbForTask> { new DbForTask(fastaName, false) }, outputFolder);
             engine.Run();
 
             // Not sure what's going on here
             // Still have to determine best way to write the results of MBR analysis
             string classicPath = Path.Combine(outputFolder, @"ClassicSearch\AllPSMs.psmtsv");
             var classicPsms = File.ReadAllLines(classicPath).ToList();
-
-          
         }
 
         [Test]
@@ -125,7 +123,6 @@ namespace Test
                 {
                     file = f1r2;
                 }
-
                 string baseSequence = split[12];
                 string fullSequence = split[13];
                 double monoMass = double.Parse(split[21]);
@@ -145,6 +142,7 @@ namespace Test
                         proteinGroups.Add(allProteinGroups[protein]);
                     }
                 }
+
 
                 Identification id = new Identification(file, baseSequence, fullSequence, monoMass, rt, z, proteinGroups);
                 ids.Add(id);
@@ -175,7 +173,6 @@ namespace Test
 
             double corr = Correlation.Pearson(peptideIntensities.Select(p => p.Item1), peptideIntensities.Select(p => p.Item2));
             Assert.That(corr > 0.8);
-
             peptideIntensities.Clear();
             foreach (var peptide in f1r2MbrResults)
             {
@@ -183,11 +180,9 @@ namespace Test
                 double msmsIntensity = Math.Log(peptide.Value.GetIntensity(f1r1));
                 peptideIntensities.Add((mbrIntensity, msmsIntensity));
             }
-
+            
             corr = Correlation.Pearson(peptideIntensities.Select(p => p.Item1), peptideIntensities.Select(p => p.Item2));
-
             Assert.That(corr > 0.7);
-
             // the "requireMsmsIdInCondition" field requires that at least one MS/MS identification from a protein
             // has to be observed in a condition for match-between-runs
             f1r1.Condition = "b";
@@ -205,3 +200,4 @@ namespace Test
 
     }
 }
+
