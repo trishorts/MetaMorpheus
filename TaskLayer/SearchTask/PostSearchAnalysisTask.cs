@@ -64,7 +64,6 @@ namespace TaskLayer
             DoMassDifferenceLocalizationAnalysis();
             ProteinAnalysis();
             QuantificationAnalysis();
-            PostQuantificationMbrAnalysis();
 
             ReportProgress(new ProgressEventArgs(100, "Done!", new List<string> { Parameters.SearchTaskId, "Individual Spectra Files" }));
 
@@ -76,6 +75,7 @@ namespace TaskLayer
             if (Parameters.SearchParameters.WriteSpectralLibrary)
             {
                 SpectralLibraryGeneration();
+                PostQuantificationMbrAnalysis(); // TODO: Create MbrAnalysis that doesn't crash if no SpectralLibrary is present
             }
             if (Parameters.ProteinList.Any((p => p.AppliedSequenceVariations.Count > 0)))
             {

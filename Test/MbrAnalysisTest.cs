@@ -30,7 +30,8 @@ namespace Test
             {
                 SearchParameters = new SearchParameters()
                 {
-                    MatchBetweenRuns = true
+                    MatchBetweenRuns = true,
+                    WriteSpectralLibrary = true
                 }
             };
 
@@ -40,7 +41,8 @@ namespace Test
                 {
                     SearchParameters = new SearchParameters()
                     {
-                        MatchBetweenRuns = true
+                        MatchBetweenRuns = true,
+                        WriteSpectralLibrary = true
                     }
                 },
                 CommonParameters = new CommonParameters(),
