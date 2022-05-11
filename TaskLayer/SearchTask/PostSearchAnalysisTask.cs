@@ -757,8 +757,10 @@ namespace TaskLayer
 
                 MyFileManager myFileManager = new(true);
                 MsDataFile myMsDataFile = myFileManager.LoadFile(spectraFile.FullFilePathWithExtension, CommonParameters);
-                MassDiffAcceptor massDiffAcceptor = SearchTask.GetMassDiffAcceptor(CommonParameters.PrecursorMassTolerance, Parameters.SearchParameters.MassDiffAcceptorType, Parameters.SearchParameters.CustomMdac);
-                Ms2ScanWithSpecificMass[] arrayOfMs2ScansSortedByRT = GetMs2Scans(myMsDataFile, spectraFile.FullFilePathWithExtension, CommonParameters).OrderBy(b => b.RetentionTime).ToArray();
+                MassDiffAcceptor massDiffAcceptor = SearchTask.GetMassDiffAcceptor(CommonParameters.PrecursorMassTolerance,
+                    Parameters.SearchParameters.MassDiffAcceptorType, Parameters.SearchParameters.CustomMdac);
+                Ms2ScanWithSpecificMass[] arrayOfMs2ScansSortedByRT = GetMs2Scans(myMsDataFile, spectraFile.FullFilePathWithExtension, CommonParameters)
+                    .OrderBy(b => b.RetentionTime).ToArray();
                 double[] arrayOfRTs = arrayOfMs2ScansSortedByRT.Select(p => p.TheScan.RetentionTime).ToArray();
 
                 foreach (ChromatographicPeak mbrPeak in fileSpecificMbrPeaks)
@@ -771,7 +773,6 @@ namespace TaskLayer
                     // Find MS2 scans falling within the relevant time window.
                     double apexRT = mbrPeak.Apex.IndexedPeak.RetentionTime;
                     double peakHalfWidth = 1.0; //Placeholder value to determine retention time window
-                    //int startIndex = FindNearest(arrayOfRTs, apexRT - peakHalfWidth);
                     int startIndex = Array.BinarySearch(arrayOfRTs, apexRT - peakHalfWidth);
                     if (startIndex < 0)
                         startIndex = ~startIndex;
