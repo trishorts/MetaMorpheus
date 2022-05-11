@@ -786,8 +786,11 @@ namespace TaskLayer
                     PeptideSpectralMatch[] peptideSpectralMatches = new PeptideSpectralMatch[arrayOfMs2ScansSortedByRT.Count()];
                     MiniClassicSearchEngine mcse = new(bestDonorPwsm, peptideSpectralMatches, arrayOfMs2ScansSortedByMass, Parameters.VariableModifications, Parameters.FixedModifications,
                         massDiffAcceptor, CommonParameters, FileSpecificParameters, library, new List<string> { Parameters.SearchTaskId });
+                    
 
-                    mcse.Run(); 
+                    mcse.Run();
+                    //List<PeptideSpectralMatch> acceptablePSMs = peptideSpectralMatches.Where(p => p != null).ToList();
+                    //int placeholder = 0;
                 }
             }
         }

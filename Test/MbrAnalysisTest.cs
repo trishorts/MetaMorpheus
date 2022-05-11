@@ -45,7 +45,7 @@ namespace Test
                         WriteSpectralLibrary = true
                     }
                 },
-                CommonParameters = new CommonParameters(),
+                CommonParameters = new CommonParameters()
             };
             List<int> counts = new List<int>();
 
