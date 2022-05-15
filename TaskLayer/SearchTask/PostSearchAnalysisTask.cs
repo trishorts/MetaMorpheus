@@ -75,7 +75,7 @@ namespace TaskLayer
             if (Parameters.SearchParameters.WriteSpectralLibrary)
             {
                 SpectralLibraryGeneration();
-                PostQuantificationMbrAnalysis(); // TODO: Create MbrAnalysis that doesn't crash if no SpectralLibrary is present
+                PostQuantificationMbrAnalysis();
             }
             if (Parameters.ProteinList.Any((p => p.AppliedSequenceVariations.Count > 0)))
             {
@@ -749,6 +749,7 @@ namespace TaskLayer
             }
             List<SpectraFileInfo> spectraFiles = Parameters.FlashLfqResults.Peaks.Select(p => p.Key).ToList();
             List<PeptideSpectralMatch> allPeptides = GetAllPeptides();
+            List<(ChromatographicPeak, PeptideSpectralMatch)> bestPsmsForPeaks = new();
 
             foreach (SpectraFileInfo spectraFile in spectraFiles)
             {
@@ -762,6 +763,8 @@ namespace TaskLayer
                 Ms2ScanWithSpecificMass[] arrayOfMs2ScansSortedByRT = GetMs2Scans(myMsDataFile, spectraFile.FullFilePathWithExtension, CommonParameters)
                     .OrderBy(b => b.RetentionTime).ToArray();
                 double[] arrayOfRTs = arrayOfMs2ScansSortedByRT.Select(p => p.TheScan.RetentionTime).ToArray();
+
+                
 
                 foreach (ChromatographicPeak mbrPeak in fileSpecificMbrPeaks)
                 {
@@ -786,13 +789,67 @@ namespace TaskLayer
                     PeptideSpectralMatch[] peptideSpectralMatches = new PeptideSpectralMatch[arrayOfMs2ScansSortedByRT.Count()];
                     MiniClassicSearchEngine mcse = new(bestDonorPwsm, peptideSpectralMatches, arrayOfMs2ScansSortedByMass, Parameters.VariableModifications, Parameters.FixedModifications,
                         massDiffAcceptor, CommonParameters, FileSpecificParameters, library, new List<string> { Parameters.SearchTaskId });
-                    
-
                     mcse.Run();
-                    //List<PeptideSpectralMatch> acceptablePSMs = peptideSpectralMatches.Where(p => p != null).ToList();
-                    //int placeholder = 0;
+
+                    if (peptideSpectralMatches.Any())
+                    {
+                        bestPsmsForPeaks.Add((mbrPeak, BestPsmForMbrPeak(peptideSpectralMatches)));
+                    }
+
+                    //write result somewhere. 
                 }
             }
+            WriteMbrPsmResults(bestPsmsForPeaks);
+        }
+
+        private void WriteMbrPsmResults(List<(ChromatographicPeak, PeptideSpectralMatch)> bestPsmsForPeaks)
+        {
+            string mbrOutputPath = Path.Combine(Parameters.OutputFolder, @"MbrAnalysis.psmtsv");
+
+            using (StreamWriter output = new StreamWriter(mbrOutputPath))
+            {
+                output.WriteLine(TaskLayer.MbrWriter.TabSeparatedHeader);
+                foreach (var peak in bestPsmsForPeaks)
+                {
+                    if (peak.Item2 != null)
+                    {
+                        output.WriteLine(peak.Item2.ToString() + "\t" + peak.Item1.ToString());
+                    }
+                }
+            }
+        }
+
+        private PeptideSpectralMatch BestPsmForMbrPeak(PeptideSpectralMatch[] peptideSpectralMatches)
+        {
+            List<PeptideSpectralMatch> nonNullPsms = peptideSpectralMatches.Where(p=>p != null).ToList();
+
+            // Setting Qvalue, QValueNotch, PEP, and PEP_Qvalue equal to 0 is necessary for MetaDraw to read the .psmtsv
+            FdrInfo zeroFdr = new FdrInfo
+            {
+                CumulativeTarget = 0,
+                CumulativeDecoy =0,
+                QValue = 0,
+                CumulativeTargetNotch = 0,
+                CumulativeDecoyNotch = 0,
+                QValueNotch = 0,
+                PEP = 0,
+                PEP_QValue = 0
+            };
+
+            if(nonNullPsms.Any())
+            {
+                foreach (PeptideSpectralMatch psm in nonNullPsms)
+                {
+                    psm.FdrInfo = zeroFdr;
+                }
+                if (nonNullPsms.Select(p=>p.SpectralAngle).Any(g=>g != double.NaN))
+                {
+                    double maxSpectralAngle = nonNullPsms.Select(p => p.SpectralAngle).Max();
+                    return nonNullPsms.Where(p => p.SpectralAngle == maxSpectralAngle).FirstOrDefault();
+                }
+                return nonNullPsms.FirstOrDefault();  
+            }
+            return null;
         }
 
         private List<PeptideSpectralMatch> GetAllPeptides()
