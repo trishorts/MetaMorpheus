@@ -805,7 +805,6 @@ namespace TaskLayer
         private void WriteMbrPsmResults(List<(ChromatographicPeak, PeptideSpectralMatch)> bestPsmsForPeaks)
         {
             string mbrOutputPath = Path.Combine(Parameters.OutputFolder, @"MbrAnalysis.psmtsv");
-
             using (StreamWriter output = new StreamWriter(mbrOutputPath))
             {
                 output.WriteLine(TaskLayer.MbrWriter.TabSeparatedHeader);
@@ -814,6 +813,19 @@ namespace TaskLayer
                     if (peak.Item2 != null)
                     {
                         output.WriteLine(peak.Item2.ToString() + "\t" + peak.Item1.ToString());
+                    } 
+                }
+            }
+
+            string unmatchedPeaksPath = Path.Combine(Parameters.OutputFolder, @"UnmatchedPeaks.tsv");
+            using (StreamWriter output = new StreamWriter(unmatchedPeaksPath))
+            {
+                output.WriteLine(ChromatographicPeak.TabSeparatedHeader);
+                foreach (var peak in bestPsmsForPeaks)
+                {
+                    if (peak.Item2 == null)
+                    {
+                        output.WriteLine(peak.Item1.ToString());
                     }
                 }
             }
@@ -823,24 +835,12 @@ namespace TaskLayer
         {
             List<PeptideSpectralMatch> nonNullPsms = peptideSpectralMatches.Where(p=>p != null).ToList();
 
-            // Setting Qvalue, QValueNotch, PEP, and PEP_Qvalue equal to 0 is necessary for MetaDraw to read the .psmtsv
-            FdrInfo zeroFdr = new FdrInfo
-            {
-                CumulativeTarget = 0,
-                CumulativeDecoy =0,
-                QValue = 0,
-                CumulativeTargetNotch = 0,
-                CumulativeDecoyNotch = 0,
-                QValueNotch = 0,
-                PEP = 0,
-                PEP_QValue = 0
-            };
-
             if(nonNullPsms.Any())
             {
+                // Setting Qvalue, QValueNotch, PEP, and PEP_Qvalue equal to 0 is necessary for MetaDraw to read the .psmtsv
                 foreach (PeptideSpectralMatch psm in nonNullPsms)
                 {
-                    psm.FdrInfo = zeroFdr;
+                    psm.SetFdrValues(0,0,0,0,0,0,0,0);
                 }
                 if (nonNullPsms.Select(p=>p.SpectralAngle).Any(g=>g != double.NaN))
                 {

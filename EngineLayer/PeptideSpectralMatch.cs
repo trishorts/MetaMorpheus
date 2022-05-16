@@ -66,7 +66,7 @@ namespace EngineLayer
         public string FullFilePath { get; private set; }
         public int ScanIndex { get; }
         public int NumDifferentMatchingPeptides { get { return _BestMatchingPeptides.Count; } }
-        public FdrInfo FdrInfo { get; set; }
+        public FdrInfo FdrInfo { get; private set; }
         public PsmData PsmData_forPEPandPercolator { get; set; }
 
         public double Score { get; private set; }
