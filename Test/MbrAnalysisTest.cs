@@ -48,7 +48,6 @@ namespace Test
                 CommonParameters = new CommonParameters()
             };
             List<int> counts = new List<int>();
-
             List<string> rawSlices = new List<string> { 
                 Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData", @"MbrTestData\f1r1_sliced_mbr.raw"),
                 Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData", @"MbrTestData\f1r2_sliced_mbr.raw") };
@@ -64,7 +63,6 @@ namespace Test
             // Still have to determine best way to write the results of MBR analysis
             string classicPath = Path.Combine(outputFolder, @"ClassicSearch\AllPSMs.psmtsv");
             var classicPsms = File.ReadAllLines(classicPath).ToList();
-
 
         }*/
 
@@ -152,8 +150,6 @@ namespace Test
             var classicPsms = File.ReadAllLines(classicPath).ToList();
 
         }*/
-
-
 
 
         /*
