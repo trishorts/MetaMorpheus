@@ -131,23 +131,41 @@ namespace TaskLayer
 
             List<PeptideSpectralMatch> psmsForProteinParsimony = Parameters.AllPsms;
 
-            // run parsimony
-            ProteinParsimonyResults proteinAnalysisResults = (ProteinParsimonyResults)(new ProteinParsimonyEngine(psmsForProteinParsimony, Parameters.SearchParameters.ModPeptidesAreDifferent, CommonParameters, this.FileSpecificParameters, new List<string> { Parameters.SearchTaskId }).Run());
+            ProteinGroups = DoProteinParsimonyOnThesePsms(psmsForProteinParsimony, Parameters.SearchParameters.ModPeptidesAreDifferent, CommonParameters, this.FileSpecificParameters, new List<string> { Parameters.SearchTaskId }, Parameters.SearchParameters.NoOneHitWonders);
 
-            // score protein groups and calculate FDR
-            ProteinScoringAndFdrResults proteinScoringAndFdrResults = (ProteinScoringAndFdrResults)new ProteinScoringAndFdrEngine(proteinAnalysisResults.ProteinGroups, psmsForProteinParsimony,
-                Parameters.SearchParameters.NoOneHitWonders, Parameters.SearchParameters.ModPeptidesAreDifferent, true, CommonParameters, this.FileSpecificParameters, new List<string> { Parameters.SearchTaskId }).Run();
+            //// run parsimony
+            //ProteinParsimonyResults proteinAnalysisResults = (ProteinParsimonyResults)(new ProteinParsimonyEngine(psmsForProteinParsimony, Parameters.SearchParameters.ModPeptidesAreDifferent, CommonParameters, this.FileSpecificParameters, new List<string> { Parameters.SearchTaskId }).Run());
 
-            ProteinGroups = proteinScoringAndFdrResults.SortedAndScoredProteinGroups;
+            //// score protein groups and calculate FDR
+            //ProteinScoringAndFdrResults proteinScoringAndFdrResults = (ProteinScoringAndFdrResults)new ProteinScoringAndFdrEngine(proteinAnalysisResults.ProteinGroups, psmsForProteinParsimony,
+            //    Parameters.SearchParameters.NoOneHitWonders, Parameters.SearchParameters.ModPeptidesAreDifferent, true, CommonParameters, this.FileSpecificParameters, new List<string> { Parameters.SearchTaskId }).Run();
 
-            foreach (PeptideSpectralMatch psm in Parameters.AllPsms)
-            {
-                psm.ResolveAllAmbiguities();
-            }
+            //ProteinGroups = proteinScoringAndFdrResults.SortedAndScoredProteinGroups;
+
+            //foreach (PeptideSpectralMatch psm in Parameters.AllPsms)
+            //{
+            //    psm.ResolveAllAmbiguities();
+            //}
 
             Status("Done constructing protein groups!", Parameters.SearchTaskId);
         }
 
+        private static List<EngineLayer.ProteinGroup> DoProteinParsimonyOnThesePsms(List<PeptideSpectralMatch> psmsForProteinParsimony, bool modPeptidesAreDifferent, CommonParameters commonParameters, List<(string,CommonParameters)> fileSpecificParameters, List<string> parametersSearchTaskId, bool noOneHitWonders )
+        {
+            // run parsimony
+            ProteinParsimonyResults proteinAnalysisResults = (ProteinParsimonyResults)(new ProteinParsimonyEngine(psmsForProteinParsimony, modPeptidesAreDifferent, commonParameters, fileSpecificParameters, parametersSearchTaskId).Run());
+
+            // score protein groups and calculate FDR
+            ProteinScoringAndFdrResults proteinScoringAndFdrResults = (ProteinScoringAndFdrResults)new ProteinScoringAndFdrEngine(proteinAnalysisResults.ProteinGroups, psmsForProteinParsimony,
+                noOneHitWonders, modPeptidesAreDifferent, true, commonParameters, fileSpecificParameters, parametersSearchTaskId).Run();
+
+            foreach (PeptideSpectralMatch psm in psmsForProteinParsimony)
+            {
+                psm.ResolveAllAmbiguities();
+            }
+
+            return proteinScoringAndFdrResults.SortedAndScoredProteinGroups;
+        }
         private void DoMassDifferenceLocalizationAnalysis()
         {
             if (Parameters.SearchParameters.DoLocalizationAnalysis)
@@ -550,6 +568,7 @@ namespace TaskLayer
             Parameters.SearchTaskResults.AddPsmPeptideProteinSummaryText("All target PSMS within 1% FDR: " + Parameters.AllPsms.Count(a => a.FdrInfo.QValue <= 0.01 && !a.IsDecoy) + Environment.NewLine);
             if (Parameters.SearchParameters.DoParsimony)
             {
+
                 Parameters.SearchTaskResults.AddTaskSummaryText("All target protein groups within 1% FDR: " + ProteinGroups.Count(b => b.QValue <= 0.01 && !b.IsDecoy)
                     + Environment.NewLine);
             }
@@ -667,7 +686,30 @@ namespace TaskLayer
 
                     subsetProteinGroupsForThisFile = subsetProteinScoringAndFdrResults.SortedAndScoredProteinGroups;
 
+
+                    List<EngineLayer.ProteinGroup> letsTry = DoProteinParsimonyOnThesePsms(psmsForThisFile, Parameters.SearchParameters.ModPeptidesAreDifferent, CommonParameters, this.FileSpecificParameters, new List<string> { Parameters.SearchTaskId }, Parameters.SearchParameters.NoOneHitWonders);
+
+                    int letsTryCt = letsTry.Count(p => p.QValue < 0.01 && !p.IsDecoy);
+
+                    //delete
+                    var subsetPsmsCt = subsetProteinGroupsForThisFile.Count(b => b.QValue <= 0.01 && !b.IsDecoy);
+
                     Parameters.SearchTaskResults.AddTaskSummaryText("Target protein groups within 1 % FDR in " + strippedFileName + ": " + subsetProteinGroupsForThisFile.Count(b => b.QValue <= 0.01 && !b.IsDecoy));
+
+
+
+                    List<EngineLayer.ProteinGroup> letsTryAnother = new();
+                    foreach (EngineLayer.ProteinGroup pg in ProteinGroups)
+                    {
+                        if (pg.AllPsmsBelowOnePercentFDR.Select(f => f.FullFilePath).ToList().Contains(fullFilePath) && pg.QValue < 0.01 && !pg.IsDecoy)
+                        {
+                            letsTryAnother.Add(pg);
+                        }
+                    }
+
+
+                    int letsTryAnotherCt = letsTryAnother.Count();
+
 
                     // write individual spectra file protein groups results to tsv
                     if (Parameters.SearchParameters.WriteIndividualFiles && Parameters.CurrentRawFileList.Count > 1)
@@ -1036,7 +1078,10 @@ namespace TaskLayer
             WritePsmsToTsv(filteredPeptidesForOutput, writtenFile, Parameters.SearchParameters.ModsToWriteSelection);
             FinishedWritingFile(writtenFile, new List<string> { Parameters.SearchTaskId });
 
-            Parameters.SearchTaskResults.AddPsmPeptideProteinSummaryText("All target " + GlobalVariables.AnalyteType.ToLower() + "s within 1% FDR: " + filteredPeptidesForOutput.Count(a => !a.IsDecoy));
+            //delete
+            var ftPepCt = filteredPeptidesForOutput.Count(a => a.FdrInfo.QValue <= 0.01 && !a.IsDecoy);
+
+            Parameters.SearchTaskResults.AddPsmPeptideProteinSummaryText("All target " + GlobalVariables.AnalyteType.ToLower() + "s within 1% FDR: " + filteredPeptidesForOutput.Count(a => a.FdrInfo.QValue <= 0.01 && !a.IsDecoy));
 
             foreach (var file in PsmsGroupedByFile)
             {
@@ -1049,7 +1094,10 @@ namespace TaskLayer
                 && p.FdrInfo.QValueNotch <= CommonParameters.QValueOutputFilter
                 && (p.FdrInfo.PEP_QValue <= CommonParameters.PepQValueOutputFilter || double.IsNaN(p.FdrInfo.PEP_QValue))).ToList();
 
-                Parameters.SearchTaskResults.AddTaskSummaryText("Target " + GlobalVariables.AnalyteType.ToLower() + "s within 1% FDR in " + strippedFileName + ": " + filteredPeptidesForFile.Count(a => !a.IsDecoy) + Environment.NewLine);
+                //delete
+                var filtPsmsCt = filteredPeptidesForFile.Count(a => a.FdrInfo.QValue <= 0.01 && !a.IsDecoy);
+                
+                Parameters.SearchTaskResults.AddTaskSummaryText("Target " + GlobalVariables.AnalyteType.ToLower() + "s within 1% FDR in " + strippedFileName + ": " + filteredPeptidesForFile.Count(a => a.FdrInfo.QValue <= 0.01 && !a.IsDecoy) + Environment.NewLine);
 
                 // writes all individual spectra file search results to subdirectory
                 if (Parameters.CurrentRawFileList.Count > 1 && Parameters.SearchParameters.WriteIndividualFiles)
