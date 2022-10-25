@@ -15,7 +15,7 @@ namespace TaskLayer
 {
     public static class MzIdentMLWriter
     {
-        public static void WriteMzIdentMl(IEnumerable<PeptideSpectralMatch> psms, List<EngineLayer.ProteinGroup> groups, List<Modification> variableMods, 
+        public static void WriteMzIdentMl(IEnumerable<PeptideSpectralMatch> psms, List<ProteinGroup> groups, List<Modification> variableMods, 
             List<Modification> fixedMods, List<SilacLabel> silacLabels, List<Protease> proteases, double qValueFilter, Tolerance productTolerance, 
             Tolerance parentTolerance, int missedCleavages, string outputPath, bool appendMotifToModNames)
         {
