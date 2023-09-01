@@ -1,9 +1,14 @@
-﻿using EngineLayer;
+﻿using Easy.Common.Extensions;
+using EngineLayer;
 using MassSpectrometry;
+using NetSerializer;
+using Nett;
 using NUnit.Framework;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using MathNet.Numerics;
 using TaskLayer;
 
 namespace Test
@@ -79,6 +84,59 @@ namespace Test
             var closestExperimentalMassB = scanB.GetClosestExperimentalIsotopicEnvelope(10);
 
             Assert.IsNull(closestExperimentalMassB);
+        }
+
+        [Test]
+        public static void TestMs2ScanWithSpecificMassHiResVersusLowRes()
+        {
+            //load hi res data
+            MyFileManager myFileManager = new MyFileManager(true);
+            string origDataFile = Path.Combine(TestContext.CurrentContext.TestDirectory, @"TestData\sliced_b6.mzML");
+            MsDataFile myFile = myFileManager.LoadFile(origDataFile, new CommonParameters());
+
+            var highMs2Scans = SearchTask.GetMs2Scans(myFile,origDataFile,new CommonParameters());
+
+            Assert.AreEqual(447, highMs2Scans.Count());
+
+            List<double> highMs2PrecursorMasses = highMs2Scans.Select(b => b.PrecursorMass.Round(3)).ToList();
+
+            //switch to LowCID
+            MsDataFile lowFile = myFileManager.LoadFile(origDataFile, new CommonParameters(dissociationType:DissociationType.LowCID));
+
+            var lowMs2Scans = SearchTask.GetMs2Scans(lowFile, origDataFile, new CommonParameters(dissociationType: DissociationType.LowCID));
+
+            Assert.AreEqual(447, lowMs2Scans.Count());
+
+            List<double> lowMs2PrecursorMasses = lowMs2Scans.Select(b => b.PrecursorMass.Round(3)).ToList();
+
+            CollectionAssert.AreEquivalent(highMs2PrecursorMasses, lowMs2PrecursorMasses);
+        }
+
+
+        [Test]
+        public static void TestMs2ScanWithSpecificMassHiResVersusLowResCompIons()
+        {
+            //load hi res data
+            MyFileManager myFileManager = new MyFileManager(true);
+            string origDataFile = Path.Combine(TestContext.CurrentContext.TestDirectory, @"TestData\sliced_b6.mzML");
+            MsDataFile myFile = myFileManager.LoadFile(origDataFile, new CommonParameters(addCompIons: true));
+
+            var highMs2Scans = SearchTask.GetMs2Scans(myFile, origDataFile, new CommonParameters(addCompIons: true));
+
+            Assert.AreEqual(447, highMs2Scans.Count());
+
+            List<double> highMs2PrecursorMasses = highMs2Scans.Select(b => b.PrecursorMass.Round(3)).ToList();
+
+            //switch to LowCID
+            MsDataFile lowFile = myFileManager.LoadFile(origDataFile, new CommonParameters(dissociationType: DissociationType.LowCID, addCompIons: true));
+
+            var lowMs2Scans = SearchTask.GetMs2Scans(lowFile, origDataFile, new CommonParameters(dissociationType: DissociationType.LowCID, addCompIons: true));
+
+            Assert.AreEqual(447, lowMs2Scans.Count());
+
+            List<double> lowMs2PrecursorMasses = lowMs2Scans.Select(b => b.PrecursorMass.Round(3)).ToList();
+
+            CollectionAssert.AreEquivalent(highMs2PrecursorMasses, lowMs2PrecursorMasses);
         }
     }
 }
