@@ -166,6 +166,50 @@ namespace EngineLayer.FdrAnalysis
             }
         }
 
+        private void AssignDecoyAndTargetCountToEachPeptide(List<PeptideSpectralMatch> psms)
+        {
+            double cumulativeDecoy = 0;
+            double cumulativeTarget = 0;
+
+            //set up arrays for local FDRs
+            double[] cumulativeTargetPerNotch = new double[MassDiffAcceptorNumNotches + 1];
+            double[] cumulativeDecoyPerNotch = new double[MassDiffAcceptorNumNotches + 1];
+
+            for (int i = 0; i < psms.Count; i++)
+            {
+                // Stop if canceled
+                if (GlobalVariables.StopLoops) { break; }
+
+                int notch = psms[i].Notch ?? MassDiffAcceptorNumNotches;
+                if (psms[i].IsDecoy)
+                {
+                    // the PSM can be ambiguous between a target and a decoy sequence
+                    // in that case, count it as the fraction of decoy hits
+                    // e.g. if the PSM matched to 1 target and 2 decoys, it counts as 2/3 decoy
+                    double decoyHits = 0;
+                    double totalHits = 0;
+                    var hits = psms[i].BestMatchingPeptides.GroupBy(p => p.Peptide.FullSequence);
+                    foreach (var hit in hits)
+                    {
+                        if (hit.First().Peptide.Protein.IsDecoy)
+                        {
+                            decoyHits++;
+                        }
+                        totalHits++;
+                    }
+
+                    cumulativeDecoy += decoyHits / totalHits;
+                    cumulativeDecoyPerNotch[notch] += decoyHits / totalHits;
+                }
+                else
+                {
+                    cumulativeTarget++;
+                    cumulativeTargetPerNotch[notch]++;
+                }
+                psms[i].FdrInfo.CumulativeDecoy = cumulativeDecoy;
+            }
+        }
+
         public void Compute_PEPValue(FdrAnalysisResults myAnalysisResults)
         {
             if (AnalysisType == "PSM")
