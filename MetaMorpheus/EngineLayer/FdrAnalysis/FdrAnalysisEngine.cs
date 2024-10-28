@@ -1,9 +1,7 @@
 ﻿using EngineLayer.CrosslinkSearch;
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 
 namespace EngineLayer.FdrAnalysis
 {
@@ -83,15 +81,23 @@ namespace EngineLayer.FdrAnalysis
 
                         // peptides are ordered by MM score from good to bad in order to select the best PSM for each peptide
                         peptides = psms
-                            .OrderByDescending(p => p)
+                            .OrderBy(p => p.FdrInfo.PEP) // order PEP low to high
+                            .ThenByDescending(p=>p.Score) // order by score high to low
+                            .ThenByDescending(p=>p.DeltaScore) // order by delta score high to low
+                            .ThenBy(p=>p.PrecursorMassErrorPpm) // order by precursor mass error low to high
+                            .ThenBy(p=>p.ScanNumber) // order by scan number low to high
                             .GroupBy(p => p.FullSequence)
                             .Select(p => p.FirstOrDefault())
-                            .OrderBy(p => p.FdrInfo.PEP) // Then order by PEP (PSM PEP and Peptide PEP are the same)
-                            .ThenByDescending(p => p)
                             .ToList();
+
                         CalculateQValue(peptides, peptideLevelCalculation: true, pepCalculation: true);
 
-                        psms = psms.OrderBy(p => p.PsmFdrInfo.PEP).ThenByDescending(p => p).ToList();
+                        psms = psms.OrderBy(p => p.FdrInfo.PEP) // order PEP low to high
+                            .ThenByDescending(p => p.Score) // order by score high to low
+                            .ThenByDescending(p => p.DeltaScore) // order by delta score high to low
+                            .ThenBy(p => p.PrecursorMassErrorPpm) // order by precursor mass error low to high
+                            .ThenBy(p => p.ScanNumber) // order by scan number low to high
+                            .ToList();
                         CalculateQValue(psms, peptideLevelCalculation: false, pepCalculation: true);
                         
                     }
@@ -99,7 +105,12 @@ namespace EngineLayer.FdrAnalysis
                     {
                         //this will be done using PSMs because we dont' have enough peptides
                         Compute_PEPValue(myAnalysisResults, psms);
-                        psms = psms.OrderBy(p => p.PsmFdrInfo.PEP).ThenByDescending(p => p).ToList();
+                        psms = psms.OrderBy(p => p.FdrInfo.PEP) // order PEP low to high
+                            .ThenByDescending(p => p.Score) // order by score high to low
+                            .ThenByDescending(p => p.DeltaScore) // order by delta score high to low
+                            .ThenBy(p => p.PrecursorMassErrorPpm) // order by precursor mass error low to high
+                            .ThenBy(p => p.ScanNumber) // order by scan number low to high
+                            .ToList();
                         CalculateQValue(psms, peptideLevelCalculation: false, pepCalculation: true);
                     }
                 }
@@ -110,18 +121,22 @@ namespace EngineLayer.FdrAnalysis
                     // really, in this case, we only need to run one or the other (i.e., only peptides or psms are passed in)
                     // but there's no mechanism to pass that info to the FDR analysis engine, so we'll do this for now
                     peptides = psms
-                            .OrderByDescending(p => p)
+                            .OrderBy(p => p.FdrInfo.PEP) // order PEP low to high
+                            .ThenByDescending(p => p.Score) // order by score high to low
+                            .ThenByDescending(p => p.DeltaScore) // order by delta score high to low
+                            .ThenBy(p => p.PrecursorMassErrorPpm) // order by precursor mass error low to high
+                            .ThenBy(p => p.ScanNumber) // order by scan number low to high
                             .GroupBy(p => p.FullSequence)
-                            .Select(p => p.FirstOrDefault()) // Get the best psm for each peptide based on MBR score
-                            .OrderBy(p => p.FdrInfo.PEP) // Then order by PEP (PSM PEP and Peptide PEP are the same)
-                            .ThenByDescending(p => p)
+                            .Select(p => p.FirstOrDefault())
                             .ToList();
                     CalculateQValue(peptides, peptideLevelCalculation: true, pepCalculation: true);
 
-                    psms = psms
-                        .OrderBy(p => p.PsmFdrInfo.PEP)
-                        .ThenByDescending(p => p)
-                        .ToList();
+                    psms = psms.OrderBy(p => p.FdrInfo.PEP) // order PEP low to high
+                            .ThenByDescending(p => p.Score) // order by score high to low
+                            .ThenByDescending(p => p.DeltaScore) // order by delta score high to low
+                            .ThenBy(p => p.PrecursorMassErrorPpm) // order by precursor mass error low to high
+                            .ThenBy(p => p.ScanNumber) // order by scan number low to high
+                            .ToList();
                     CalculateQValue(psms, peptideLevelCalculation: false, pepCalculation: true);
 
                 }
