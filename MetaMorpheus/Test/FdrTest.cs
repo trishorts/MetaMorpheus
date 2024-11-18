@@ -17,6 +17,7 @@ using Omics.Modifications;
 using TaskLayer;
 using UsefulProteomicsDatabases;
 using Omics;
+using static iText.IO.Image.Jpeg2000ImageData;
 
 namespace Test
 {
@@ -164,8 +165,14 @@ namespace Test
                     ProteinDbLoader.UniprotOrganismRegex, -1);
             var listOfSortedms2Scans = MetaMorpheusTask.GetMs2Scans(myMsDataFile, @"TestData\TaGe_SA_HeLa_04_subset_longestSeq.mzML", CommonParameters).OrderBy(b => b.PrecursorMass).ToArray();
             SpectralMatch[] allPsmsArray = new PeptideSpectralMatch[listOfSortedms2Scans.Length];
+            string spectralLibraryPath = Path.Combine(TestContext.CurrentContext.TestDirectory, @"TestData\SpectralLibrary_HeLa.msp");
+            SpectralLibrary library = new(new List<string>() { spectralLibraryPath });
+
             new ClassicSearchEngine(allPsmsArray, listOfSortedms2Scans, variableModifications, fixedModifications, null, null, null, 
-                proteinList, searchModes, CommonParameters, fsp, null, new List<string>(), SearchParameters.WriteSpectralLibrary).Run();
+                proteinList, searchModes, CommonParameters, fsp, library, new List<string>(), SearchParameters.WriteSpectralLibrary).Run();
+
+            SpectralLibrarySearchFunction.CalculateSpectralAngles(library, allPsmsArray, listOfSortedms2Scans, CommonParameters);
+
             FdrAnalysisResults fdrResultsClassicDelta = (FdrAnalysisResults)(new FdrAnalysisEngine(allPsmsArray.Where(p => p != null).ToList(), 1, 
                 CommonParameters, fsp, new List<string>()).Run());
 

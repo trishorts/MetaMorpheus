@@ -418,6 +418,9 @@
     <None Update="TestData\SpectralLibrarySearch\yeast2fake_pdeep_lib.msp">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
+    <None Update="TestData\SpectralLibrary_HeLa.msp">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
     <None Update="TestData\SpectralRecoveryTest\AllPSMsTesting.psmtsv">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
