@@ -633,5 +633,68 @@ namespace EngineLayer
                 }
             }
         }
+        public static string ToFraggerLibraryString(LibrarySpectrum spec, string proteinAccession, string geneName)
+        {
+            StringBuilder spectrum = new StringBuilder();
+            //for now we ignore any ions with neutral loss
+            foreach (MatchedFragmentIon matchedIon in spec.MatchedFragmentIons.Where(mfi =>mfi.NeutralTheoreticalProduct.NeutralLoss == 0))
+            {
+                StringBuilder spectrumRow = new StringBuilder();
+                spectrumRow.Append(spec.PrecursorMz + "\t"); // PrecursorMz
+                spectrumRow.Append(matchedIon.Mz + "\t"); // ProductMz
+                spectrumRow.Append(matchedIon.Annotation.Replace('+', '^') + "\t"); // Annotation
+                spectrumRow.Append(proteinAccession + "\t"); // ProteinId
+                spectrumRow.Append(geneName + "\t"); // GeneName
+                spectrumRow.Append(BaseSequenceFromFullSequence(spec.Sequence) + "\t"); // PeptideSequence
+                spectrumRow.Append(spec.Sequence + "\t"); // ModifiedPeptideSequence
+                spectrumRow.Append(spec.ChargeState + "\t"); // PrecursorCharge
+                spectrumRow.Append(matchedIon.Intensity + "\t"); // LibraryIntensity
+                spectrumRow.Append(spec.RetentionTime + "\t"); // NormalizedRetentionTime
+                spectrumRow.Append("" + "\t"); // PrecursorIonMobility
+                spectrumRow.Append(matchedIon.NeutralTheoreticalProduct.ProductType + "\t"); // FragmentType
+                spectrumRow.Append(matchedIon.Charge + "\t"); // FragmentCharge
+                spectrumRow.Append(matchedIon.NeutralTheoreticalProduct.FragmentNumber + "\t"); // FragmentSeriesNumber
+                spectrumRow.Append("" + "\t"); // FragmentLossType
+                spectrumRow.Append(spec.RetentionTime + "\t"); // AverageExperimentalRetentionTime
+                spectrumRow.Append("sp|" + proteinAccession + "|" + geneName + "\t"); // AllMappedProteins
+                spectrumRow.Append(geneName + "\t"); // AllMappedGenes
+                spectrumRow.Append(1); // Proteotypic
+
+
+                spectrum.Append(spectrumRow + "\n");
+            }
+
+            return spectrum.ToString();
+        }
+        public static string FraggerLibraryHeader()
+        {
+            return "PrecursorMz\tProductMz\tAnnotation\tProteinId\tGeneName\tPeptideSequence\tModifiedPeptideSequence\tPrecursorCharge\tLibraryIntensity\tNormalizedRetentionTime\tPrecursorIonMobility\tFragmentType\tFragmentCharge\tFragmentSeriesNumber\tFragmentLossType\tAverageExperimentalRetentionTime\tAllMappedProteins\tAllMappedGenes\tProteotypic";
+        }
+        public static string BaseSequenceFromFullSequence(string Sequence)
+        {
+            StringBuilder result = new StringBuilder();
+            int bracketLevel = 0;
+
+            foreach (char c in Sequence)
+            {
+                if (c == '[')
+                {
+                    bracketLevel++;
+                }
+                else if (c == ']')
+                {
+                    if (bracketLevel > 0)
+                    {
+                        bracketLevel--;
+                    }
+                }
+                else if (bracketLevel == 0)
+                {
+                    result.Append(c);
+                }
+            }
+
+            return result.ToString();
+        }
     }
 }

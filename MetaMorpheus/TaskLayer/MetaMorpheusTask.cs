@@ -770,9 +770,15 @@ namespace TaskLayer
             string spectrumFilePath = outputFolder + "\\SpectralLibrary" + "_" + startTimeForAllFilenames + ".msp";
             using (StreamWriter output = new StreamWriter(spectrumFilePath))
             {
+                output.WriteLine(SpectralLibrary.FraggerLibraryHeader());
                 foreach (var x in spectrumLibrary)
                 {
-                    output.WriteLine(x.ToString());
+                    //output.WriteLine(x.ToString());
+                    if (x.Sequence != null && x.Sequence.Length > 0)
+                    {
+                        output.WriteLine(SpectralLibrary.ToFraggerLibraryString(x, "", ""));
+                    }
+                    
                 }
 
             }
