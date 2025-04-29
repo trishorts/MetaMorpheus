@@ -17,7 +17,7 @@ namespace EngineLayer.FdrAnalysis
                     "TotalMatchingFragmentCount", "Intensity", "PrecursorChargeDiffToMode", "DeltaScore",
                     "Notch", "ModsCount", "AbsoluteAverageFragmentMassErrorFromMedian", "MissedCleavagesCount", 
                     "Ambiguity", "LongestFragmentIonSeries", "ComplementaryIonCount", "HydrophobicityZScore",
-                    "IsVariantPeptide", "IsDeadEnd", "IsLoop", "SpectralAngle", "HasSpectralAngle", "TranscriptsPerMillion",
+                    "IsVariantPeptide", "IsDeadEnd", "IsLoop", "SpectralAngle", "HasSpectralAngle", "TranscriptsPerMillion","ProteinPsms",
                 }
             },
 
@@ -28,7 +28,7 @@ namespace EngineLayer.FdrAnalysis
                     "Notch", "ModsCount", "AbsoluteAverageFragmentMassErrorFromMedian", "Ambiguity", 
                     "LongestFragmentIonSeries", "ComplementaryIonCount", "SpectralAngle",
                     "HasSpectralAngle", "PeaksInPrecursorEnvelope", "ChimeraCount",
-                    "MostAbundantPrecursorPeakIntensity", "PrecursorFractionalIntensity", "InternalIonCount", "TranscriptsPerMillion",
+                    "MostAbundantPrecursorPeakIntensity", "PrecursorFractionalIntensity", "InternalIonCount", "TranscriptsPerMillion","ProteinPsms",
                 }
             },
 
@@ -78,6 +78,7 @@ namespace EngineLayer.FdrAnalysis
             { "PrecursorFractionalIntensity", 1 },
             { "InternalIonCount", 1},
             { "TranscriptsPerMillion", 1},
+            { "ProteinPsms", 1},
             }.ToImmutableDictionary();
 
         public string ToString(string searchType)
@@ -185,5 +186,7 @@ namespace EngineLayer.FdrAnalysis
 
         [LoadColumn(29)]
         public float TranscriptsPerMillion { get; set; }
+        [LoadColumn(30)]
+        public float ProteinPsms { get; set; }
     }
 }
