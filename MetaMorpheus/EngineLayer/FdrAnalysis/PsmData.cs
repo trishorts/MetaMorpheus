@@ -28,7 +28,7 @@ namespace EngineLayer.FdrAnalysis
                     "Notch", "ModsCount", "AbsoluteAverageFragmentMassErrorFromMedian", "Ambiguity", 
                     "LongestFragmentIonSeries", "ComplementaryIonCount", "SpectralAngle",
                     "HasSpectralAngle", "PeaksInPrecursorEnvelope", "ChimeraCount",
-                    "MostAbundantPrecursorPeakIntensity", "PrecursorFractionalIntensity", "InternalIonCount"
+                    "MostAbundantPrecursorPeakIntensity", "PrecursorFractionalIntensity", "InternalIonCount", "TranscriptsPerMillion",
                 }
             },
 

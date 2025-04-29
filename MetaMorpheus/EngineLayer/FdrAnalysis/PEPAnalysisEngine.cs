@@ -59,7 +59,7 @@ namespace EngineLayer
         public Dictionary<string, Dictionary<int, Tuple<double, double>>> FileSpecificTimeDependantHydrophobicityAverageAndDeviation_unmodified { get; private set; }
         public Dictionary<string, Dictionary<int, Tuple<double, double>>> FileSpecificTimeDependantHydrophobicityAverageAndDeviation_modified { get; private set; }
         public Dictionary<string, Dictionary<int, Tuple<double, double>>> FileSpecificTimeDependantHydrophobicityAverageAndDeviation_CZE  { get; private set; }
-
+        public Dictionary<string, float> IsoName_Tpm { get; private set; } = new Dictionary<string, float>();
         /// <summary>
         /// A dictionary which stores the chimeric ID string in the key and the number of chimeric identifications as the vale
         /// </summary>
@@ -87,6 +87,34 @@ namespace EngineLayer
         {
             FileSpecificParametersDictionary = fileSpecificParameters.ToDictionary(p => Path.GetFileName(p.fileName), p => p.fileSpecificParameters);
         }
+        public void LoadIsoName_TpmDictionary(string isoNameTpmFilePath)
+        {
+            if (isoNameTpmFilePath != null && File.Exists(isoNameTpmFilePath))
+            {
+                using (StreamReader sr = new StreamReader(isoNameTpmFilePath))
+                {
+                    string line;
+                    while ((line = sr.ReadLine()) != null)
+                    {
+                        string[] parts = line.Split('\t');
+                        if (parts.Length == 3 && parts[0] != "gene")
+                        {
+                            string isoName = parts[1];
+                            float tpm = float.Parse(parts[2]);
+                            if (IsoName_Tpm.ContainsKey(isoName))
+                            {
+                                IsoName_Tpm[isoName] = tpm;
+                            }
+                            else
+                            { 
+                                IsoName_Tpm.Add(isoName, tpm); 
+                            }
+                            
+                        }
+                    }
+                }
+            }
+        }
 
         public PepAnalysisEngine(List<SpectralMatch> psms, string searchType, List<(string fileName, CommonParameters fileSpecificParameters)> fileSpecificParameters, string outputFolder)
         {
@@ -94,6 +122,7 @@ namespace EngineLayer
             // This allows the PSMs to be modified and the order to be preserved
             AllPsms = psms.OrderByDescending(p => p).ToList();
             TrainingVariables = PsmData.trainingInfos[searchType];
+            LoadIsoName_TpmDictionary(@"F:\JurakatMultiprotease\IsoformStuff\mrna_isoform.tsv");
             OutputFolder = outputFolder;
             SearchType = searchType;
             SetFileSpecificParameters(fileSpecificParameters);
@@ -484,6 +513,7 @@ namespace EngineLayer
             float complementaryIonCount = 0;
             float hydrophobicityZscore = float.NaN;
             bool isVariantPeptide = false;
+            float isoformTpm = 0;
 
             //crosslink specific features
             float alphaIntensity = 0;
@@ -520,6 +550,17 @@ namespace EngineLayer
                 longestSeq = (float)Math.Round(SpectralMatch.GetLongestIonSeriesBidirectional(tentativeSpectralMatch) / normalizationFactor * multiplier, 0);
                 complementaryIonCount = (float)Math.Round(SpectralMatch.GetCountComplementaryIons(tentativeSpectralMatch) / normalizationFactor * multiplier, 0);
                 isVariantPeptide = PeptideIsVariant(tentativeSpectralMatch.SpecificBioPolymer);
+                string isoformAccession = tentativeSpectralMatch.SpecificBioPolymer.Parent.Accession;
+
+                //if (tentativeSpectralMatch.IsDecoy)
+                //{
+                //    isoformAccession = isoformAccession.Replace("DECOY_", "");
+                //}
+                //if (IsoName_Tpm.ContainsKey(isoformAccession))
+                //{
+                //    isoformTpm = IsoName_Tpm[isoformAccession];
+                //}
+
                 spectralAngle = (float)psm.SpectralAngle;
                 if (chimeraCountDictionary.TryGetValue(psm.ChimeraIdString, out int val))
                     chimeraCount = val;
@@ -643,6 +684,7 @@ namespace EngineLayer
                 MostAbundantPrecursorPeakIntensity = mostAbundantPrecursorPeakIntensity,
                 PrecursorFractionalIntensity = fractionalIntensity,
                 InternalIonCount = internalMatchingFragmentCount,
+                TranscriptsPerMillion = isoformTpm,
             };
 
             return psm.PsmData_forPEPandPercolator;
