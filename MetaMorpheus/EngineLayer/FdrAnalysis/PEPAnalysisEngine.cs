@@ -60,6 +60,8 @@ namespace EngineLayer
         public Dictionary<string, Dictionary<int, Tuple<double, double>>> FileSpecificTimeDependantHydrophobicityAverageAndDeviation_modified { get; private set; }
         public Dictionary<string, Dictionary<int, Tuple<double, double>>> FileSpecificTimeDependantHydrophobicityAverageAndDeviation_CZE  { get; private set; }
         public Dictionary<string, float> IsoName_Tpm { get; private set; } = new Dictionary<string, float>();
+        public Dictionary<string, float> Protein_PeptidesTotal { get; private set; } = new Dictionary<string, float>();
+        public Dictionary<string, float> Protein_PeptidesUniqueTotal { get; private set; } = new Dictionary<string, float>();
         /// <summary>
         /// A dictionary which stores the chimeric ID string in the key and the number of chimeric identifications as the vale
         /// </summary>
@@ -115,6 +117,37 @@ namespace EngineLayer
                 }
             }
         }
+        public void LoadProteinPeptidesTotalAndUnique(string proteinPsmFilePath)
+        {
+            if (proteinPsmFilePath != null && File.Exists(proteinPsmFilePath))
+            {
+                using (StreamReader sr = new StreamReader(proteinPsmFilePath))
+                {
+                    string line;
+                    while ((line = sr.ReadLine()) != null)
+                    {
+                        string[] parts = line.Split('\t');
+                        if (parts.Length == 3 && parts[0] != "Protein Accession")
+                        {
+                            string proteinName = parts[0];
+                            float peptideCount = float.Parse(parts[1]);
+                            float peptideUniqueCount = float.Parse(parts[2]);
+                            if (Protein_PeptidesTotal.ContainsKey(proteinName))
+                            {
+                                Protein_PeptidesTotal[proteinName] = peptideCount;
+                                Protein_PeptidesUniqueTotal[proteinName] = peptideUniqueCount;
+                            }
+                            else
+                            {
+                                Protein_PeptidesTotal.Add(proteinName, peptideCount);
+                                Protein_PeptidesUniqueTotal.Add(proteinName, peptideUniqueCount);
+                            }
+                            
+                        }
+                    }
+                }
+            }
+        }
 
         public PepAnalysisEngine(List<SpectralMatch> psms, string searchType, List<(string fileName, CommonParameters fileSpecificParameters)> fileSpecificParameters, string outputFolder)
         {
@@ -123,6 +156,7 @@ namespace EngineLayer
             AllPsms = psms.OrderByDescending(p => p).ToList();
             TrainingVariables = PsmData.trainingInfos[searchType];
             LoadIsoName_TpmDictionary(@"F:\JurakatMultiprotease\IsoformStuff\mrna_isoform.tsv");
+            LoadProteinPeptidesTotalAndUnique(@"F:\JurakatMultiprotease\IsoformStuff\jurkatPeptides.tsv");
             OutputFolder = outputFolder;
             SearchType = searchType;
             SetFileSpecificParameters(fileSpecificParameters);
@@ -514,6 +548,8 @@ namespace EngineLayer
             float hydrophobicityZscore = float.NaN;
             bool isVariantPeptide = false;
             float isoformTpm = 0;
+            float proteinPeptidesCount = 0;
+            float proteinPeptidesUniqueCount = 0;
 
             //crosslink specific features
             float alphaIntensity = 0;
@@ -550,16 +586,21 @@ namespace EngineLayer
                 longestSeq = (float)Math.Round(SpectralMatch.GetLongestIonSeriesBidirectional(tentativeSpectralMatch) / normalizationFactor * multiplier, 0);
                 complementaryIonCount = (float)Math.Round(SpectralMatch.GetCountComplementaryIons(tentativeSpectralMatch) / normalizationFactor * multiplier, 0);
                 isVariantPeptide = PeptideIsVariant(tentativeSpectralMatch.SpecificBioPolymer);
+                
                 string isoformAccession = tentativeSpectralMatch.SpecificBioPolymer.Parent.Accession;
-
-                //if (tentativeSpectralMatch.IsDecoy)
-                //{
-                //    isoformAccession = isoformAccession.Replace("DECOY_", "");
-                //}
-                //if (IsoName_Tpm.ContainsKey(isoformAccession))
-                //{
-                //    isoformTpm = IsoName_Tpm[isoformAccession];
-                //}
+                if (tentativeSpectralMatch.IsDecoy)
+                {
+                    isoformAccession = isoformAccession.Replace("DECOY_", "");
+                }
+                if (IsoName_Tpm.ContainsKey(isoformAccession))
+                {
+                    isoformTpm = IsoName_Tpm[isoformAccession];
+                }
+                if (Protein_PeptidesTotal.ContainsKey(isoformAccession))
+                {
+                    proteinPeptidesCount = Protein_PeptidesTotal[isoformAccession];
+                    proteinPeptidesUniqueCount = Protein_PeptidesUniqueTotal[isoformAccession];
+                }
 
                 spectralAngle = (float)psm.SpectralAngle;
                 if (chimeraCountDictionary.TryGetValue(psm.ChimeraIdString, out int val))
@@ -685,6 +726,8 @@ namespace EngineLayer
                 PrecursorFractionalIntensity = fractionalIntensity,
                 InternalIonCount = internalMatchingFragmentCount,
                 TranscriptsPerMillion = isoformTpm,
+                ProteinPeptidesTotal = proteinPeptidesCount,
+                ProteinPeptidesUnique = proteinPeptidesUniqueCount,
             };
 
             return psm.PsmData_forPEPandPercolator;

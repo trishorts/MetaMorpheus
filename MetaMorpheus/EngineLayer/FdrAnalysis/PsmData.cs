@@ -17,7 +17,7 @@ namespace EngineLayer.FdrAnalysis
                     "TotalMatchingFragmentCount", "Intensity", "PrecursorChargeDiffToMode", "DeltaScore",
                     "Notch", "ModsCount", "AbsoluteAverageFragmentMassErrorFromMedian", "MissedCleavagesCount", 
                     "Ambiguity", "LongestFragmentIonSeries", "ComplementaryIonCount", "HydrophobicityZScore",
-                    "IsVariantPeptide", "IsDeadEnd", "IsLoop", "SpectralAngle", "HasSpectralAngle", "TranscriptsPerMillion","ProteinPsms",
+                    "IsVariantPeptide", "IsDeadEnd", "IsLoop", "SpectralAngle", "HasSpectralAngle", "TranscriptsPerMillion","ProteinPeptidesTotal", "ProteinPeptidesUnique"
                 }
             },
 
@@ -28,7 +28,7 @@ namespace EngineLayer.FdrAnalysis
                     "Notch", "ModsCount", "AbsoluteAverageFragmentMassErrorFromMedian", "Ambiguity", 
                     "LongestFragmentIonSeries", "ComplementaryIonCount", "SpectralAngle",
                     "HasSpectralAngle", "PeaksInPrecursorEnvelope", "ChimeraCount",
-                    "MostAbundantPrecursorPeakIntensity", "PrecursorFractionalIntensity", "InternalIonCount", "TranscriptsPerMillion","ProteinPsms",
+                    "MostAbundantPrecursorPeakIntensity", "PrecursorFractionalIntensity", "InternalIonCount", "TranscriptsPerMillion","ProteinPeptidesTotal", "ProteinPeptidesUnique"
                 }
             },
 
@@ -78,7 +78,8 @@ namespace EngineLayer.FdrAnalysis
             { "PrecursorFractionalIntensity", 1 },
             { "InternalIonCount", 1},
             { "TranscriptsPerMillion", 1},
-            { "ProteinPsms", 1},
+            { "ProteinPeptidesTotal", 1},
+            { "ProteinPeptidesUnique", 1}
             }.ToImmutableDictionary();
 
         public string ToString(string searchType)
@@ -187,6 +188,8 @@ namespace EngineLayer.FdrAnalysis
         [LoadColumn(29)]
         public float TranscriptsPerMillion { get; set; }
         [LoadColumn(30)]
-        public float ProteinPsms { get; set; }
+        public float ProteinPeptidesTotal { get; set; }
+        [LoadColumn(30)]
+        public float ProteinPeptidesUnique { get; set; }
     }
 }
