@@ -1,19 +1,20 @@
 ﻿using EngineLayer;
-using EngineLayer.GlycoSearch;
-using EngineLayer.FdrAnalysis;
-using Proteomics;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using EngineLayer.DatabaseLoading;
+using EngineLayer.FdrAnalysis;
+using EngineLayer.GlycoSearch;
 using FlashLFQ;
+using Omics;
 using Omics.Digestion;
 using Omics.Modifications;
 using Omics.SpectrumMatch;
+using Proteomics;
 using Proteomics.ProteolyticDigestion;
 using Readers;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using TaskLayer.GlycoSearchTask;
 using ProteinGroup = EngineLayer.ProteinGroup;
-using Omics;
 
 namespace TaskLayer
 {
@@ -163,8 +164,15 @@ namespace TaskLayer
 
             var writtenFileSingle = Path.Combine(OutputFolder, "AllPSMs.psmtsv");
             WriteGlycoFile.WritePsmGlycoToTsv(filteredPsms, writtenFileSingle, true);
-            
-     
+
+            // Add this call after writing the standard glyco results, for example after line:
+            // WriteGlycoFile.WritePsmGlycoToTsv(filteredPsms, writtenFileSingle, true);
+
+            // Write Bionic format output
+            var bionicFilePath = Path.Combine(OutputFolder, "GlycoPeptides_Bionic.tsv");
+            GlycoSearchTask.BionicWriter.WriteGlycoPeptidesToTsv(filteredPsms, bionicFilePath);
+            FinishedWritingFile(bionicFilePath, new List<string> { taskId });
+
 
             if (Parameters.GlycoSearchParameters.WriteSpectrumLibrary)
             {
