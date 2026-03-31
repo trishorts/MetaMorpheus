@@ -416,15 +416,29 @@ namespace Test
         [Test]
         public static void SpectralLibraryReaderTest_Ms2Pip()
         {
-            var libraryPath = @"TestData\SpectralLibrarySearch\mspLibraryFileWithExtraLineBreaks.msp";
-            var pathList = new List<string> { libraryPath }
-    ;       var library = new SpectralLibrary(pathList);
+            var libraryPath = Path.Combine(TestContext.CurrentContext.TestDirectory, @"TestData\SpectralLibrarySearch\mspLibraryFileWithExtraLineBreaks.msp");
+            var pathList = new List<string> { libraryPath };
+            var library = new SpectralLibrary(pathList);
             var librarySpectra = library.GetAllLibrarySpectra().ToList();
 
             Assert.That(librarySpectra.Count, Is.EqualTo(3));
+
+            // Verify all three spectra are individually retrievable
+            Assert.That(library.TryGetSpectrum("ACDEFGK", 2, out var spectrum1));
+            Assert.That(spectrum1.ChargeState, Is.EqualTo(2));
+            Assert.That(spectrum1.MatchedFragmentIons.Count, Is.GreaterThan(0));
+
             Assert.That(library.TryGetSpectrum("ACDEFGHIKLR", 3, out var spectrum2));
             Assert.That(spectrum2.PrecursorMz, Is.EqualTo(430.2209553149999));
             Assert.That(spectrum2.ChargeState, Is.EqualTo(3));
+
+            // Verify precursorMz was sourced from Comment Parent, NOT from the MW line.
+            // MW for ACDEFGHIKLR/3 in the test file is 1288.64087... which divided by charge gives ~429.547.
+            // If MW were incorrectly used, precursorMz would not equal the Parent-derived value above.
+            Assert.That(library.TryGetSpectrum("ACDEFGHIKLR", 3, out var spectrumMwCheck));
+            double mwDividedByCharge = 1288.6408769449997 / 3.0;
+            Assert.That(spectrumMwCheck.PrecursorMz, Is.Not.EqualTo(mwDividedByCharge).Within(0.001),
+                "PrecursorMz must come from Comment Parent, not MW / charge");
 
             var frags = new List<(double mz, double intensity, ProductType ProductType, int fragmentNumber, int charge, double ppm)>
             {
@@ -455,13 +469,49 @@ namespace Test
                 var frag = frags[i];
                 var readFrag = spectrum2.MatchedFragmentIons[i];
 
-                Assert.That(frag.mz == readFrag.Mz);
-                Assert.That(frag.intensity == readFrag.Intensity);
-                Assert.That(frag.ProductType == readFrag.NeutralTheoreticalProduct.ProductType);
-                Assert.That(frag.fragmentNumber == readFrag.NeutralTheoreticalProduct.FragmentNumber);
-                Assert.That(frag.charge == readFrag.Charge);
+                Assert.That(readFrag.Mz, Is.EqualTo(frag.mz).Within(1e-10), $"Fragment {i} mz mismatch");
+                Assert.That(readFrag.Intensity, Is.EqualTo(frag.intensity).Within(1e-10), $"Fragment {i} intensity mismatch");
+                Assert.That(readFrag.NeutralTheoreticalProduct.ProductType, Is.EqualTo(frag.ProductType), $"Fragment {i} ProductType mismatch");
+                Assert.That(readFrag.NeutralTheoreticalProduct.FragmentNumber, Is.EqualTo(frag.fragmentNumber), $"Fragment {i} FragmentNumber mismatch");
+                Assert.That(readFrag.Charge, Is.EqualTo(frag.charge), $"Fragment {i} Charge mismatch");
             }
+
+            Assert.That(library.TryGetSpectrum("ACDEFGHIKLMNPK", 3, out var spectrum3));
+            Assert.That(spectrum3.ChargeState, Is.EqualTo(3));
+            Assert.That(spectrum3.MatchedFragmentIons.Count, Is.GreaterThan(0));
+
+            // write the library w/ the ToString method
+            var writtenPath = Path.Combine(TestContext.CurrentContext.TestDirectory, @"TestData\testMs2PipLibraryToString.msp");
+            var str = librarySpectra.SelectMany(p => p.ToString().Split(new char[] { '\n' }));
+            File.WriteAllLines(writtenPath, str);
+
+            library.CloseConnections();
+
+            // read the written library and make sure the results are readable
+            library = new SpectralLibrary(new List<string> { writtenPath });
+            librarySpectra = library.GetAllLibrarySpectra().ToList();
+
+            Assert.That(librarySpectra.Count, Is.EqualTo(3));
+            Assert.That(library.TryGetSpectrum("ACDEFGHIKLR", 3, out var reReadSpectrum));
+            Assert.That(reReadSpectrum.PrecursorMz, Is.EqualTo(430.2209553149999));
+            Assert.That(reReadSpectrum.ChargeState, Is.EqualTo(3));
+
+            double maxOfIntensity = frags.Select(p => p.intensity).ToList().Max();
+            for (int i = 0; i < frags.Count; i++)
+            {
+                var frag = frags[i];
+                var readFrag = reReadSpectrum.MatchedFragmentIons[i];
+
+                Assert.That(readFrag.Mz, Is.EqualTo(frag.mz).Within(1e-10), $"Round-trip fragment {i} mz mismatch");
+                Assert.That(readFrag.Intensity, Is.EqualTo(frag.intensity / maxOfIntensity).Within(1e-10), $"Round-trip fragment {i} intensity mismatch");
+                Assert.That(readFrag.NeutralTheoreticalProduct.ProductType, Is.EqualTo(frag.ProductType), $"Round-trip fragment {i} ProductType mismatch");
+                Assert.That(readFrag.NeutralTheoreticalProduct.FragmentNumber, Is.EqualTo(frag.fragmentNumber), $"Round-trip fragment {i} FragmentNumber mismatch");
+                Assert.That(readFrag.Charge, Is.EqualTo(frag.charge), $"Round-trip fragment {i} Charge mismatch");
+            }
+
+            library.CloseConnections();
+            File.Delete(writtenPath);
         }
     }
-    
+
 }
