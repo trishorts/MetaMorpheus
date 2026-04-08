@@ -323,7 +323,8 @@ namespace EngineLayer.GlycoSearch
 
             var PeptideScore = score - DiagnosticIonScore;
 
-            var p = theScan.TheScan.MassSpectrum.Size * CommonParameters.ProductMassTolerance.GetRange(1000).Width / theScan.TheScan.MassSpectrum.Range.Width;
+            var parentProductTolerance = IsLowResolutionScan(theScan) ? CommonParameters.ProductMassTolerance_LowRes : CommonParameters.ProductMassTolerance;
+            var p = theScan.TheScan.MassSpectrum.Size * parentProductTolerance.GetRange(1000).Width / theScan.TheScan.MassSpectrum.Range.Width;
 
             int n = fragmentsForEachGlycoPeptide.Where(v => v.ProductType == ProductType.c || v.ProductType == ProductType.zDot).Count();
 
@@ -332,8 +333,7 @@ namespace EngineLayer.GlycoSearch
             foreach (var childScan in theScan.ChildScans)
             {
                 var childFragments = GlycoPeptides.OGlyGetTheoreticalFragments(CommonParameters.MS2ChildScanDissociationType, CommonParameters.CustomIons, peptide, peptideWithMod);
-                bool isIonTrapData = childScan.TheScan.MzAnalyzer == MZAnalyzerType.IonTrap2D || childScan.TheScan.MzAnalyzer == MZAnalyzerType.IonTrap3D;
-                var matchedChildIons = MatchFragmentIons(childScan, childFragments, CommonParameters, isLowRes : isIonTrapData);
+                var matchedChildIons = MatchFragmentIons(childScan, childFragments, CommonParameters);
 
                 n += childFragments.Where(v => v.ProductType == ProductType.c || v.ProductType == ProductType.zDot).Count();
 

@@ -128,13 +128,14 @@ namespace EngineLayer
 
         }
 
-        public static List<MatchedFragmentIon> MatchFragmentIons(Ms2ScanWithSpecificMass scan, List<Product> theoreticalProducts, CommonParameters commonParameters, bool matchAllCharges = false, bool isLowRes = false)
+        public static List<MatchedFragmentIon> MatchFragmentIons(Ms2ScanWithSpecificMass scan, List<Product> theoreticalProducts, CommonParameters commonParameters, bool matchAllCharges = false)
         {
-            // if this is a child scan and it's an ion trap 2D scan, we want to use the wider tolerance for matching
-            var productMassTolerance = isLowRes? commonParameters.ProductMassTolerance_LowRes : commonParameters.ProductMassTolerance;
+            // auto-detect low-res scans from mass analyzer metadata and use wider tolerance for ion trap child scans
+            bool isLowRes = IsLowResolutionScan(scan);
+            var productMassTolerance = isLowRes ? commonParameters.ProductMassTolerance_LowRes : commonParameters.ProductMassTolerance;
             if (matchAllCharges)
             {
-                return MatchFragmentIonsOfAllCharges(scan, theoreticalProducts, commonParameters, isLowRes);
+                return MatchFragmentIonsOfAllCharges(scan, theoreticalProducts, commonParameters);
             }
 
             var matchedFragmentIons = new List<MatchedFragmentIon>();
@@ -231,8 +232,9 @@ namespace EngineLayer
         //Used only when user wants to generate spectral library.
         //Normal search only looks for one match ion for one fragment, and if it accepts it then it doesn't try to look for different charge states of that same fragment. 
         //But for library generation, we need find all the matched peaks with all the different charges.
-        private static List<MatchedFragmentIon> MatchFragmentIonsOfAllCharges(Ms2ScanWithSpecificMass scan, List<Product> theoreticalProducts, CommonParameters commonParameters, bool isLowRes = false)
+        private static List<MatchedFragmentIon> MatchFragmentIonsOfAllCharges(Ms2ScanWithSpecificMass scan, List<Product> theoreticalProducts, CommonParameters commonParameters)
         {
+            bool isLowRes = IsLowResolutionScan(scan);
             var productMassTolerance = isLowRes ? commonParameters.ProductMassTolerance_LowRes : commonParameters.ProductMassTolerance;
             var matchedFragmentIons = new List<MatchedFragmentIon>();
             var ions = new List<string>();
@@ -278,6 +280,17 @@ namespace EngineLayer
 
             return matchedFragmentIons;
         }
+
+        /// <summary>
+        /// Determines whether the given scan was acquired on a low-resolution mass analyzer (e.g., ion trap).
+        /// Used to select the appropriate product mass tolerance for fragment ion matching.
+        /// </summary>
+        internal static bool IsLowResolutionScan(Ms2ScanWithSpecificMass scan)
+        {
+            var analyzer = scan.TheScan.MzAnalyzer;
+            return analyzer == MZAnalyzerType.IonTrap2D || analyzer == MZAnalyzerType.IonTrap3D;
+        }
+
         protected abstract MetaMorpheusEngineResults RunSpecific();
 
         public MetaMorpheusEngineResults Run()

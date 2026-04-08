@@ -164,7 +164,7 @@ namespace Test
 
             // Match fragments treating the scan as a child scan (isChildScan = true).
             // Expect matches to satisfy child scan tolerance (potentially wider).
-            var childMatchedIons = MetaMorpheusEngine.MatchFragmentIons(scan, fragmentsForEachGlycoPeptide, commonParameters, isLowRes: true);
+            var childMatchedIons = MetaMorpheusEngine.MatchFragmentIons(scan, fragmentsForEachGlycoPeptide, commonParameters);
             Assert.That(childMatchedIons.Count, Is.GreaterThan(0));
             foreach (var ion in childMatchedIons)
             {
@@ -175,7 +175,7 @@ namespace Test
                 Assert.That(lowResTolerance.Within(matchedMass, theoreticalMass));
             }
 
-            var childMatchedIonsHighRes = MetaMorpheusEngine.MatchFragmentIons(scan, fragmentsForEachGlycoPeptide, commonParameters, isLowRes: false);
+            var childMatchedIonsHighRes = MetaMorpheusEngine.MatchFragmentIons(scan, fragmentsForEachGlycoPeptide, commonParameters);
             Assert.That(childMatchedIonsHighRes.Count, Is.GreaterThan(0));
             foreach (var ion in childMatchedIonsHighRes) 
             {
@@ -221,7 +221,7 @@ namespace Test
 
             // Match fragments treating the scan as a child scan (isChildScan = true).
             // Expect matches to satisfy child scan tolerance (potentially wider).
-            var childMatchedIons = MetaMorpheusEngine.MatchFragmentIons(scan, fragmentsForEachGlycoPeptide, commonParameters, isLowRes: true);
+            var childMatchedIons = MetaMorpheusEngine.MatchFragmentIons(scan, fragmentsForEachGlycoPeptide, commonParameters);
             Assert.That(childMatchedIons.Count, Is.GreaterThan(0));
             foreach (var ion in childMatchedIons)
             {
@@ -233,7 +233,7 @@ namespace Test
             }
 
             // Match fragments with narrow tolerance, and the expected matches should be satisfied high-res tolerance.
-            var childMatchedIonsHighRes = MetaMorpheusEngine.MatchFragmentIons(scan, fragmentsForEachGlycoPeptide, commonParameters, isLowRes: false);
+            var childMatchedIonsHighRes = MetaMorpheusEngine.MatchFragmentIons(scan, fragmentsForEachGlycoPeptide, commonParameters);
             Assert.That(childMatchedIonsHighRes.Count, Is.GreaterThan(0));
             foreach (var ion in childMatchedIonsHighRes)
             {
