@@ -130,6 +130,9 @@ namespace EngineLayer
 
         public static List<MatchedFragmentIon> MatchFragmentIons(Ms2ScanWithSpecificMass scan, List<Product> theoreticalProducts, CommonParameters commonParameters, bool matchAllCharges = false)
         {
+            // auto-detect low-res scans from mass analyzer metadata and use wider tolerance for ion trap child scans
+            bool isLowRes = IsLowResolutionScan(scan);
+            var productMassTolerance = isLowRes ? commonParameters.ProductMassTolerance_LowRes : commonParameters.ProductMassTolerance;
             if (matchAllCharges)
             {
                 return MatchFragmentIonsOfAllCharges(scan, theoreticalProducts, commonParameters);
@@ -153,7 +156,8 @@ namespace EngineLayer
                     double theoreticalFragmentMz = Math.Round(product.NeutralMass.ToMz(1) / 1.0005079, 0) * 1.0005079;
                     var closestMzIndex = scan.TheScan.MassSpectrum.GetClosestPeakIndex(theoreticalFragmentMz);
 
-                    if (commonParameters.ProductMassTolerance.Within(scan.TheScan.MassSpectrum.XArray[closestMzIndex], theoreticalFragmentMz))
+
+                    if (productMassTolerance.Within(scan.TheScan.MassSpectrum.XArray[closestMzIndex], theoreticalFragmentMz))
                     {
                         matchedFragmentIons.Add(new MatchedFragmentIon(product, theoreticalFragmentMz, scan.TheScan.MassSpectrum.YArray[closestMzIndex], 1));
                     }
@@ -183,7 +187,7 @@ namespace EngineLayer
 
                 // is the mass error acceptable?
                 if (closestExperimentalMass != null
-                    && commonParameters.ProductMassTolerance.Within(closestExperimentalMass.MonoisotopicMass, product.NeutralMass)
+                    && productMassTolerance.Within(closestExperimentalMass.MonoisotopicMass, product.NeutralMass)
                     && Math.Abs(closestExperimentalMass.Charge) <= Math.Abs(scan.PrecursorCharge))//TODO apply this filter before picking the envelope
                 {
                     matchedFragmentIons.Add(new MatchedFragmentIon(product, closestExperimentalMass.MonoisotopicMass.ToMz(closestExperimentalMass.Charge),
@@ -211,7 +215,7 @@ namespace EngineLayer
                         IsotopicEnvelope closestExperimentalMass = scan.GetClosestExperimentalIsotopicEnvelope(compIonMass);
 
                         // is the mass error acceptable?
-                        if (commonParameters.ProductMassTolerance.Within(closestExperimentalMass.MonoisotopicMass, compIonMass) && closestExperimentalMass.Charge <= scan.PrecursorCharge)
+                        if (productMassTolerance.Within(closestExperimentalMass.MonoisotopicMass, compIonMass) && closestExperimentalMass.Charge <= scan.PrecursorCharge)
                         {
                             //found the peak, but we don't want to save that m/z because it's the complementary of the observed ion that we "added". Need to create a fake ion instead.
                             double mz = (scan.PrecursorMass + protonMassShift - closestExperimentalMass.MonoisotopicMass).ToMz(closestExperimentalMass.Charge);
@@ -230,6 +234,8 @@ namespace EngineLayer
         //But for library generation, we need find all the matched peaks with all the different charges.
         private static List<MatchedFragmentIon> MatchFragmentIonsOfAllCharges(Ms2ScanWithSpecificMass scan, List<Product> theoreticalProducts, CommonParameters commonParameters)
         {
+            bool isLowRes = IsLowResolutionScan(scan);
+            var productMassTolerance = isLowRes ? commonParameters.ProductMassTolerance_LowRes : commonParameters.ProductMassTolerance;
             var matchedFragmentIons = new List<MatchedFragmentIon>();
             var ions = new List<string>();
 
@@ -249,8 +255,8 @@ namespace EngineLayer
                 }
 
                 //get the range we can accept 
-                var minMass = commonParameters.ProductMassTolerance.GetMinimumValue(product.NeutralMass);
-                var maxMass = commonParameters.ProductMassTolerance.GetMaximumValue(product.NeutralMass);
+                var minMass = productMassTolerance.GetMinimumValue(product.NeutralMass);
+                var maxMass = productMassTolerance.GetMaximumValue(product.NeutralMass);
                 var closestExperimentalMassList = scan.GetClosestExperimentalIsotopicEnvelopeList(minMass, maxMass);
                 if (closestExperimentalMassList != null)
                 {
@@ -259,7 +265,7 @@ namespace EngineLayer
                         String ion = $"{product.ProductType.ToString()}{ product.FragmentNumber}^{x.Charge}-{product.NeutralLoss}";
                         if (x != null 
                             && !ions.Contains(ion) 
-                            && commonParameters.ProductMassTolerance.Within(x.MonoisotopicMass, product.NeutralMass) 
+                            && productMassTolerance.Within(x.MonoisotopicMass, product.NeutralMass) 
                             && Math.Abs(x.Charge) <= Math.Abs(scan.PrecursorCharge))//TODO apply this filter before picking the envelope
                         {
                             Product temProduct = product;
@@ -274,6 +280,17 @@ namespace EngineLayer
 
             return matchedFragmentIons;
         }
+
+        /// <summary>
+        /// Determines whether the given scan was acquired on a low-resolution mass analyzer (e.g., ion trap).
+        /// Used to select the appropriate product mass tolerance for fragment ion matching.
+        /// </summary>
+        internal static bool IsLowResolutionScan(Ms2ScanWithSpecificMass scan)
+        {
+            var analyzer = scan.TheScan.MzAnalyzer;
+            return analyzer == MZAnalyzerType.IonTrap2D || analyzer == MZAnalyzerType.IonTrap3D;
+        }
+
         protected abstract MetaMorpheusEngineResults RunSpecific();
 
         public MetaMorpheusEngineResults Run()

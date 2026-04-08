@@ -35,7 +35,8 @@ namespace MetaMorpheusGUI
             string maxFragmentMass,
             string qValueFilter,
             string pepqValueFilter,
-            string minInternalIonLength
+            string minInternalIonLength,
+            string productMassTolerance_LowRes = null
             )
         {
             maxMissedCleavages = MaxValueConversion(maxMissedCleavages);
@@ -45,6 +46,7 @@ namespace MetaMorpheusGUI
             {
                 (CheckPrecursorMassTolerance(precursorMassTolerance)),
                 (CheckProductMassTolerance(productMassTolerance)),
+                (string.IsNullOrWhiteSpace(productMassTolerance_LowRes) || CheckProductMassTolerance_LowRes(productMassTolerance_LowRes)),
                 (CheckMaxMissedCleavages(maxMissedCleavages)),
                 (CheckMaxModificationIsoForms(maxModificationIsoforms)),
                 (CheckPeptideLength(minPeptideLength, maxPeptideLength)),
@@ -166,6 +168,16 @@ namespace MetaMorpheusGUI
             if (!double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out double productMassTolerance) || productMassTolerance <= 0)
             {
                 MessageBox.Show("The product mass tolerance is invalid. \n You entered " + '"' + text + '"' + "\n Please enter a positive number.");
+                return false;
+            }
+            return true;
+        }
+
+        public static bool CheckProductMassTolerance_LowRes(string text)
+        {
+            if (!double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out double childScanMassTolerance) || childScanMassTolerance <= 0)
+            {
+                MessageBox.Show("The Low-Res product mass tolerance is invalid. \n You entered " + '"' + text + '"' + "\n Please enter a positive number.");
                 return false;
             }
             return true;
