@@ -79,9 +79,9 @@ namespace Test
             var commonParameters = new CommonParameters();
             Assert.That(commonParameters.ProductMassTolerance_LowRes, Is.Not.Null, "ChildScanMassTolerance should be initialized by default.");
 
-            // Default product tolerance is a AbsoluteTolerance of 0.35 Da; verify type and numeric width equivalence
-            Assert.That(commonParameters.ProductMassTolerance_LowRes, Is.TypeOf<AbsoluteTolerance>());
-            Assert.That(commonParameters.ProductMassTolerance_LowRes.GetRange(1000).Width, Is.EqualTo(new AbsoluteTolerance(0.35).GetRange(1000).Width));
+            // Default low-res tolerance inherits from ProductMassTolerance (PpmTolerance 20 ppm)
+            Assert.That(commonParameters.ProductMassTolerance_LowRes, Is.TypeOf<PpmTolerance>());
+            Assert.That(commonParameters.ProductMassTolerance_LowRes.Value, Is.EqualTo(commonParameters.ProductMassTolerance.Value));
         }
 
         [Test]
@@ -97,11 +97,13 @@ namespace Test
                     Path.Combine(TestContext.CurrentContext.TestDirectory, @"GlycoTestData\GlycoSearchTaskconfigOGlycoTest_ToleranceTracking.toml"),
                     MetaMorpheusTask.tomlConfig);
 
-                // Confirm read-in behavior (tracking expected when low-res omitted)
+                // Confirm read-in behavior: ProductMassTolerance is set to 40 ppm from TOML.
+                // Low-res inherits from the default ProductMassTolerance (20 ppm) at construction time,
+                // since TOML deserialization sets ProductMassTolerance via the public setter after construction.
                 Assert.That(inputTask.CommonParameters.ProductMassTolerance, Is.TypeOf<PpmTolerance>());
                 Assert.That(inputTask.CommonParameters.ProductMassTolerance.Value, Is.EqualTo(40).Within(1e-9));
-                Assert.That(inputTask.CommonParameters.ProductMassTolerance_LowRes, Is.TypeOf<AbsoluteTolerance>());
-                Assert.That(inputTask.CommonParameters.ProductMassTolerance_LowRes.Value, Is.EqualTo(0.35));
+                Assert.That(inputTask.CommonParameters.ProductMassTolerance_LowRes, Is.TypeOf<PpmTolerance>());
+                Assert.That(inputTask.CommonParameters.ProductMassTolerance_LowRes.Value, Is.EqualTo(20).Within(1e-9));
 
                 DbForTask db = new(Path.Combine(TestContext.CurrentContext.TestDirectory, @"GlycoTestData\P16150.fasta"), false);
                 string spectraFile = Path.Combine(TestContext.CurrentContext.TestDirectory, @"GlycoTestData\2019_09_16_StcEmix_35trig_EThcD25_rep1_9906.mgf");
@@ -120,8 +122,8 @@ namespace Test
                 var writtenTask = Toml.ReadFile<GlycoSearchTask>(writtenTaskToml, MetaMorpheusTask.tomlConfig);
                 Assert.That(writtenTask.CommonParameters.ProductMassTolerance, Is.TypeOf<PpmTolerance>());
                 Assert.That(writtenTask.CommonParameters.ProductMassTolerance.Value, Is.EqualTo(40).Within(1e-9));
-                Assert.That(writtenTask.CommonParameters.ProductMassTolerance_LowRes, Is.TypeOf<AbsoluteTolerance>());
-                Assert.That(writtenTask.CommonParameters.ProductMassTolerance_LowRes.Value, Is.EqualTo(0.35));
+                Assert.That(writtenTask.CommonParameters.ProductMassTolerance_LowRes, Is.TypeOf<PpmTolerance>());
+                Assert.That(writtenTask.CommonParameters.ProductMassTolerance_LowRes.Value, Is.EqualTo(20).Within(1e-9));
             }
             finally
             {
@@ -326,9 +328,10 @@ namespace Test
                 Assert.That(glycoFileSpecificParams.PrecursorMassTolerance.Value, Is.EqualTo(calibratedFileSpecific.PrecursorMassTolerance.Value).Within(1e-9));
                 Assert.That(glycoFileSpecificParams.ProductMassTolerance.Value, Is.EqualTo(calibratedFileSpecific.ProductMassTolerance.Value).Within(1e-9));
 
-                // Low-res tolerance remains independent (default 0.35 Da unless explicitly set).
-                Assert.That(glycoFileSpecificParams.ProductMassTolerance_LowRes, Is.TypeOf<AbsoluteTolerance>());
-                Assert.That(glycoFileSpecificParams.ProductMassTolerance_LowRes.Value, Is.EqualTo(0.35).Within(1e-9));
+                // Low-res tolerance inherits from the original ProductMassTolerance at construction (20 ppm),
+                // not the calibration-narrowed value, since calibration does not update low-res tolerance.
+                Assert.That(glycoFileSpecificParams.ProductMassTolerance_LowRes, Is.TypeOf<PpmTolerance>());
+                Assert.That(glycoFileSpecificParams.ProductMassTolerance_LowRes.Value, Is.EqualTo(originalProductTolerance.Value).Within(1e-9));
 
                 // Confirm Glyco task TOML is written.
                 string glycoTaskTomlPath = Path.Combine(outputRoot, "Task Settings", "Glycoconfig.toml");

@@ -187,7 +187,7 @@ namespace MetaMorpheusGUI
             productMassToleranceTextBox.Text = task.CommonParameters.ProductMassTolerance.Value.ToString(CultureInfo.InvariantCulture);
             productMassToleranceComboBox.SelectedIndex = task.CommonParameters.ProductMassTolerance is AbsoluteTolerance ? 0 : 1;
             productMassTolerance_LowResTextBox.Text = task.CommonParameters.ProductMassTolerance_LowRes?.Value.ToString(CultureInfo.InvariantCulture);
-            productMassTolerance_LowResComboBox.SelectedIndex = task.CommonParameters.ProductMassTolerance_LowRes is AbsoluteTolerance ? 0 : 1;
+            productMassTolerance_LowResComboBox.SelectedIndex = task.CommonParameters.ProductMassTolerance_LowRes == null || task.CommonParameters.ProductMassTolerance_LowRes is AbsoluteTolerance ? 0 : 1;
             minScoreAllowed.Text = task.CommonParameters.ScoreCutoff.ToString(CultureInfo.InvariantCulture);
             numberOfDatabaseSearchesTextBox.Text = task.CommonParameters.TotalPartitions.ToString(CultureInfo.InvariantCulture);
             maxThreadsTextBox.Text = task.CommonParameters.MaxThreadsToUsePerFile.ToString(CultureInfo.InvariantCulture);
@@ -261,10 +261,11 @@ namespace MetaMorpheusGUI
         {
             string fieldNotUsed = "1";
 
-            if (!TaskValidator.CheckTaskSettingsValidity(PrecusorMsTlTextBox.Text, productMassToleranceTextBox.Text, productMassTolerance_LowResTextBox.Text, missedCleavagesTextBox.Text,
+            if (!TaskValidator.CheckTaskSettingsValidity(PrecusorMsTlTextBox.Text, productMassToleranceTextBox.Text, missedCleavagesTextBox.Text,
                 maxModificationIsoformsTextBox.Text, MinPeptideLengthTextBox.Text, MaxPeptideLengthTextBox.Text, maxThreadsTextBox.Text, minScoreAllowed.Text,
-                fieldNotUsed, fieldNotUsed, fieldNotUsed, DeconHostViewModel.PrecursorDeconvolutionParameters.MaxAssumedChargeState.ToString(), TopNPeaksTextBox.Text, MinRatioTextBox.Text, null, null, numberOfDatabaseSearchesTextBox.Text, TxtBoxMaxModPerPep.Text, 
-                fieldNotUsed, null, null, null))
+                fieldNotUsed, fieldNotUsed, fieldNotUsed, DeconHostViewModel.PrecursorDeconvolutionParameters.MaxAssumedChargeState.ToString(), TopNPeaksTextBox.Text, MinRatioTextBox.Text, null, null, numberOfDatabaseSearchesTextBox.Text, TxtBoxMaxModPerPep.Text,
+                fieldNotUsed, null, null, null,
+                productMassTolerance_LowRes: productMassTolerance_LowResTextBox.Text))
             {
                 return;
             }
@@ -371,7 +372,7 @@ namespace MetaMorpheusGUI
             if (string.IsNullOrWhiteSpace(productMassTolerance_LowResToleranceText))
             {
                 // If no child scan mass tolerance is specified, fall back to product mass tolerance
-                ProductMassTolerance_lowRes = new AbsoluteTolerance(0.35);
+                ProductMassTolerance_lowRes = ProductMassTolerance;
             }
             else 
             {

@@ -355,7 +355,7 @@ namespace EngineLayer.GlycoSearch
                 //TO THINK:may think a different way to use childScore
                 score += childScore;
 
-                var productTolerance = isIonTrapData ? CommonParameters.ProductMassTolerance_LowRes : CommonParameters.ProductMassTolerance;
+                var productTolerance = IsLowResolutionScan(childScan) ? CommonParameters.ProductMassTolerance_LowRes : CommonParameters.ProductMassTolerance;
                 p += childScan.TheScan.MassSpectrum.Size * productTolerance.GetRange(1000).Width / childScan.TheScan.MassSpectrum.Range.Width;
 
             }

@@ -1,5 +1,4 @@
-﻿using Org.BouncyCastle.Tls;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text.RegularExpressions;
@@ -13,64 +12,10 @@ namespace MetaMorpheusGUI
     public static class TaskValidator
     {
         /// <summary>
-        /// Backward-compatible overload without low-res tolerance parameter.
-        /// </summary>
-        public static bool CheckTaskSettingsValidity(
-            string precursorMassTolerance,
-            string productMassTolerance,
-            string maxMissedCleavages,
-            string maxModificationIsoforms,
-            string minPeptideLength,
-            string maxPeptideLength,
-            string maxThreads,
-            string minScore,
-            string peakFindingTolerance,
-            string mbrFdrThreshold,
-            string histogramBinWidth,
-            string deconMaxAssumedCharge,
-            string numberOfPeaksToKeepPerWindow,
-            string minimumAllowedIntensityRatio,
-            string windowWidthThomsons,
-            string numberOfWindows,
-            string numberOfDatabaseSearches,
-            string maxModsPerPeptide,
-            string maxFragmentMass,
-            string qValueFilter,
-            string pepqValueFilter,
-            string minInternalIonLength)
-        {
-            return CheckTaskSettingsValidity(
-                precursorMassTolerance: precursorMassTolerance,
-                productMassTolerance: productMassTolerance,
-                productMassTolerance_LowRes: null,
-                maxMissedCleavages: maxMissedCleavages,
-                maxModificationIsoforms: maxModificationIsoforms,
-                minPeptideLength: minPeptideLength,
-                maxPeptideLength: maxPeptideLength,
-                maxThreads: maxThreads,
-                minScore: minScore,
-                peakFindingTolerance: peakFindingTolerance,
-                mbrFdrThreshold: mbrFdrThreshold,
-                histogramBinWidth: histogramBinWidth,
-                deconMaxAssumedCharge: deconMaxAssumedCharge,
-                numberOfPeaksToKeepPerWindow: numberOfPeaksToKeepPerWindow,
-                minimumAllowedIntensityRatio: minimumAllowedIntensityRatio,
-                windowWidthThomsons: windowWidthThomsons,
-                numberOfWindows: numberOfWindows,
-                numberOfDatabaseSearches: numberOfDatabaseSearches,
-                maxModsPerPeptide: maxModsPerPeptide,
-                maxFragmentMass: maxFragmentMass,
-                qValueFilter: qValueFilter,
-                pepqValueFilter: pepqValueFilter,
-                minInternalIonLength: minInternalIonLength);
-        }
-
-        /// <summary>
         /// Checks the validity of each setting passed from the GUI task windows
         /// </summary>
         public static bool CheckTaskSettingsValidity(string precursorMassTolerance,
             string productMassTolerance,
-            string productMassTolerance_LowRes,
             string maxMissedCleavages,
             string maxModificationIsoforms,
             string minPeptideLength,
@@ -90,7 +35,8 @@ namespace MetaMorpheusGUI
             string maxFragmentMass,
             string qValueFilter,
             string pepqValueFilter,
-            string minInternalIonLength
+            string minInternalIonLength,
+            string productMassTolerance_LowRes = null
             )
         {
             maxMissedCleavages = MaxValueConversion(maxMissedCleavages);
