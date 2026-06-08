@@ -74,7 +74,13 @@ namespace EngineLayer.ParallelSearch
                 // search, so flatten them once (struct-of-arrays) and reuse. This is the payload the
                 // GPU keeps resident in VRAM; the CPU scorer reads the same arrays.
                 var scoringData = GetOrBuildScoringData(ArrayOfSortedMS2Scans);
-                using var scorerProvider = SpectralScorerFactory.Create(scoringData, CommonParameters.ProductMassTolerance);
+                // GPU is OPT-IN (set MM_PARALLELSEARCH_GPU=1). It is byte-identical but currently
+                // SLOWER end-to-end than CPU because ~60 search threads serialize on one GPU via
+                // synchronous locked round-trips; see GPU_PLAN.md for the producer/consumer redesign
+                // that is required before the fast kernel (8.6x in isolation) wins in practice.
+                bool gpuEnabled = Environment.GetEnvironmentVariable("MM_PARALLELSEARCH_GPU") == "1";
+                using var scorerProvider = SpectralScorerFactory.Create(
+                    scoringData, CommonParameters.ProductMassTolerance, preferCpu: !gpuEnabled);
                 Status("ParallelSearch scoring backend: " + scorerProvider.BackendDescription);
 
                 Action<int, int> processProteinRange = (start, end) =>
