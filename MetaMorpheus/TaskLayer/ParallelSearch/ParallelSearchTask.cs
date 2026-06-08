@@ -15,6 +15,7 @@ using Omics.SpectrumMatch;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -37,6 +38,12 @@ public class ParallelSearchTask : SearchTask
     private int _dashboardCachedAtStart;
     private int _dashboardInitialFinishedCount;
     private int _dashboardCompletedThisRun;
+
+    // Phase timing (P0 of GPU plan): reveals where wall-clock actually goes so GPU effort
+    // targets the real hot spot. Inner-loop split is accumulated across the parallel
+    // per-database loop via Interlocked; coarse phases are timed in RunSpecific.
+    private long _searchEngineTicks;     // time inside TransientClassicSearchEngine.Run
+    private long _postAnalysisTicks;     // time inside PerformPostSearchAnalysis
 
     private const string DashboardPhaseInitializing = "Initializing";
     private const string DashboardPhaseSearching = "Searching";
@@ -156,9 +163,13 @@ public class ParallelSearchTask : SearchTask
             goto Finalization;
         }
 
+        // Phase timing (P0 of GPU plan) — coarse wall-clock per phase.
+        var swInit = Stopwatch.StartNew();
+
         // Initialize all necessary data structures including base search
         Initialize(taskId, dbFilenameList, currentRawFileList, fileSettingsList, outputFolder);
         InitializeCompletedDatabaseWriter();
+        swInit.Stop();
 
         Status($"Starting search of {TotalDatabases} transient databases...", taskId);
         ReportTaskDashboard(taskId, ParallelSearchDashboardUpdateKind.TaskStatus, DashboardPhaseSearching,
@@ -172,6 +183,7 @@ public class ParallelSearchTask : SearchTask
          CommonParameters.MaxThreadsToUsePerFile = threadsPerDatabase;
 
         // Loop through each transient database
+         var swTransientLoop = Stopwatch.StartNew();
          try
          {
              Parallel.ForEach(ParallelSearchParameters.TransientDatabases,
@@ -185,6 +197,8 @@ public class ParallelSearchTask : SearchTask
          {
              CompleteCompletedDatabaseWriter();
          }
+         swTransientLoop.Stop();
+         LogPhaseTimingBreakdown(taskId, swInit.Elapsed, swTransientLoop.Elapsed, databaseParallelism);
 
           Finalization:
 
@@ -244,6 +258,28 @@ public class ParallelSearchTask : SearchTask
 
         ReportProgress(new(100, "Many search task complete!", [taskId]));
         return MyTaskResults;
+    }
+
+    /// <summary>
+    /// Logs where wall-clock time went so GPU effort targets the real hot spot.
+    /// The per-database search and post-analysis times are summed across all parallel
+    /// workers (CPU-seconds); dividing by the database parallelism approximates the
+    /// wall-clock each contributed to the transient loop.
+    /// </summary>
+    private void LogPhaseTimingBreakdown(string taskId, TimeSpan init, TimeSpan transientLoop, int databaseParallelism)
+    {
+        double searchCpuSec = _searchEngineTicks / (double)Stopwatch.Frequency;
+        double postCpuSec = _postAnalysisTicks / (double)Stopwatch.Frequency;
+        int par = Math.Max(1, databaseParallelism);
+
+        Status(
+            "Phase timing — " +
+            $"Initialize (load + base search): {init.TotalSeconds:F1}s | " +
+            $"Transient loop wall-clock: {transientLoop.TotalSeconds:F1}s | " +
+            $"search engine: {searchCpuSec:F1} CPU-s (~{searchCpuSec / par:F1}s wall) | " +
+            $"post-search analysis: {postCpuSec:F1} CPU-s (~{postCpuSec / par:F1}s wall) | " +
+            $"db parallelism: {par}.",
+            taskId);
     }
 
     #region Initialization
@@ -553,7 +589,9 @@ public class ParallelSearchTask : SearchTask
 
          // Reuse baseline PSMs with copy-on-write in peptide/proteoform mode.
          SpectralMatch[] psmArray = BaseSearchPsms.ToArray();
+         long searchStart = Stopwatch.GetTimestamp();
          PerformSearch(transientProteins, psmArray, nestedIds, out HashSet<int> updatedPsmIndexes, out int transientPeptideCount, useCopyOnWrite: true);
+         Interlocked.Add(ref _searchEngineTicks, Stopwatch.GetTimestamp() - searchStart);
 
         Status($"Performing post-search analysis for {dbName}...", nestedIds);
         ReportDatabaseDashboard(taskId, ParallelSearchDashboardUpdateKind.DatabaseProgress, dbName,
@@ -562,18 +600,20 @@ public class ParallelSearchTask : SearchTask
          int totalProteins = BaseBioPolymers.Count + transientProteins.Count;
          
          // Process database through unified manager (handles analysis + statistical caching)
+         long postAnalysisStart = Stopwatch.GetTimestamp();
          var (analysisContext, dbResults) = PerformPostSearchAnalysis(
               psmArray,
-              dbOutputFolder, 
+              dbOutputFolder,
               nestedIds,
-             dbName, 
-             totalProteins, 
-             transientProteinAccessions, 
-             transientPeptideCount, 
-             transientProteins, 
+             dbName,
+             totalProteins,
+             transientProteinAccessions,
+             transientPeptideCount,
+             transientProteins,
               transientDb,
               updatedPsmIndexes
           ).GetAwaiter().GetResult();
+         Interlocked.Add(ref _postAnalysisTicks, Stopwatch.GetTimestamp() - postAnalysisStart);
 
          _completedDatabaseWriteChannel!.Writer.WriteAsync((analysisContext, dbResults)).AsTask().GetAwaiter().GetResult();
 
