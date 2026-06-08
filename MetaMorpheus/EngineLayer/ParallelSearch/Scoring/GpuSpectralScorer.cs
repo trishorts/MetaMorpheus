@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using Chemistry;
 using ILGPU;
 using ILGPU.Runtime;
@@ -91,8 +92,10 @@ namespace EngineLayer.ParallelSearch.Scoring
 
             lock (_gpuLock)
             {
-                // scan-sorted processing order (locality: neighbor blocks -> neighbor scans)
-                if (_order.Length < count) _order = new int[Math.Max(count, _order.Length * 2)];
+                // scan-sorted processing order (locality: neighbor blocks -> neighbor scans).
+                // Size _order to the (stable) accumulator capacity so its device buffer doesn't churn.
+                int cap = batch.WorkPeptideSlot.Length;
+                if (_order.Length != cap) _order = new int[cap];
                 for (int i = 0; i < count; i++) _order[i] = i;
                 Array.Sort(_order, 0, count, new ScanComparer(batch.WorkScanIndex));
 
@@ -106,14 +109,14 @@ namespace EngineLayer.ParallelSearch.Scoring
 
                 // upload (resident spectra already on device); whole host arrays — kernel reads only
                 // the valid ranges. Device buffers are >= host array length.
-                _dWorkSlot = Ensure(_dWorkSlot, batch.WorkPeptideSlot.Length); _dWorkSlot.CopyFromCPU(batch.WorkPeptideSlot);
-                _dWorkScan = Ensure(_dWorkScan, batch.WorkScanIndex.Length); _dWorkScan.CopyFromCPU(batch.WorkScanIndex);
-                _dPepFragOff = Ensure(_dPepFragOff, batch.PeptideFragmentOffsets.Length); _dPepFragOff.CopyFromCPU(batch.PeptideFragmentOffsets);
-                _dFragMass = EnsureD(_dFragMass, batch.FragmentNeutralMasses.Length); _dFragMass.CopyFromCPU(batch.FragmentNeutralMasses);
-                _dOrder = Ensure(_dOrder, _order.Length); _dOrder.CopyFromCPU(_order);
+                _dWorkSlot = EnsureExact(_dWorkSlot, batch.WorkPeptideSlot.Length); _dWorkSlot.CopyFromCPU(batch.WorkPeptideSlot);
+                _dWorkScan = EnsureExact(_dWorkScan, batch.WorkScanIndex.Length); _dWorkScan.CopyFromCPU(batch.WorkScanIndex);
+                _dPepFragOff = EnsureExact(_dPepFragOff, batch.PeptideFragmentOffsets.Length); _dPepFragOff.CopyFromCPU(batch.PeptideFragmentOffsets);
+                _dFragMass = EnsureExactD(_dFragMass, batch.FragmentNeutralMasses.Length); _dFragMass.CopyFromCPU(batch.FragmentNeutralMasses);
+                _dOrder = EnsureExact(_dOrder, _order.Length); _dOrder.CopyFromCPU(_order);
 
                 long outLen = (long)count * stride;
-                _dOut = Ensure(_dOut, outLen);
+                _dOut = EnsureAtLeast(_dOut, outLen);
 
                 _kernel(new KernelConfig(count, GroupSize),
                     _dOrder.View, _dWorkSlot.View, _dWorkScan.View, _dPepFragOff.View, _dFragMass.View,
@@ -210,18 +213,29 @@ namespace EngineLayer.ParallelSearch.Scoring
             }
         }
 
-        private MemoryBuffer1D<int, Stride1D.Dense> Ensure(MemoryBuffer1D<int, Stride1D.Dense> buf, long len)
+        // Inputs are uploaded with CopyFromCPU(T[]), which requires buffer length == array length
+        // exactly. The accumulator's host arrays grow by doubling and then stabilize, so these
+        // reallocate only a handful of times total.
+        private MemoryBuffer1D<int, Stride1D.Dense> EnsureExact(MemoryBuffer1D<int, Stride1D.Dense> buf, long len)
         {
-            if (buf != null && buf.Length >= len) return buf;
+            if (buf != null && buf.Length == len) return buf;
             buf?.Dispose();
-            return _accelerator.Allocate1D<int>(Math.Max(len, 1024));
+            return _accelerator.Allocate1D<int>(len);
         }
 
-        private MemoryBuffer1D<double, Stride1D.Dense> EnsureD(MemoryBuffer1D<double, Stride1D.Dense> buf, long len)
+        private MemoryBuffer1D<double, Stride1D.Dense> EnsureExactD(MemoryBuffer1D<double, Stride1D.Dense> buf, long len)
+        {
+            if (buf != null && buf.Length == len) return buf;
+            buf?.Dispose();
+            return _accelerator.Allocate1D<double>(len);
+        }
+
+        // Output-only buffer: over-allocate and grow (never CopyFromCPU into it).
+        private MemoryBuffer1D<int, Stride1D.Dense> EnsureAtLeast(MemoryBuffer1D<int, Stride1D.Dense> buf, long len)
         {
             if (buf != null && buf.Length >= len) return buf;
             buf?.Dispose();
-            return _accelerator.Allocate1D<double>(Math.Max(len, 1024));
+            return _accelerator.Allocate1D<int>(Math.Max(len, 4096));
         }
 
         private sealed class ScanComparer : System.Collections.Generic.IComparer<int>
@@ -241,18 +255,26 @@ namespace EngineLayer.ParallelSearch.Scoring
         }
     }
 
-    /// <summary>Owns the shared GPU scorer (one accelerator, resident spectra). PPM tolerance only.</summary>
+    /// <summary>
+    /// Hands out the PROCESS-WIDE shared GPU scorer for a given spectra set. Critically, the engine
+    /// is constructed per transient database, so the GPU scorer (CUDA context + resident spectra
+    /// upload) must NOT be created per engine — it is cached by SpectralScoringData (which is itself
+    /// cached per scan array), so all databases share one accelerator and one 45 MB upload.
+    /// The shared scorer lives for the process; the provider does not dispose it. PPM tolerance only.
+    /// </summary>
     public sealed class GpuScorerProvider : ISpectralScorerProvider
     {
+        private static readonly ConditionalWeakTable<SpectralScoringData, GpuSpectralScorer> _shared = new();
+
         private readonly GpuSpectralScorer _scorer;
         public GpuScorerProvider(SpectralScoringData data, Tolerance productTolerance)
         {
             if (productTolerance is not PpmTolerance ppm)
                 throw new NotSupportedException("GPU scorer supports PPM product tolerance only.");
-            _scorer = new GpuSpectralScorer(data, ppm.Value);
+            _scorer = _shared.GetValue(data, d => new GpuSpectralScorer(d, ppm.Value));
         }
         public ISpectralScorer GetScorer() => _scorer;
         public string BackendDescription => _scorer.BackendDescription;
-        public void Dispose() => _scorer.Dispose();
+        public void Dispose() { /* shared scorer is process-lived; not disposed per engine */ }
     }
 }
