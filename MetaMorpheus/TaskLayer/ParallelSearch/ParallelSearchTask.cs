@@ -198,7 +198,7 @@ public class ParallelSearchTask : SearchTask
              CompleteCompletedDatabaseWriter();
          }
          swTransientLoop.Stop();
-         LogPhaseTimingBreakdown(taskId, swInit.Elapsed, swTransientLoop.Elapsed, databaseParallelism);
+         LogPhaseTimingBreakdown(taskId, outputFolder, swInit.Elapsed, swTransientLoop.Elapsed, databaseParallelism);
 
           Finalization:
 
@@ -251,7 +251,16 @@ public class ParallelSearchTask : SearchTask
         Status("Writing Final Results...", taskId);
         ReportTaskDashboard(taskId, ParallelSearchDashboardUpdateKind.TaskStatus, DashboardPhaseWritingFinalResults,
             "Writing final results...");
-        WriteFinalOutputs(outputFolder, taskId, currentRawFileList.Count);
+        try
+        {
+            WriteFinalOutputs(outputFolder, taskId, currentRawFileList.Count);
+        }
+        catch (Exception ex)
+        {
+            // Dump the full stack to a labeled file — the task runner only surfaces the message.
+            try { File.WriteAllText(Path.Combine(outputFolder, "WriteFinalOutputs_ERROR.txt"), ex.ToString()); } catch { }
+            throw;
+        }
 
         ReportTaskDashboard(taskId, ParallelSearchDashboardUpdateKind.TaskCompleted, DashboardPhaseCompleted,
             "Many search task complete!");
@@ -266,20 +275,36 @@ public class ParallelSearchTask : SearchTask
     /// workers (CPU-seconds); dividing by the database parallelism approximates the
     /// wall-clock each contributed to the transient loop.
     /// </summary>
-    private void LogPhaseTimingBreakdown(string taskId, TimeSpan init, TimeSpan transientLoop, int databaseParallelism)
+    private void LogPhaseTimingBreakdown(string taskId, string outputFolder, TimeSpan init, TimeSpan transientLoop, int databaseParallelism)
     {
         double searchCpuSec = _searchEngineTicks / (double)Stopwatch.Frequency;
         double postCpuSec = _postAnalysisTicks / (double)Stopwatch.Frequency;
         int par = Math.Max(1, databaseParallelism);
 
-        Status(
+        string summary =
             "Phase timing — " +
             $"Initialize (load + base search): {init.TotalSeconds:F1}s | " +
             $"Transient loop wall-clock: {transientLoop.TotalSeconds:F1}s | " +
             $"search engine: {searchCpuSec:F1} CPU-s (~{searchCpuSec / par:F1}s wall) | " +
             $"post-search analysis: {postCpuSec:F1} CPU-s (~{postCpuSec / par:F1}s wall) | " +
-            $"db parallelism: {par}.",
-            taskId);
+            $"db parallelism: {par}.";
+
+        Status(summary, taskId);
+
+        // Also persist to a flushed file so the profile survives any later-stage failure
+        // (the breakdown is the whole point of the run; don't let finalization bugs eat it).
+        try
+        {
+            string detail =
+                summary + Environment.NewLine + Environment.NewLine +
+                "Breakdown (transient loop only; Initialize is a one-time cost):" + Environment.NewLine +
+                $"  search engine (TransientClassicSearchEngine):  {searchCpuSec,10:F1} CPU-s" + Environment.NewLine +
+                $"  post-search analysis (stats/collectors/FDR):   {postCpuSec,10:F1} CPU-s" + Environment.NewLine +
+                $"  search : post ratio = {searchCpuSec / Math.Max(1e-9, postCpuSec):F2} : 1" + Environment.NewLine +
+                $"  db parallelism = {par}" + Environment.NewLine;
+            File.WriteAllText(Path.Combine(outputFolder, "PhaseTiming.txt"), detail);
+        }
+        catch { /* timing file is best-effort */ }
     }
 
     #region Initialization
