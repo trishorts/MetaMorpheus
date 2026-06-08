@@ -31,15 +31,19 @@ namespace EngineLayer.ParallelSearch
         private bool _singleThreadMode;
         private readonly ConcurrentDictionary<int, byte> UpdatedIndexes = new();
         private readonly bool _copyOnWriteEnabled;
+        // When supplied (e.g. from a .msl spectral library), the search iterates these peptides
+        // directly instead of digesting Proteins. Fragments are still recomputed in double precision.
+        private readonly List<IBioPolymerWithSetMods> _precomputedPeptides;
         public TransientClassicSearchEngine(SpectralMatch[] globalPsms, Ms2ScanWithSpecificMass[] arrayOfSortedMS2Scans,
-            List<Modification> variableModifications, List<Modification> fixedModifications, 
+            List<Modification> variableModifications, List<Modification> fixedModifications,
             List<IBioPolymer> proteinList, MassDiffAcceptor searchMode, CommonParameters commonParameters, List<(string FileName, CommonParameters Parameters)> fileSpecificParameters, List<string> nestedIds,
-            bool copyOnWriteEnabled = false)
+            bool copyOnWriteEnabled = false, List<IBioPolymerWithSetMods> precomputedPeptides = null)
             : base(globalPsms, arrayOfSortedMS2Scans, variableModifications, fixedModifications, null, null, null, proteinList, searchMode, commonParameters, fileSpecificParameters, null, nestedIds, false)
         {
             UpdatedIndexes = new ConcurrentDictionary<int, byte>();
             _singleThreadMode = CommonParameters.MaxThreadsToUsePerFile <= 1;
             _copyOnWriteEnabled = copyOnWriteEnabled;
+            _precomputedPeptides = precomputedPeptides;
 
             if (!_singleThreadMode)
             {
@@ -67,7 +71,8 @@ namespace EngineLayer.ParallelSearch
 
             Status("Performing classic search...");
 
-            if (Proteins.Any())
+            bool usePrecomputedPeptides = _precomputedPeptides != null && _precomputedPeptides.Count > 0;
+            if (Proteins.Any() || usePrecomputedPeptides)
             {
 
                 // Experimental spectra are identical and read-only across every transient database
@@ -83,49 +88,50 @@ namespace EngineLayer.ParallelSearch
                     scoringData, CommonParameters.ProductMassTolerance, preferCpu: !gpuEnabled);
                 Status("ParallelSearch scoring backend: " + scorerProvider.BackendDescription);
 
+                // Shared per-peptide work: fragment (in double), queue candidate scans, flush. The
+                // scorer does ONLY the fragment matching (the GPU-able hot step); the accumulator
+                // builds MatchedFragmentIons, applies the score cutoff, scores, and updates PSMs.
+                // A peptide's work items are queued contiguously so per-scan candidate ordering is
+                // preserved (bit-identical results).
+                void ProcessOnePeptide(IBioPolymerWithSetMods peptide, TransientScoringBatch batch,
+                    ISpectralScorer scorer, List<Product> peptideTheorProducts)
+                {
+                    Interlocked.Increment(ref peptideCounter);
+
+                    peptideTheorProducts.Clear();
+                    peptide.Fragment(CommonParameters.DissociationType, CommonParameters.DigestionParams.FragmentationTerminus, peptideTheorProducts, CommonParameters.FragmentationParameters);
+
+                    int slot = -1;
+                    foreach (ScanWithIndexAndNotchInfo scan in GetAcceptableScans(peptide.MonoisotopicMass, SearchMode))
+                    {
+                        if (slot < 0)
+                            slot = batch.BeginPeptide(peptide, peptideTheorProducts);
+                        batch.AddWorkItem(slot, scan.ScanIndex, scan.Notch);
+                    }
+
+                    if (batch.ShouldFlush)
+                        batch.Flush(scorer);
+                }
+
+                // GPU = one shared thread-safe scorer (resident spectra); CPU = a cheap per-partition
+                // scorer. The provider owns the scorer's lifetime.
                 Action<int, int> processProteinRange = (start, end) =>
                 {
-                    // The scorer does ONLY the fragment matching (the GPU-able hot step). The
-                    // accumulator builds MatchedFragmentIons, applies the score cutoff, scores, and
-                    // updates PSMs exactly as before; per-scan candidate ordering is preserved (all of
-                    // a peptide's work items are queued contiguously, in digestion order) so results
-                    // are bit-identical. GPU = one shared thread-safe scorer (resident spectra);
-                    // CPU = a cheap per-partition scorer. The provider owns the scorer's lifetime.
                     var scorer = scorerProvider.GetScorer();
                     var batch = new TransientScoringBatch(this, scoringData);
                     List<Product> peptideTheorProducts = new();
 
                     for (int i = start; i < end; i++)
                     {
-                        // Stop loop if canceled
                         if (GlobalVariables.StopLoops) { batch.Flush(scorer); return; }
 
-                        // digest each protein into peptides and search for each peptide in all spectra within precursor mass tolerance
+                        // digest each protein into peptides and search each peptide in all spectra within precursor mass tolerance
                         foreach (var specificBioPolymer in Proteins[i].Digest(CommonParameters.DigestionParams, FixedModifications, VariableModifications))
-                        {
-                            Interlocked.Increment(ref peptideCounter);
-
-                            peptideTheorProducts.Clear();
-                            specificBioPolymer.Fragment(CommonParameters.DissociationType, CommonParameters.DigestionParams.FragmentationTerminus, peptideTheorProducts, CommonParameters.FragmentationParameters);
-
-                            // queue this peptide against each scan with an acceptable precursor mass.
-                            // Only allocate a peptide slot once we know it has at least one candidate scan.
-                            int slot = -1;
-                            foreach (ScanWithIndexAndNotchInfo scan in GetAcceptableScans(specificBioPolymer.MonoisotopicMass, SearchMode))
-                            {
-                                if (slot < 0)
-                                    slot = batch.BeginPeptide(specificBioPolymer, peptideTheorProducts);
-                                batch.AddWorkItem(slot, scan.ScanIndex, scan.Notch);
-                            }
-
-                            if (batch.ShouldFlush)
-                                batch.Flush(scorer);
-                        }
+                            ProcessOnePeptide(specificBioPolymer, batch, scorer, peptideTheorProducts);
 
                         // report search progress (proteins searched so far out of total proteins in database)
                         proteinsSearched++;
                         var percentProgress = (int)((proteinsSearched / Proteins.Count) * 100);
-
                         if (percentProgress > oldPercentProgress)
                         {
                             oldPercentProgress = percentProgress;
@@ -133,23 +139,41 @@ namespace EngineLayer.ParallelSearch
                         }
                     }
 
-                    // score any peptides still queued in the final partial batch
                     batch.Flush(scorer);
                 };
 
+                // Library (.msl) peptide source: iterate precomputed peptides directly, no digestion.
+                Action<int, int> processPeptideRange = (start, end) =>
+                {
+                    var scorer = scorerProvider.GetScorer();
+                    var batch = new TransientScoringBatch(this, scoringData);
+                    List<Product> peptideTheorProducts = new();
+
+                    for (int i = start; i < end; i++)
+                    {
+                        if (GlobalVariables.StopLoops) { batch.Flush(scorer); return; }
+                        ProcessOnePeptide(_precomputedPeptides[i], batch, scorer, peptideTheorProducts);
+                    }
+
+                    batch.Flush(scorer);
+                };
+
+                int itemCount = usePrecomputedPeptides ? _precomputedPeptides.Count : Proteins.Count;
+                Action<int, int> processRange = usePrecomputedPeptides ? processPeptideRange : processProteinRange;
+
                 if (_singleThreadMode)
                 {
-                    processProteinRange(0, Proteins.Count);
+                    processRange(0, itemCount);
                 }
                 else
                 {
-                    var proteinPartioner = Partitioner.Create(0, Proteins.Count);
+                    var partitioner = Partitioner.Create(0, itemCount);
                     Parallel.ForEach(
-                        proteinPartioner,
+                        partitioner,
                         new ParallelOptions { MaxDegreeOfParallelism = CommonParameters.MaxThreadsToUsePerFile },
                         (range, loopState) =>
                         {
-                            processProteinRange(range.Item1, range.Item2);
+                            processRange(range.Item1, range.Item2);
                         });
                 }
             }

@@ -190,7 +190,20 @@ public class ParallelSearchTask : SearchTask
                  new ParallelOptions { MaxDegreeOfParallelism = databaseParallelism },
                  transientDbPath =>
                  {
-                     ProcessTransientDatabase(transientDbPath, outputFolder, taskId);
+                     try
+                     {
+                         ProcessTransientDatabase(transientDbPath, outputFolder, taskId);
+                     }
+                     catch (Exception ex)
+                     {
+                         try
+                         {
+                             string dbName = Path.GetFileNameWithoutExtension(transientDbPath.FilePath);
+                             File.WriteAllText(Path.Combine(outputFolder, dbName + "_PROCESS_ERROR.txt"), ex.ToString());
+                         }
+                         catch { }
+                         throw;
+                     }
                  });
          }
          finally
@@ -595,8 +608,21 @@ public class ParallelSearchTask : SearchTask
         ReportDatabaseDashboard(taskId, ParallelSearchDashboardUpdateKind.DatabaseProgress, dbName,
             $"Loading transient database {dbName}...", DashboardDatabaseLoadingProgress);
 
-         // Load transient database
-         var transientProteins = LoadTransientDatabase(transientDb, nestedIds, taskId);
+         // Load transient database. FASTA/XML -> proteins (digested during search); a .msl spectral
+         // library -> precomputed peptides (the search iterates these and re-fragments in double).
+         List<IBioPolymer> transientProteins;
+         List<IBioPolymerWithSetMods> precomputedPeptides = null;
+         bool isMslLibrary = transientDb.FilePath.EndsWith(".msl", StringComparison.OrdinalIgnoreCase);
+         if (isMslLibrary)
+         {
+             precomputedPeptides = MslPeptideReader.ReadPeptides(transientDb.FilePath, dbName);
+             // synthetic parent proteins (one per peptide) back the accession filter and counts
+             transientProteins = precomputedPeptides.Select(p => p.Parent).Distinct().ToList();
+         }
+         else
+         {
+             transientProteins = LoadTransientDatabase(transientDb, nestedIds, taskId);
+         }
 
          if (GlobalVariables.StopLoops)
          {
@@ -615,7 +641,7 @@ public class ParallelSearchTask : SearchTask
          // Reuse baseline PSMs with copy-on-write in peptide/proteoform mode.
          SpectralMatch[] psmArray = BaseSearchPsms.ToArray();
          long searchStart = Stopwatch.GetTimestamp();
-         PerformSearch(transientProteins, psmArray, nestedIds, out HashSet<int> updatedPsmIndexes, out int transientPeptideCount, useCopyOnWrite: true);
+         PerformSearch(transientProteins, psmArray, nestedIds, out HashSet<int> updatedPsmIndexes, out int transientPeptideCount, useCopyOnWrite: true, precomputedPeptides: precomputedPeptides);
          Interlocked.Add(ref _searchEngineTicks, Stopwatch.GetTimestamp() - searchStart);
 
         Status($"Performing post-search analysis for {dbName}...", nestedIds);
@@ -651,18 +677,19 @@ public class ParallelSearchTask : SearchTask
     /// <summary>
     /// Populates and returns the spectral match array using classic search engine
     /// </summary>
-     private void PerformSearch(List<IBioPolymer> proteinsToSearch, SpectralMatch[] spectralMatchArray, List<string> nestedIds, out HashSet<int> updatedPsmIndexes, out int peptidesSearched, bool useCopyOnWrite = false)
+     private void PerformSearch(List<IBioPolymer> proteinsToSearch, SpectralMatch[] spectralMatchArray, List<string> nestedIds, out HashSet<int> updatedPsmIndexes, out int peptidesSearched, bool useCopyOnWrite = false, List<IBioPolymerWithSetMods> precomputedPeptides = null)
      {
          var massDiffAcceptor = GetMassDiffAcceptor(
              CommonParameters.PrecursorMassTolerance,
              SearchParameters.MassDiffAcceptorType,
              SearchParameters.CustomMdac);
 
-         // Run the classic search engine
+         // Run the classic search engine. When precomputedPeptides is supplied (from a .msl library),
+         // the engine iterates those peptides directly instead of digesting proteinsToSearch.
           var searchEngine = new TransientClassicSearchEngine(
               spectralMatchArray, AllSortedMs2Scans, VariableModifications,
               FixedModifications, proteinsToSearch, massDiffAcceptor, CommonParameters,
-              FileSpecificParameters, nestedIds, copyOnWriteEnabled: useCopyOnWrite);
+              FileSpecificParameters, nestedIds, copyOnWriteEnabled: useCopyOnWrite, precomputedPeptides: precomputedPeptides);
 
          var results = searchEngine.Run();
          updatedPsmIndexes = (results as TransientSearchEngineResults)!.UpdatedSpectralMatchIndexes;
