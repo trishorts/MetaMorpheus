@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text;
 using Chemistry;
 using Omics;
 using Omics.Fragmentation;
@@ -22,14 +23,40 @@ namespace EngineLayer.ParallelSearch
     /// IDs and scores are preserved while fragmentation cost is eliminated.
     ///
     /// Accession handling: entries carry their source-protein accession (DECOY_… for decoys). One shared
-    /// <see cref="Protein"/> is built per accession so protein parsimony/grouping is correct. The shared
-    /// protein's "sequence" is just one of its peptides, so per-peptide residue start/end positions
-    /// (used for protein-coverage display) are approximate; PSM/peptide IDs, masses, and scores are exact
-    /// because a string-constructed peptide derives its base sequence and mass from its own full sequence,
-    /// not from the parent protein.
+    /// <see cref="Protein"/> is built per accession so protein parsimony/grouping is correct. The .msl does
+    /// not store the protein sequence, so each shared protein's sequence is the CONCATENATION of its
+    /// peptides' base sequences and each peptide is given its slice's start/end. With 0-missed-cleavage
+    /// tryptic peptides (non-overlapping) this concatenation approximates the original protein, which keeps
+    /// sequence-coverage well-defined and in-bounds. PSM/peptide IDs, masses, and scores are exact because a
+    /// string-constructed peptide derives its base sequence and mass from its own full sequence, not from
+    /// the parent protein.
     /// </summary>
     public static class MslPeptideReader
     {
+        // One entry's reconstructed data, pending creation of its shared parent protein.
+        private readonly struct PendingPeptide
+        {
+            public readonly string FullSequence;
+            public readonly int Start;          // 1-based start of this peptide in the concatenated protein
+            public readonly int Length;         // base-sequence length
+            public readonly List<Product> Fragments;
+
+            public PendingPeptide(string fullSequence, int start, int length, List<Product> fragments)
+            {
+                FullSequence = fullSequence;
+                Start = start;
+                Length = length;
+                Fragments = fragments;
+            }
+        }
+
+        private sealed class AccessionGroup
+        {
+            public readonly StringBuilder Sequence = new();
+            public readonly List<PendingPeptide> Peptides = new();
+            public bool IsDecoy;
+        }
+
         /// <summary>
         /// Reconstructs all peptides from a .msl library together with their stored (float) fragments.
         /// Mods are resolved against <see cref="GlobalVariables.AllModsKnownDictionary"/> so the
@@ -41,38 +68,56 @@ namespace EngineLayer.ParallelSearch
             string mslPath, string databaseName)
         {
             var mods = GlobalVariables.AllModsKnownDictionary;
-            var result = new List<(IBioPolymerWithSetMods, List<Product>)>();
 
             // The .msl peptides were digested with trypsin / 0 missed cleavages. A non-null
             // DigestionParams is required downstream (e.g. parsimony keys on DigestionAgent).
             var digestionParams = new DigestionParams("trypsin", maxMissedCleavages: 0);
 
-            // One shared Protein per accession → correct parsimony / protein grouping.
-            var proteinsByAccession = new Dictionary<string, Protein>();
+            // Pass 1: read entries, grouping peptides by accession and laying them out end-to-end so each
+            // accession's shared protein gets one concatenated sequence with valid per-peptide offsets.
+            var groups = new Dictionary<string, AccessionGroup>();
+            string fallbackAccession = $"{databaseName}_UNKNOWN";
 
-            using var library = MslLibrary.Load(mslPath);
-            foreach (var entry in library.GetAllEntries(includeDecoys: true))
+            using (var library = MslLibrary.Load(mslPath))
             {
-                string fullSequence = entry.FullSequence;
-                string baseSequence = IBioPolymerWithSetMods.GetBaseSequenceFromFullSequence(fullSequence);
-
-                string accession = string.IsNullOrEmpty(entry.ProteinAccession)
-                    ? $"{databaseName}_UNKNOWN"
-                    : entry.ProteinAccession;
-
-                if (!proteinsByAccession.TryGetValue(accession, out var protein))
+                foreach (var entry in library.GetAllEntries(includeDecoys: true))
                 {
-                    protein = new Protein(baseSequence, accession, isDecoy: entry.IsDecoy);
-                    proteinsByAccession[accession] = protein;
+                    string fullSequence = entry.FullSequence;
+                    string baseSequence = IBioPolymerWithSetMods.GetBaseSequenceFromFullSequence(fullSequence);
+
+                    string accession = string.IsNullOrEmpty(entry.ProteinAccession)
+                        ? fallbackAccession
+                        : entry.ProteinAccession;
+
+                    if (!groups.TryGetValue(accession, out var group))
+                    {
+                        group = new AccessionGroup { IsDecoy = entry.IsDecoy };
+                        groups[accession] = group;
+                    }
+
+                    int start = group.Sequence.Length + 1; // 1-based
+                    group.Sequence.Append(baseSequence);
+                    group.Peptides.Add(new PendingPeptide(
+                        fullSequence, start, baseSequence.Length, BuildProducts(entry.MatchedFragmentIons)));
                 }
+            }
 
-                var peptide = new PeptideWithSetModifications(
-                    fullSequence, mods, p: protein, digestionParams: digestionParams,
-                    oneBasedStartResidueInProtein: 1,
-                    oneBasedEndResidueInProtein: baseSequence.Length,
-                    missedCleavages: 0);
+            // Pass 2: materialize one shared Protein per accession, then the peptides over their slices.
+            var result = new List<(IBioPolymerWithSetMods, List<Product>)>();
+            foreach (var kvp in groups)
+            {
+                var protein = new Protein(kvp.Value.Sequence.ToString(), kvp.Key, isDecoy: kvp.Value.IsDecoy);
 
-                result.Add((peptide, BuildProducts(entry.MatchedFragmentIons)));
+                foreach (var pending in kvp.Value.Peptides)
+                {
+                    var peptide = new PeptideWithSetModifications(
+                        pending.FullSequence, mods, p: protein, digestionParams: digestionParams,
+                        oneBasedStartResidueInProtein: pending.Start,
+                        oneBasedEndResidueInProtein: pending.Start + pending.Length - 1,
+                        missedCleavages: 0);
+
+                    result.Add((peptide, pending.Fragments));
+                }
             }
 
             return result;
