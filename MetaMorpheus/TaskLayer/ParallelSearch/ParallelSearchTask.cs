@@ -10,6 +10,7 @@ using EngineLayer.Util;
 using FlashLFQ;
 using Nett;
 using Omics;
+using Omics.Fragmentation;
 using Omics.Modifications;
 using Omics.SpectrumMatch;
 using System;
@@ -609,15 +610,16 @@ public class ParallelSearchTask : SearchTask
             $"Loading transient database {dbName}...", DashboardDatabaseLoadingProgress);
 
          // Load transient database. FASTA/XML -> proteins (digested during search); a .msl spectral
-         // library -> precomputed peptides (the search iterates these and re-fragments in double).
+         // library -> precomputed peptides paired with their stored (float) fragments (the search
+         // iterates these and matches the stored fragments directly, skipping digestion+fragmentation).
          List<IBioPolymer> transientProteins;
-         List<IBioPolymerWithSetMods> precomputedPeptides = null;
+         List<(IBioPolymerWithSetMods Peptide, List<Product> Fragments)> precomputedPeptides = null;
          bool isMslLibrary = transientDb.FilePath.EndsWith(".msl", StringComparison.OrdinalIgnoreCase);
          if (isMslLibrary)
          {
              precomputedPeptides = MslPeptideReader.ReadPeptides(transientDb.FilePath, dbName);
-             // synthetic parent proteins (one per peptide) back the accession filter and counts
-             transientProteins = precomputedPeptides.Select(p => p.Parent).Distinct().ToList();
+             // shared parent proteins (one per accession) back the accession filter and counts
+             transientProteins = precomputedPeptides.Select(p => p.Peptide.Parent).Distinct().ToList();
          }
          else
          {
@@ -677,7 +679,7 @@ public class ParallelSearchTask : SearchTask
     /// <summary>
     /// Populates and returns the spectral match array using classic search engine
     /// </summary>
-     private void PerformSearch(List<IBioPolymer> proteinsToSearch, SpectralMatch[] spectralMatchArray, List<string> nestedIds, out HashSet<int> updatedPsmIndexes, out int peptidesSearched, bool useCopyOnWrite = false, List<IBioPolymerWithSetMods> precomputedPeptides = null)
+     private void PerformSearch(List<IBioPolymer> proteinsToSearch, SpectralMatch[] spectralMatchArray, List<string> nestedIds, out HashSet<int> updatedPsmIndexes, out int peptidesSearched, bool useCopyOnWrite = false, List<(IBioPolymerWithSetMods Peptide, List<Product> Fragments)> precomputedPeptides = null)
      {
          var massDiffAcceptor = GetMassDiffAcceptor(
              CommonParameters.PrecursorMassTolerance,

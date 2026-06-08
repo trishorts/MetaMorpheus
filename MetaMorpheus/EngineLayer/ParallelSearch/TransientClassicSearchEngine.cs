@@ -32,12 +32,13 @@ namespace EngineLayer.ParallelSearch
         private readonly ConcurrentDictionary<int, byte> UpdatedIndexes = new();
         private readonly bool _copyOnWriteEnabled;
         // When supplied (e.g. from a .msl spectral library), the search iterates these peptides
-        // directly instead of digesting Proteins. Fragments are still recomputed in double precision.
-        private readonly List<IBioPolymerWithSetMods> _precomputedPeptides;
+        // directly instead of digesting Proteins, and matches each peptide's STORED (float) fragments
+        // instead of re-fragmenting — skipping both digestion and fragmentation.
+        private readonly List<(IBioPolymerWithSetMods Peptide, List<Product> Fragments)> _precomputedPeptides;
         public TransientClassicSearchEngine(SpectralMatch[] globalPsms, Ms2ScanWithSpecificMass[] arrayOfSortedMS2Scans,
             List<Modification> variableModifications, List<Modification> fixedModifications,
             List<IBioPolymer> proteinList, MassDiffAcceptor searchMode, CommonParameters commonParameters, List<(string FileName, CommonParameters Parameters)> fileSpecificParameters, List<string> nestedIds,
-            bool copyOnWriteEnabled = false, List<IBioPolymerWithSetMods> precomputedPeptides = null)
+            bool copyOnWriteEnabled = false, List<(IBioPolymerWithSetMods Peptide, List<Product> Fragments)> precomputedPeptides = null)
             : base(globalPsms, arrayOfSortedMS2Scans, variableModifications, fixedModifications, null, null, null, proteinList, searchMode, commonParameters, fileSpecificParameters, null, nestedIds, false)
         {
             UpdatedIndexes = new ConcurrentDictionary<int, byte>();
@@ -93,19 +94,30 @@ namespace EngineLayer.ParallelSearch
                 // builds MatchedFragmentIons, applies the score cutoff, scores, and updates PSMs.
                 // A peptide's work items are queued contiguously so per-scan candidate ordering is
                 // preserved (bit-identical results).
+                // precomputedFragments != null (from a .msl library) skips the Fragment() call and matches
+                // the library's stored fragments directly — the fragmentation-time savings.
                 void ProcessOnePeptide(IBioPolymerWithSetMods peptide, TransientScoringBatch batch,
-                    ISpectralScorer scorer, List<Product> peptideTheorProducts)
+                    ISpectralScorer scorer, List<Product> peptideTheorProducts, List<Product> precomputedFragments = null)
                 {
                     Interlocked.Increment(ref peptideCounter);
 
-                    peptideTheorProducts.Clear();
-                    peptide.Fragment(CommonParameters.DissociationType, CommonParameters.DigestionParams.FragmentationTerminus, peptideTheorProducts, CommonParameters.FragmentationParameters);
+                    List<Product> products;
+                    if (precomputedFragments != null)
+                    {
+                        products = precomputedFragments;
+                    }
+                    else
+                    {
+                        peptideTheorProducts.Clear();
+                        peptide.Fragment(CommonParameters.DissociationType, CommonParameters.DigestionParams.FragmentationTerminus, peptideTheorProducts, CommonParameters.FragmentationParameters);
+                        products = peptideTheorProducts;
+                    }
 
                     int slot = -1;
                     foreach (ScanWithIndexAndNotchInfo scan in GetAcceptableScans(peptide.MonoisotopicMass, SearchMode))
                     {
                         if (slot < 0)
-                            slot = batch.BeginPeptide(peptide, peptideTheorProducts);
+                            slot = batch.BeginPeptide(peptide, products);
                         batch.AddWorkItem(slot, scan.ScanIndex, scan.Notch);
                     }
 
@@ -152,7 +164,8 @@ namespace EngineLayer.ParallelSearch
                     for (int i = start; i < end; i++)
                     {
                         if (GlobalVariables.StopLoops) { batch.Flush(scorer); return; }
-                        ProcessOnePeptide(_precomputedPeptides[i], batch, scorer, peptideTheorProducts);
+                        var (peptide, fragments) = _precomputedPeptides[i];
+                        ProcessOnePeptide(peptide, batch, scorer, peptideTheorProducts, fragments);
                     }
 
                     batch.Flush(scorer);
