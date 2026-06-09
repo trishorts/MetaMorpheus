@@ -9,6 +9,7 @@ using EngineLayer.SpectrumMatch;
 using EngineLayer.Util;
 using FlashLFQ;
 using Nett;
+using Chromatography.RetentionTimePrediction;
 using Omics;
 using Omics.Fragmentation;
 using Omics.Modifications;
@@ -113,6 +114,11 @@ public class ParallelSearchTask : SearchTask
     [TomlIgnore] public List<IBioPolymer> BaseBioPolymers { get; private set; } = [];
     [TomlIgnore] public Ms2ScanWithSpecificMass[] AllSortedMs2Scans { get; private set; } = [];
     [TomlIgnore] private SpectralMatch[] BaseSearchPsms = null!; // PSMs from base database search
+
+    // Calibration LEARNED from the base search (S1), applied to the .msl candidate pre-filter (S3):
+    // precursor tolerance, and the iRT→observed-RT regression + window. Null until learned (and stays
+    // null when no transient database is a .msl library). See LearnMslCalibration.
+    [TomlIgnore] private MslCandidateCalibration? _mslCalibration;
 
 
     // Optimization caches for FDR alignment and parsimony
@@ -392,6 +398,15 @@ public class ParallelSearchTask : SearchTask
         _peptideFdrAlignmentService.BuildBaselineCache(baselinePsms);
         BuildBaselinePeptideToScanIndexLookup();
 
+        // S1: when any transient database is a .msl library, learn the precursor tolerance and the
+        // RT (iRT→observed) calibration from the confident base-search PSMs. These become the .msl
+        // candidate pre-filter priors (S3). Cheap relative to the search and done once.
+        if (ParallelSearchParameters.TransientDatabases.Any(
+                d => d.FilePath.EndsWith(".msl", StringComparison.OrdinalIgnoreCase)))
+        {
+            _mslCalibration = LearnMslCalibration(baselinePsms, taskId);
+        }
+
         if (SearchParameters.DoParsimony)
         {
             Status("Preparing baseline parsimony cache...", taskId);
@@ -617,7 +632,18 @@ public class ParallelSearchTask : SearchTask
          bool isMslLibrary = transientDb.FilePath.EndsWith(".msl", StringComparison.OrdinalIgnoreCase);
          if (isMslLibrary)
          {
-             precomputedPeptides = MslPeptideReader.ReadPeptides(transientDb.FilePath, dbName);
+             // S3: index-only candidate pre-filter on TWO axes — precursor mass AND Chronologer-iRT
+             // retention time (stored in the .msl), using the calibration LEARNED from the base search (S1).
+             // AllSortedMs2Scans is ascending by PrecursorMass, so masses + RTs are in the same order.
+             var sortedScanMasses = Array.ConvertAll(AllSortedMs2Scans, s => s.PrecursorMass);
+             var scanRetentionTimes = Array.ConvertAll(AllSortedMs2Scans, s => s.RetentionTime);
+             var cal = _mslCalibration ?? new MslCandidateCalibration(
+                 CommonParameters.PrecursorMassTolerance.Value, 1, 0, double.PositiveInfinity);
+             var priors = new MslPeptideReader.CandidatePriors(
+                 sortedScanMasses, scanRetentionTimes,
+                 precursorTolPpm: cal.PrecursorTolPpm, rtSlope: cal.RtSlope,
+                 rtIntercept: cal.RtIntercept, rtWindowMin: cal.RtWindowMin);
+             precomputedPeptides = MslPeptideReader.ReadPeptides(transientDb.FilePath, dbName, priors);
              // shared parent proteins (one per accession) back the accession filter and counts
              transientProteins = precomputedPeptides.Select(p => p.Peptide.Parent).Distinct().ToList();
          }
@@ -674,6 +700,99 @@ public class ParallelSearchTask : SearchTask
         transientProteins.Clear();
 
         ReportProgress(new(100, $"Finished analysis for {dbName}; queued output writing", nestedIds));
+    }
+
+    /// <summary>Calibration learned from the base search and applied to the .msl candidate pre-filter.</summary>
+    private readonly struct MslCandidateCalibration
+    {
+        public readonly double PrecursorTolPpm;            // symmetric precursor tolerance (covers offset+spread)
+        public readonly double RtSlope, RtIntercept;       // observedRT = RtSlope*iRT + RtIntercept
+        public readonly double RtWindowMin;                // +/- observed-RT window (k * residual SD); +inf = no RT filter
+        public MslCandidateCalibration(double tolPpm, double slope, double intercept, double rtWindowMin)
+        { PrecursorTolPpm = tolPpm; RtSlope = slope; RtIntercept = intercept; RtWindowMin = rtWindowMin; }
+    }
+
+    /// <summary>
+    /// S1 — learn the .msl candidate pre-filter priors from confident base-search PSMs:
+    ///   • precursor tolerance = |mean| + 3·SD of the precursor mass error (clamped to the configured tol),
+    ///   • RT calibration = OLS of observed RT on Chronologer iRT, with a ±2·residualSD window.
+    /// On any failure (too few PSMs, predictor/model unavailable) returns a SAFE fallback: the configured
+    /// precursor tolerance and NO RT filter (RtWindowMin = +inf) so nothing is lost.
+    /// </summary>
+    private MslCandidateCalibration LearnMslCalibration(List<SpectralMatch> baselinePsms, string taskId)
+    {
+        double configuredTolPpm = CommonParameters.PrecursorMassTolerance.Value;
+        var fallback = new MslCandidateCalibration(configuredTolPpm, 1, 0, double.PositiveInfinity);
+        try
+        {
+            // Confident, unambiguous target PSMs.
+            var conf = baselinePsms.Where(p => p != null && !p.IsDecoy
+                    && p.PsmFdrInfo != null && p.PsmFdrInfo.QValue < 0.01
+                    && p.BestMatchingBioPolymersWithSetMods.Count() == 1)
+                .ToList();
+            if (conf.Count < 50)
+            {
+                Status($"S1: only {conf.Count} confident base PSMs — using safe fallback (no RT filter).", taskId);
+                return fallback;
+            }
+
+            // Precursor mass error (ppm) and the (peptide, observedRT) pairs for the RT regression.
+            var ppmErrors = new List<double>(conf.Count);
+            var obsByPeptide = new Dictionary<IRetentionPredictable, double>(ReferenceEqualityComparer.Instance);
+            var peptides = new List<IRetentionPredictable>(conf.Count);
+            foreach (var psm in conf)
+            {
+                var pep = psm.BestMatchingBioPolymersWithSetMods.First().SpecificBioPolymer;
+                double mass = pep.MonoisotopicMass;
+                if (mass <= 0) continue;
+                ppmErrors.Add((psm.ScanPrecursorMass - mass) / mass * 1e6);
+                if (pep is IRetentionPredictable rp && !obsByPeptide.ContainsKey(rp))
+                {
+                    obsByPeptide[rp] = psm.ScanRetentionTime;
+                    peptides.Add(rp);
+                }
+            }
+
+            double pMean = ppmErrors.Average();
+            double pSd = Math.Sqrt(ppmErrors.Sum(e => (e - pMean) * (e - pMean)) / ppmErrors.Count);
+            double tolPpm = Math.Min(configuredTolPpm, Math.Max(3.0, Math.Abs(pMean) + 3.0 * pSd));
+
+            // Chronologer iRT for the confident peptides, then OLS observedRT vs iRT.
+            using var predictor = RetentionTimePredictorFactory.Create(PredictorType.Chronologer);
+            var predRt = new List<double>(peptides.Count);
+            var obsRt = new List<double>(peptides.Count);
+            foreach (var r in predictor.PredictRetentionTimeEquivalents(peptides,
+                         maxThreads: Math.Max(1, Environment.ProcessorCount - 2)))
+            {
+                if (r.PredictedValue is null) continue;
+                if (obsByPeptide.TryGetValue(r.Peptide, out double rt)) { predRt.Add(r.PredictedValue.Value); obsRt.Add(rt); }
+            }
+            if (predRt.Count < 50)
+            {
+                Status($"S1: only {predRt.Count} RT predictions — precursor tol {tolPpm:F1} ppm, no RT filter.", taskId);
+                return new MslCandidateCalibration(tolPpm, 1, 0, double.PositiveInfinity);
+            }
+
+            int n = predRt.Count;
+            double mx = predRt.Average(), my = obsRt.Average();
+            double sxy = 0, sxx = 0;
+            for (int i = 0; i < n; i++) { double dx = predRt[i] - mx; sxy += dx * (obsRt[i] - my); sxx += dx * dx; }
+            double slope = sxx > 0 ? sxy / sxx : 1.0;
+            double intercept = my - slope * mx;
+            double residSs = 0;
+            for (int i = 0; i < n; i++) { double e = obsRt[i] - (slope * predRt[i] + intercept); residSs += e * e; }
+            double residSd = Math.Sqrt(residSs / n);
+            double rtWindow = Math.Max(1.0, 2.0 * residSd); // ±2σ; floor 1 min
+
+            Status($"S1 learned: precursor ±{tolPpm:F1} ppm (μ={pMean:F2},σ={pSd:F2}); " +
+                   $"RT obs={slope:F3}·iRT+{intercept:F2} residSD={residSd:F2}min → window ±{rtWindow:F1}min (n={n}).", taskId);
+            return new MslCandidateCalibration(tolPpm, slope, intercept, rtWindow);
+        }
+        catch (Exception ex)
+        {
+            Status($"S1 calibration failed ({ex.GetType().Name}: {ex.Message}); safe fallback (no RT filter).", taskId);
+            return fallback;
+        }
     }
 
     /// <summary>

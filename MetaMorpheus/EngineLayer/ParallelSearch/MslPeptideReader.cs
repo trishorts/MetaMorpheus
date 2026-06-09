@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text;
 using Chemistry;
@@ -12,42 +13,55 @@ using Readers.SpectralLibrary;
 namespace EngineLayer.ParallelSearch
 {
     /// <summary>
-    /// Reads a MetaMorpheus <c>.msl</c> spectral library as a PEPTIDE SOURCE for the parallel search
-    /// (Strategy A): each library entry's full sequence is reconstructed into a searchable
-    /// <see cref="PeptideWithSetModifications"/>, and its STORED fragment ions are returned alongside it
-    /// as a ready <see cref="Product"/> list. The search matches these stored fragments directly instead
-    /// of re-fragmenting the peptide — this is the actual speedup (digestion AND fragmentation are skipped).
+    /// Reads a MetaMorpheus <c>.msl</c> spectral library as a PEPTIDE SOURCE for the parallel search,
+    /// using the library the way the binary format was designed for: <see cref="MslLibrary.LoadIndexOnly"/>
+    /// keeps fragments on disk; the precursor index (mass / charge / iRT metadata, NO fragment I/O) is
+    /// filtered on TWO orthogonal axes — precursor mass AND retention time — and only the surviving
+    /// CANDIDATES have their fragments fetched on demand.
     ///
-    /// The .msl stores fragment m/z as float32 (~0.5 ppm vs a double recomputation). Because the product
-    /// mass tolerance (±20–30 ppm) is far larger than that error, the matched-peak set is unchanged, so
-    /// IDs and scores are preserved while fragmentation cost is eliminated.
+    /// Retention time is the axis that makes the filter selective: precursor mass alone is degenerate when
+    /// tens of thousands of dense experimental precursors saturate the mass window, but a peptide's predicted
+    /// elution (stored as Chronologer iRT in the .msl, calibrated to this run from the base search) collides
+    /// with far fewer scans. Entries with iRT==0 (predictor could not place them) fall back to mass-only so
+    /// they are never lost.
     ///
-    /// Accession handling: entries carry their source-protein accession (DECOY_… for decoys). One shared
-    /// <see cref="Protein"/> is built per accession so protein parsimony/grouping is correct. The .msl does
-    /// not store the protein sequence, so each shared protein's sequence is the CONCATENATION of its
-    /// peptides' base sequences and each peptide is given its slice's start/end. With 0-missed-cleavage
-    /// tryptic peptides (non-overlapping) this concatenation approximates the original protein, which keeps
-    /// sequence-coverage well-defined and in-bounds. PSM/peptide IDs, masses, and scores are exact because a
-    /// string-constructed peptide derives its base sequence and mass from its own full sequence, not from
-    /// the parent protein.
+    /// Each candidate's stored float fragments are turned into <see cref="Product"/>s directly (no
+    /// re-fragmentation). Accession handling: one shared <see cref="Protein"/> per accession (concatenation
+    /// of its candidate peptides with per-peptide offsets) so parsimony/coverage stay correct and in-bounds.
     /// </summary>
     public static class MslPeptideReader
     {
-        // One entry's reconstructed data, pending creation of its shared parent protein.
+        private const double MassPreFilterMarginDa = 0.01;
+
+        /// <summary>RT↔iRT calibration and learned precursor tolerance applied to the candidate pre-filter.</summary>
+        public readonly struct CandidatePriors
+        {
+            public readonly double[] SortedScanMasses;  // experimental precursor masses, ASCENDING
+            public readonly double[] ScanRetentionTimes; // RT of each scan, SAME order as SortedScanMasses
+            public readonly double PrecursorTolPpm;     // learned precursor tolerance (ppm)
+            public readonly double RtSlope, RtIntercept; // observedRT = RtSlope*iRT + RtIntercept
+            public readonly double RtWindowMin;          // +/- window in observed-RT minutes (k * residualSD)
+
+            public CandidatePriors(double[] sortedScanMasses, double[] scanRetentionTimes,
+                double precursorTolPpm, double rtSlope, double rtIntercept, double rtWindowMin)
+            {
+                SortedScanMasses = sortedScanMasses;
+                ScanRetentionTimes = scanRetentionTimes;
+                PrecursorTolPpm = precursorTolPpm;
+                RtSlope = rtSlope;
+                RtIntercept = rtIntercept;
+                RtWindowMin = rtWindowMin;
+            }
+        }
+
         private readonly struct PendingPeptide
         {
             public readonly string FullSequence;
-            public readonly int Start;          // 1-based start of this peptide in the concatenated protein
-            public readonly int Length;         // base-sequence length
+            public readonly int Start;
+            public readonly int Length;
             public readonly List<Product> Fragments;
-
             public PendingPeptide(string fullSequence, int start, int length, List<Product> fragments)
-            {
-                FullSequence = fullSequence;
-                Start = start;
-                Length = length;
-                Fragments = fragments;
-            }
+            { FullSequence = fullSequence; Start = start; Length = length; Fragments = fragments; }
         }
 
         private sealed class AccessionGroup
@@ -57,37 +71,53 @@ namespace EngineLayer.ParallelSearch
             public bool IsDecoy;
         }
 
-        /// <summary>
-        /// Reconstructs all peptides from a .msl library together with their stored (float) fragments.
-        /// Mods are resolved against <see cref="GlobalVariables.AllModsKnownDictionary"/> so the
-        /// reconstructed peptides match the search exactly.
-        /// </summary>
-        /// <param name="mslPath">Path to the .msl library.</param>
-        /// <param name="databaseName">Namespaces the fallback accession for entries that lack one.</param>
         public static List<(IBioPolymerWithSetMods Peptide, List<Product> Fragments)> ReadPeptides(
-            string mslPath, string databaseName)
+            string mslPath, string databaseName, CandidatePriors priors)
         {
             var mods = GlobalVariables.AllModsKnownDictionary;
-
-            // The .msl peptides were digested with trypsin / 0 missed cleavages. A non-null
-            // DigestionParams is required downstream (e.g. parsimony keys on DigestionAgent).
             var digestionParams = new DigestionParams("trypsin", maxMissedCleavages: 0);
-
-            // Pass 1: read entries, grouping peptides by accession and laying them out end-to-end so each
-            // accession's shared protein gets one concatenated sequence with valid per-peptide offsets.
-            var groups = new Dictionary<string, AccessionGroup>();
             string fallbackAccession = $"{databaseName}_UNKNOWN";
+            var groups = new Dictionary<string, AccessionGroup>();
 
-            using (var library = MslLibrary.Load(mslPath))
+            int totalEntries = 0, massCandidates = 0, massRtCandidates = 0;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+
+            using (var library = MslLibrary.LoadIndexOnly(mslPath))
             {
-                foreach (var entry in library.GetAllEntries(includeDecoys: true))
+                foreach (var idx in library.QueryMzWindow(float.MinValue, float.MaxValue))
                 {
+                    totalEntries++;
+                    double neutralMass = ((double)idx.PrecursorMz).ToMass(idx.Charge);
+
+                    // Axis 1: precursor mass — find experimental scans within the learned ppm window.
+                    double tolDa = neutralMass * priors.PrecursorTolPpm * 1e-6 + MassPreFilterMarginDa;
+                    int a = LowerBound(priors.SortedScanMasses, neutralMass - tolDa);
+                    double hi = neutralMass + tolDa;
+                    if (a >= priors.SortedScanMasses.Length || priors.SortedScanMasses[a] > hi)
+                        continue; // no mass match at all
+                    massCandidates++;
+
+                    // Axis 2: retention time — at least one mass-matching scan must elute within the
+                    // peptide's predicted RT window. iRT==0 (unpredicted) ⇒ keep on mass alone.
+                    bool rtOk = idx.Irt == 0f;
+                    if (!rtOk)
+                    {
+                        double predRt = priors.RtSlope * idx.Irt + priors.RtIntercept;
+                        for (int i = a; i < priors.SortedScanMasses.Length && priors.SortedScanMasses[i] <= hi; i++)
+                        {
+                            if (Math.Abs(priors.ScanRetentionTimes[i] - predRt) <= priors.RtWindowMin) { rtOk = true; break; }
+                        }
+                    }
+                    if (!rtOk)
+                        continue;
+                    massRtCandidates++;
+
+                    MslLibraryEntry entry = library.GetEntry(idx.PrecursorIdx);
+                    if (entry is null) continue;
+
                     string fullSequence = entry.FullSequence;
                     string baseSequence = IBioPolymerWithSetMods.GetBaseSequenceFromFullSequence(fullSequence);
-
-                    string accession = string.IsNullOrEmpty(entry.ProteinAccession)
-                        ? fallbackAccession
-                        : entry.ProteinAccession;
+                    string accession = string.IsNullOrEmpty(entry.ProteinAccession) ? fallbackAccession : entry.ProteinAccession;
 
                     if (!groups.TryGetValue(accession, out var group))
                     {
@@ -95,19 +125,21 @@ namespace EngineLayer.ParallelSearch
                         groups[accession] = group;
                     }
 
-                    int start = group.Sequence.Length + 1; // 1-based
+                    int start = group.Sequence.Length + 1;
                     group.Sequence.Append(baseSequence);
                     group.Peptides.Add(new PendingPeptide(
                         fullSequence, start, baseSequence.Length, BuildProducts(entry.MatchedFragmentIons)));
                 }
             }
 
-            // Pass 2: materialize one shared Protein per accession, then the peptides over their slices.
+            Console.WriteLine($"MSL_RT {databaseName}: entries={totalEntries} massCand={massCandidates} " +
+                $"({Pct(massCandidates, totalEntries)}%) massRtCand={massRtCandidates} ({Pct(massRtCandidates, totalEntries)}%) " +
+                $"tolPpm={priors.PrecursorTolPpm:F1} rtWin=+/-{priors.RtWindowMin:F1}min ms={sw.ElapsedMilliseconds}");
+
             var result = new List<(IBioPolymerWithSetMods, List<Product>)>();
             foreach (var kvp in groups)
             {
                 var protein = new Protein(kvp.Value.Sequence.ToString(), kvp.Key, isDecoy: kvp.Value.IsDecoy);
-
                 foreach (var pending in kvp.Value.Peptides)
                 {
                     var peptide = new PeptideWithSetModifications(
@@ -115,20 +147,21 @@ namespace EngineLayer.ParallelSearch
                         oneBasedStartResidueInProtein: pending.Start,
                         oneBasedEndResidueInProtein: pending.Start + pending.Length - 1,
                         missedCleavages: 0);
-
                     result.Add((peptide, pending.Fragments));
                 }
             }
-
             return result;
         }
 
-        /// <summary>
-        /// Turns the library's stored fragment ions into <see cref="Product"/> objects the search can
-        /// match directly. The stored float m/z is converted to neutral mass via
-        /// <see cref="ClassExtensions.ToMass(double, int)"/> — the on-disk reconstruction leaves
-        /// <see cref="Product.NeutralMass"/> at 0, so it MUST be set here for the scorer to match.
-        /// </summary>
+        private static double Pct(int n, int d) => d == 0 ? 0 : Math.Round(100.0 * n / d, 1);
+
+        /// <summary>First index i where sorted[i] >= value (sorted ascending).</summary>
+        private static int LowerBound(double[] sorted, double value)
+        {
+            int i = Array.BinarySearch(sorted, value);
+            return i < 0 ? ~i : i;
+        }
+
         private static List<Product> BuildProducts(List<MslFragmentIon> ions)
         {
             var products = new List<Product>(ions.Count);
@@ -136,14 +169,10 @@ namespace EngineLayer.ParallelSearch
             {
                 FragmentationTerminus terminus =
                     TerminusSpecificProductTypes.ProductTypeToFragmentationTerminus.TryGetValue(
-                        ion.ProductType, out var t)
-                        ? t
-                        : FragmentationTerminus.None;
-
+                        ion.ProductType, out var t) ? t : FragmentationTerminus.None;
                 products.Add(new Product(
                     ion.ProductType, terminus, ion.Mz.ToMass(ion.Charge), ion.FragmentNumber,
-                    ion.ResiduePosition, ion.NeutralLoss, ion.SecondaryProductType,
-                    ion.SecondaryFragmentNumber));
+                    ion.ResiduePosition, ion.NeutralLoss, ion.SecondaryProductType, ion.SecondaryFragmentNumber));
             }
             return products;
         }
