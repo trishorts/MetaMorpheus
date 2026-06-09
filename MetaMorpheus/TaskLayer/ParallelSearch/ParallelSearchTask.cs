@@ -123,6 +123,12 @@ public class ParallelSearchTask : SearchTask
     [TomlIgnore] private double[]? _sortedScanMasses;
     [TomlIgnore] private double[]? _scanRetentionTimes;
 
+    // PEP model TRAINED ONCE on the base (human) search and reused to assign a PEP to every transient
+    // database's PSMs (they're too small to train their own model, and are out-of-sample vs the base).
+    [TomlIgnore] private PepAnalysisEngine? _pepEngine;
+    // The PEP model's RT-feature predictor (Chronologer); lives as long as _pepEngine, disposed at task end.
+    [TomlIgnore] private Chromatography.RetentionTimePrediction.IRetentionTimePredictor? _pepRtPredictor;
+
 
     // Optimization caches for FDR alignment and parsimony
     [TomlIgnore] private readonly PsmSpectralMatchFdrAlignmentService _psmFdrAlignmentService = new();
@@ -292,6 +298,10 @@ public class ParallelSearchTask : SearchTask
          }
          swTransientLoop.Stop();
          LogPhaseTimingBreakdown(taskId, outputFolder, swInit.Elapsed, swTransientLoop.Elapsed, databaseParallelism);
+
+         // PEP RT predictor (Chronologer/TorchSharp) is finished once the transient loop is done; release it.
+         _pepRtPredictor?.Dispose();
+         _pepRtPredictor = null;
 
           Finalization:
 
@@ -482,6 +492,11 @@ public class ParallelSearchTask : SearchTask
             // database, so rebuilding them per database (1000s of times) would be pure waste.
             _sortedScanMasses = Array.ConvertAll(AllSortedMs2Scans, s => s.PrecursorMass);
             _scanRetentionTimes = Array.ConvertAll(AllSortedMs2Scans, s => s.RetentionTime);
+
+            // PEP: train ONE model on the (large, high-quality) base human PSMs and reuse it to assign a PEP
+            // to every transient database's PSMs — those databases are far too small to train their own model.
+            // Uses Chronologer for the RT-residual feature. Best-effort: any failure leaves transient PEP unset.
+            TrainBasePepModel(baselinePsms, outputFolder, taskId);
         }
 
         if (SearchParameters.DoParsimony)
@@ -853,6 +868,16 @@ public class ParallelSearchTask : SearchTask
          ).GetAwaiter().GetResult();
         Interlocked.Add(ref _postAnalysisTicks, Stopwatch.GetTimestamp() - postAnalysisStart);
 
+        // PEP: assign each transient PSM (and peptide) a posterior error probability from the base-trained
+        // model and a PEP-based q-value (no-op when PEP is disabled). Runs after the per-database FDR so the
+        // matches already carry the cumulative target/decoy state used for the q-value.
+        if (_pepEngine != null)
+        {
+            _pepEngine.AssignPepFromTrainedModel(analysisContext.TransientPsms, peptideLevel: false);
+            if (analysisContext.TransientPeptides is { Count: > 0 })
+                _pepEngine.AssignPepFromTrainedModel(analysisContext.TransientPeptides, peptideLevel: true);
+        }
+
         _completedDatabaseWriteChannel!.Writer.WriteAsync((analysisContext, dbResults)).AsTask().GetAwaiter().GetResult();
 
         // Cleanup transient proteins to free memory
@@ -889,6 +914,43 @@ public class ParallelSearchTask : SearchTask
     /// On any failure (too few PSMs, predictor/model unavailable) returns a SAFE fallback: the configured
     /// precursor tolerance and NO RT filter (RtWindowMin = +inf) so nothing is lost.
     /// </summary>
+    /// <summary>
+    /// Trains ONE PEP model on the base (human) search PSMs and keeps it for assigning PEP to each transient
+    /// database's hits (the databases are far too small to train their own). Uses Chronologer for the
+    /// RT-residual feature. Best-effort: any failure simply leaves the transient PEP unassigned.
+    /// </summary>
+    private void TrainBasePepModel(List<SpectralMatch> baselinePsms, string outputFolder, string taskId)
+    {
+        try
+        {
+            var trainingPsms = baselinePsms.Where(p => p != null).ToList();
+            if (trainingPsms.Count < 100)
+            {
+                Status($"PEP: only {trainingPsms.Count} base PSMs — skipping PEP model.", taskId);
+                return;
+            }
+            _pepRtPredictor = RetentionTimePredictorFactory.Create(PredictorType.Chronologer);
+            var engine = new PepAnalysisEngine(trainingPsms, "standard", FileSpecificParameters, outputFolder, _pepRtPredictor);
+            if (engine.TrainSingleModelAndAssignBasePep())
+            {
+                _pepEngine = engine;
+                Status("PEP: trained model on base search; assigning PEP to transient PSMs.", taskId);
+            }
+            else
+            {
+                Status("PEP: base PSMs lacked target/decoy training examples — PEP disabled.", taskId);
+                _pepRtPredictor.Dispose();
+                _pepRtPredictor = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            Status($"PEP training failed ({ex.GetType().Name}: {ex.Message}); PEP disabled.", taskId);
+            _pepRtPredictor?.Dispose();
+            _pepRtPredictor = null;
+        }
+    }
+
     private MslCandidateCalibration LearnMslCalibration(List<SpectralMatch> baselinePsms, string taskId)
     {
         double configuredTolPpm = CommonParameters.PrecursorMassTolerance.Value;
@@ -1191,6 +1253,24 @@ public class ParallelSearchTask : SearchTask
         }
     }
 
+    /// <summary>Confidence threshold for what gets written to the per-database output files.</summary>
+    private const double OutputQValueThreshold = 0.05;
+
+    /// <summary>
+    /// Row-level confidence filter: keep only matches at or below <see cref="OutputQValueThreshold"/> q-value.
+    /// Uses the peptide-level FdrInfo when <paramref name="peptideLevel"/> is set, otherwise the PSM-level one.
+    /// Returns the input unchanged when null/empty so writers behave as before for empty lists.
+    /// </summary>
+    private static List<SpectralMatch> FilterToConfident(List<SpectralMatch> matches, bool peptideLevel)
+    {
+        if (matches == null || matches.Count == 0)
+            return matches;
+        return matches
+            .Where(p => p?.GetFdrInfo(peptideLevel) != null
+                        && p.GetFdrInfo(peptideLevel).QValue <= OutputQValueThreshold)
+            .ToList();
+    }
+
     private async Task WriteCompletedDatabaseOutputsAsync(TransientDatabaseContext context, TransientDatabaseMetrics metrics)
     {
         string dbName = context.DatabaseName;
@@ -1198,11 +1278,12 @@ public class ParallelSearchTask : SearchTask
         List<string> nestedIds = context.NestedIds;
         bool writeAllResults = !ParallelSearchParameters.WriteTransientResultsOnly;
 
-        // Skip per-database output entirely when the database produced no transient PSMs. At 1000s of
-        // databases the vast majority match nothing; writing a folder + header-only files for each was a
-        // dominant cost. The database is still recorded in the cross-database summary/checkpoint below, so
-        // it counts as processed (and resume still works — HasCachedResults reads the checkpoint, not disk).
-        bool hasTransientOutput = (context.TransientPsms?.Count ?? 0) > 0;
+        // Write per-database output ONLY for databases with a transient result at <= 5% FDR. At 1000s of
+        // databases the vast majority match nothing (or only sub-threshold noise); writing a folder + files
+        // for each was a dominant cost. The database is still recorded in the cross-database summary/checkpoint
+        // below, so it counts as processed (and resume still works — HasCachedResults reads the checkpoint).
+        bool hasTransientOutput = context.TransientPsms != null
+            && context.TransientPsms.Any(p => p?.PsmFdrInfo != null && p.PsmFdrInfo.QValue <= OutputQValueThreshold);
         if (!hasTransientOutput)
         {
             _resultsManager!.AppendCheckpoint(metrics);
@@ -1222,24 +1303,28 @@ public class ParallelSearchTask : SearchTask
         ReportDatabaseDashboard(nestedIds[0], ParallelSearchDashboardUpdateKind.DatabaseProgress, dbName,
             $"Writing results for {dbName}...", DashboardDatabaseWritingProgress);
 
+        // Output is limited to confident matches (q-value <= OutputQValueThreshold). The filtering is row-level:
+        // every file below contains only matches at or below 5% FDR.
+        var confidentTransientPsms = FilterToConfident(context.TransientPsms, peptideLevel: false);
         string transientPsmFile = Path.Combine(outputFolder,
             $"{dbName}_All{GlobalVariables.AnalyteType.GetSpectralMatchLabel()}s.{GlobalVariables.AnalyteType.GetSpectralMatchExtension()}");
-        await WritePsmsToTsvAsync(context.TransientPsms, transientPsmFile, SearchParameters.ModsToWriteSelection, false);
+        await WritePsmsToTsvAsync(confidentTransientPsms, transientPsmFile, SearchParameters.ModsToWriteSelection, false);
         FinishedWritingFile(transientPsmFile, nestedIds);
 
         if (writeAllResults)
         {
             string psmFile = Path.Combine(outputFolder,
                 $"All{GlobalVariables.AnalyteType.GetSpectralMatchLabel()}s.{GlobalVariables.AnalyteType.GetSpectralMatchExtension()}");
-            await WritePsmsToTsvAsync(context.AllPsms, psmFile, SearchParameters.ModsToWriteSelection, false);
+            await WritePsmsToTsvAsync(FilterToConfident(context.AllPsms, peptideLevel: false), psmFile, SearchParameters.ModsToWriteSelection, false);
             FinishedWritingFile(psmFile, nestedIds);
         }
 
-        if (context.TransientPeptides is { Count: > 0 })
+        var confidentTransientPeptides = FilterToConfident(context.TransientPeptides, peptideLevel: true);
+        if (confidentTransientPeptides is { Count: > 0 })
         {
             string transientPeptideFile = Path.Combine(outputFolder,
             $"{dbName}_All{GlobalVariables.AnalyteType}s.{GlobalVariables.AnalyteType.GetSpectralMatchExtension()}");
-            await WritePsmsToTsvAsync(context.TransientPeptides, transientPeptideFile, SearchParameters.ModsToWriteSelection, true);
+            await WritePsmsToTsvAsync(confidentTransientPeptides, transientPeptideFile, SearchParameters.ModsToWriteSelection, true);
             FinishedWritingFile(transientPeptideFile, nestedIds);
         }
 
@@ -1247,7 +1332,7 @@ public class ParallelSearchTask : SearchTask
         {
             string peptideFile = Path.Combine(outputFolder,
                 $"All{GlobalVariables.AnalyteType}s.{GlobalVariables.AnalyteType.GetSpectralMatchExtension()}");
-            await WritePsmsToTsvAsync(context.AllPeptides, peptideFile, SearchParameters.ModsToWriteSelection, true);
+            await WritePsmsToTsvAsync(FilterToConfident(context.AllPeptides, peptideLevel: true), peptideFile, SearchParameters.ModsToWriteSelection, true);
             FinishedWritingFile(peptideFile, nestedIds);
         }
 

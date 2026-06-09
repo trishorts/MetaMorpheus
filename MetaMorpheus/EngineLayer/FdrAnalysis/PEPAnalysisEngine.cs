@@ -22,6 +22,10 @@ using Easy.Common.Extensions;
 using System.Threading;
 using EngineLayer.SpectrumMatch;
 
+// The concrete trained-model type returned by the FastTree pipeline; aliased so the train-once / apply
+// methods (ParallelSearch reuses one base-trained model across thousands of transient databases) stay readable.
+using PepModel = Microsoft.ML.Data.TransformerChain<Microsoft.ML.Data.BinaryPredictionTransformer<Microsoft.ML.Calibrators.CalibratedModelParametersBase<Microsoft.ML.Trainers.FastTree.FastTreeBinaryModelParameters, Microsoft.ML.Calibrators.PlattCalibrator>>>;
+
 namespace EngineLayer
 {
     public class PepAnalysisEngine
@@ -174,6 +178,79 @@ namespace EngineLayer
             int negativeTrainingcount = PSMDataGroups.SelectMany(p => p).Count(p => !p.Label);
 
             return AggregateMetricsForOutput(allMetrics, sumOfAllAmbiguousPeptidesResolved, positiveTrainingCount, negativeTrainingcount, QValueCutoff);
+        }
+
+        /// <summary>
+        /// Trains ONE PEP model on all of this engine's PSMs (the base search) and assigns their PEP, then
+        /// returns the model + ML context so it can be REUSED — via <see cref="AssignPepFromTrainedModel"/> —
+        /// to score out-of-sample PSMs (e.g. the per-database transient hits) WITHOUT retraining. The transient
+        /// databases are far too small to train their own model and are out-of-sample relative to this one, so
+        /// the cross-validation used by <see cref="ComputePEPValuesForAllPSMs"/> is unnecessary for them.
+        /// The feature dictionaries were already built from these PSMs in the constructor, so transient feature
+        /// vectors are computed against the same (base-run) calibration. Returns null when the base PSMs lack
+        /// both target and decoy training examples.
+        /// </summary>
+        private MLContext? _trainedContext;
+        private PepModel? _trainedModel;
+
+        /// <summary>True once <see cref="TrainSingleModelAndAssignBasePep"/> has produced a reusable model.</summary>
+        public bool HasTrainedModel => _trainedModel != null;
+
+        public bool TrainSingleModelAndAssignBasePep()
+        {
+            List<SpectralMatchGroup> peptideGroups = UsePeptideLevelQValueForTraining
+                ? SpectralMatchGroup.GroupByBaseSequence(AllPsms)
+                : SpectralMatchGroup.GroupByIndividualPsm(AllPsms);
+            var allIndices = Enumerable.Range(0, peptideGroups.Count).ToList();
+
+            var psmData = CreatePsmData(SearchType, peptideGroups, allIndices).ToList();
+            if (!psmData.Any(p => p.Label) || !psmData.Any(p => !p.Label))
+                return false; // need both positive (target) and negative (decoy) examples
+
+            var mlContext = new MLContext(seed: _randomSeed);
+            var trainer = mlContext.BinaryClassification.Trainers.FastTree(BGDTreeOptions);
+            var pipeline = mlContext.Transforms.Concatenate("Features", TrainingVariables).Append(trainer);
+            PepModel model = pipeline.Fit(mlContext.Data.LoadFromEnumerable(psmData));
+            _trainedContext = mlContext;
+            _trainedModel = model;
+
+            // Assign PEP to the base PSMs as well (the base assignment is for the base-search output only;
+            // transient PSMs scored later are genuinely out-of-sample, so no out-of-fold concern applies).
+            Compute_PSM_PEP(peptideGroups, allIndices, mlContext, model, SearchType, OutputFolder);
+            return true;
+        }
+
+        /// <summary>
+        /// Assigns PEP to a NEW set of PSMs (a transient database's hits) using the model trained on the base
+        /// search by <see cref="TrainSingleModelAndAssignBasePep"/>. Reuses the base-trained model and the base
+        /// feature dictionaries — no retraining. Safe to call from many databases concurrently. No-op until a
+        /// model has been trained.
+        /// </summary>
+        public void AssignPepFromTrainedModel(List<SpectralMatch> psms, bool peptideLevel = false)
+        {
+            if (_trainedModel == null || psms == null)
+                return;
+            var scorable = psms.Where(p => p != null).ToList();
+            if (scorable.Count == 0)
+                return;
+            // Compute_PSM_PEP writes BOTH PsmFdrInfo.PEP and PeptideFdrInfo.PEP. Transient PSMs may not have a
+            // PeptideFdrInfo yet (peptide-level FDR isn't always run per database), so create whichever is
+            // missing — otherwise PEP is silently never assigned (the old guard skipped these PSMs entirely).
+            foreach (var p in scorable)
+            {
+                p.PsmFdrInfo ??= new FdrAnalysis.FdrInfo();
+                p.PeptideFdrInfo ??= new FdrAnalysis.FdrInfo();
+            }
+            List<SpectralMatchGroup> groups = UsePeptideLevelQValueForTraining
+                ? SpectralMatchGroup.GroupByBaseSequence(scorable)
+                : SpectralMatchGroup.GroupByIndividualPsm(scorable);
+            Compute_PSM_PEP(groups, Enumerable.Range(0, groups.Count).ToList(), _trainedContext!, _trainedModel, SearchType, OutputFolder);
+
+            // Now that every PSM carries a PEP, compute a PEP-based q-value (PEP_QValue) so callers can rank
+            // and threshold by it. Order by PEP ascending (most confident first), then accumulate target/decoy
+            // and invert — the same procedure ComputePEPValuesForAllPSMs uses, but on the base-trained scores.
+            var ordered = scorable.OrderBy(p => p.GetFdrInfo(peptideLevel).PEP).ToList();
+            FdrAnalysis.FdrAnalysisEngine.CalculateQValue(ordered, peptideLevelCalculation: peptideLevel, pepCalculation: true);
         }
 
         /// <summary>
