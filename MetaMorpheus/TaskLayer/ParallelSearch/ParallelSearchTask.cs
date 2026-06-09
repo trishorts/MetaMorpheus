@@ -185,10 +185,19 @@ public class ParallelSearchTask : SearchTask
         ReportTaskDashboard(taskId, ParallelSearchDashboardUpdateKind.TaskStatus, DashboardPhaseSearching,
             $"Searching {TotalDatabases} transient databases...");
 
+        // MERGED-INDEX mode: one .msl file holds many databases (entries tagged "db|accession"). The number
+        // of databases to search comes from inside the file, not the (count==1) file list, so parallelism
+        // must not be capped by the file count.
+        bool mergedMode = Environment.GetEnvironmentVariable("MM_PARALLELSEARCH_MERGED") == "1"
+            && ParallelSearchParameters.TransientDatabases.Count == 1
+            && ParallelSearchParameters.TransientDatabases[0].FilePath.EndsWith(".msl", StringComparison.OrdinalIgnoreCase);
+
         // Determine optimal thread allocation
         int totalAvailableThreads = Environment.ProcessorCount;
-         int databaseParallelism = Math.Min(ParallelSearchParameters.MaxSearchesInParallel,
-             ParallelSearchParameters.TransientDatabases.Count);
+         int databaseParallelism = mergedMode
+             ? ParallelSearchParameters.MaxSearchesInParallel
+             : Math.Min(ParallelSearchParameters.MaxSearchesInParallel,
+                 ParallelSearchParameters.TransientDatabases.Count);
          int threadsPerDatabase = Math.Max(1, totalAvailableThreads / databaseParallelism);
          CommonParameters.MaxThreadsToUsePerFile = threadsPerDatabase;
 
@@ -201,29 +210,53 @@ public class ParallelSearchTask : SearchTask
          using (var loadedQueue = new System.Collections.Concurrent.BlockingCollection<LoadedTransientDatabase>(
                     boundedCapacity: Math.Max(2, databaseParallelism)))
          {
+             // MERGED-INDEX mode (mergedMode computed above): a single .msl holds every database (each entry
+             // tagged "db|accession"). Load it ONCE and run the candidate filter ONCE, then emit one prepared
+             // database per source db-group. Each is searched INDEPENDENTLY by the consumer below (own
+             // base-PSM copy) — databases never compete; this only collapses 1000s of file opens into one
+             // shared in-memory index.
+
              // Producers: load databases concurrently, blocking on the bounded queue when it is full.
              var producer = Task.Run(() =>
              {
                  try
                  {
-                     Parallel.ForEach(ParallelSearchParameters.TransientDatabases,
-                         new ParallelOptions { MaxDegreeOfParallelism = databaseParallelism },
-                         transientDbPath =>
-                         {
-                             if (GlobalVariables.StopLoops) return;
-                             LoadedTransientDatabase? loaded;
-                             try
+                     if (mergedMode)
+                     {
+                         Status("Loading merged transient index...", taskId);
+                         var grouped = MslPeptideReader.ReadCandidatesGroupedByDatabase(
+                             ParallelSearchParameters.TransientDatabases[0].FilePath, BuildCandidatePriors());
+                         Status($"Merged index: {grouped.Count} databases with candidates.", taskId);
+                         Parallel.ForEach(grouped,
+                             new ParallelOptions { MaxDegreeOfParallelism = databaseParallelism },
+                             kvp =>
                              {
-                                 loaded = LoadTransientDatabaseForPipeline(transientDbPath, outputFolder, taskId);
-                             }
-                             catch (Exception ex)
+                                 if (GlobalVariables.StopLoops) return;
+                                 var loaded = BuildLoadedFromCandidates(kvp.Key, kvp.Value, outputFolder, taskId);
+                                 if (loaded != null) loadedQueue.Add(loaded);
+                             });
+                     }
+                     else
+                     {
+                         Parallel.ForEach(ParallelSearchParameters.TransientDatabases,
+                             new ParallelOptions { MaxDegreeOfParallelism = databaseParallelism },
+                             transientDbPath =>
                              {
-                                 WriteTransientProcessError(transientDbPath, outputFolder, ex);
-                                 throw;
-                             }
-                             if (loaded != null)
-                                 loadedQueue.Add(loaded);
-                         });
+                                 if (GlobalVariables.StopLoops) return;
+                                 LoadedTransientDatabase? loaded;
+                                 try
+                                 {
+                                     loaded = LoadTransientDatabaseForPipeline(transientDbPath, outputFolder, taskId);
+                                 }
+                                 catch (Exception ex)
+                                 {
+                                     WriteTransientProcessError(transientDbPath, outputFolder, ex);
+                                     throw;
+                                 }
+                                 if (loaded != null)
+                                     loadedQueue.Add(loaded);
+                             });
+                     }
                  }
                  finally
                  {
@@ -639,6 +672,53 @@ public class ParallelSearchTask : SearchTask
         public HashSet<string> TransientProteinAccessions = null!;
     }
 
+    /// <summary>Builds the .msl candidate pre-filter priors (scan masses + RTs, learned precursor/RT
+    /// calibration). The scan arrays are cached once (identical for every database).</summary>
+    private MslPeptideReader.CandidatePriors BuildCandidatePriors()
+    {
+        var sortedScanMasses = _sortedScanMasses ?? Array.ConvertAll(AllSortedMs2Scans, s => s.PrecursorMass);
+        var scanRetentionTimes = _scanRetentionTimes ?? Array.ConvertAll(AllSortedMs2Scans, s => s.RetentionTime);
+        var cal = _mslCalibration ?? new MslCandidateCalibration(
+            CommonParameters.PrecursorMassTolerance.Value, 1, 0, double.PositiveInfinity);
+        return new MslPeptideReader.CandidatePriors(
+            sortedScanMasses, scanRetentionTimes,
+            precursorTolPpm: cal.PrecursorTolPpm, rtSlope: cal.RtSlope,
+            rtIntercept: cal.RtIntercept, rtWindowMin: cal.RtWindowMin);
+    }
+
+    /// <summary>
+    /// Builds a prepared database from a merged-index db-group's candidate peptides (no file load). The
+    /// returned database is searched INDEPENDENTLY by the consumer, identical to the per-file path.
+    /// </summary>
+    private LoadedTransientDatabase? BuildLoadedFromCandidates(string dbName,
+        List<(IBioPolymerWithSetMods Peptide, List<Product> Fragments)> candidates, string outputFolder, string taskId)
+    {
+        if (GlobalVariables.StopLoops)
+            return null;
+
+        List<string> nestedIds = [taskId, dbName];
+        bool shouldProcess = !_resultsManager!.HasCachedResults(dbName) || ParallelSearchParameters.OverwriteTransientSearchOutputs;
+        if (!shouldProcess)
+        {
+            ReportProgress(new(100, $"Skipping {dbName} - results already exist in cache", nestedIds));
+            UpdateProgress(TotalDatabases, taskId);
+            return null;
+        }
+
+        var transientProteins = candidates.Select(p => p.Peptide.Parent).Distinct().ToList();
+        return new LoadedTransientDatabase
+        {
+            // Synthetic per-group identity (name only); no per-database file in merged mode.
+            TransientDb = new DbForTask(dbName, false),
+            DbName = dbName,
+            DbOutputFolder = Path.Combine(outputFolder, dbName),
+            NestedIds = nestedIds,
+            TransientProteins = transientProteins,
+            PrecomputedPeptides = candidates,
+            TransientProteinAccessions = new HashSet<string>(transientProteins.Select(p => p.Accession)),
+        };
+    }
+
     /// <summary>
     /// PRODUCER stage: skip/overwrite handling + load the transient database (FASTA digest set, or the
     /// .msl mass+RT-filtered candidate peptides with their fragments). Returns null when the database is
@@ -697,18 +777,9 @@ public class ParallelSearchTask : SearchTask
         bool isMslLibrary = transientDb.FilePath.EndsWith(".msl", StringComparison.OrdinalIgnoreCase);
         if (isMslLibrary)
         {
-            // S3: index-only candidate pre-filter on TWO axes — precursor mass AND Chronologer-iRT
-            // retention time (stored in the .msl), using the calibration LEARNED from the base search (S1).
-            // AllSortedMs2Scans is ascending by PrecursorMass, so masses + RTs are in the same order.
-            var sortedScanMasses = _sortedScanMasses ?? Array.ConvertAll(AllSortedMs2Scans, s => s.PrecursorMass);
-            var scanRetentionTimes = _scanRetentionTimes ?? Array.ConvertAll(AllSortedMs2Scans, s => s.RetentionTime);
-            var cal = _mslCalibration ?? new MslCandidateCalibration(
-                CommonParameters.PrecursorMassTolerance.Value, 1, 0, double.PositiveInfinity);
-            var priors = new MslPeptideReader.CandidatePriors(
-                sortedScanMasses, scanRetentionTimes,
-                precursorTolPpm: cal.PrecursorTolPpm, rtSlope: cal.RtSlope,
-                rtIntercept: cal.RtIntercept, rtWindowMin: cal.RtWindowMin);
-            precomputedPeptides = MslPeptideReader.ReadPeptides(transientDb.FilePath, dbName, priors);
+            // S3: index-only candidate pre-filter on precursor mass AND Chronologer-iRT (learned from the
+            // base search, S1). See BuildCandidatePriors.
+            precomputedPeptides = MslPeptideReader.ReadPeptides(transientDb.FilePath, dbName, BuildCandidatePriors());
             // shared parent proteins (one per accession) back the accession filter and counts
             transientProteins = precomputedPeptides.Select(p => p.Peptide.Parent).Distinct().ToList();
         }

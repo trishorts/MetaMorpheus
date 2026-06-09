@@ -146,7 +146,12 @@ namespace EngineLayer.ParallelSearch
                     int start = group.Sequence.Length + 1;
                     group.Sequence.Append(baseSequence);
                     long t1 = swPhase.ElapsedTicks;
-                    var built = BuildProducts(entry.MatchedFragmentIons);
+                    // Lean libraries store no fragments → return null so the engine fragments the peptide on
+                    // the fly (cheap, and matches the search's exact dissociation/precision). Full libraries
+                    // build Products from the stored float ions.
+                    List<Product> built = entry.MatchedFragmentIons is { Count: > 0 }
+                        ? BuildProducts(entry.MatchedFragmentIons)
+                        : null;
                     buildTicks += swPhase.ElapsedTicks - t1;
                     group.Peptides.Add(new PendingPeptide(fullSequence, start, baseSequence.Length, built));
                 }
@@ -175,6 +180,111 @@ namespace EngineLayer.ParallelSearch
                         missedCleavages: 0);
                     result.Add((peptide, pending.Fragments));
                 }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Reads a MERGED index (many databases in one .msl, each entry's accession stamped "db|accession")
+        /// with ONE open, runs the mass+RT candidate filter ONCE over all entries, and returns the surviving
+        /// candidate peptides GROUPED BY their source database. The per-database lists are then searched
+        /// INDEPENDENTLY (each against the shared base PSMs in its own copy) exactly as in the per-file path —
+        /// databases never compete; this only collapses 1000s of file opens into one shared in-memory index.
+        /// </summary>
+        public static Dictionary<string, List<(IBioPolymerWithSetMods Peptide, List<Product> Fragments)>>
+            ReadCandidatesGroupedByDatabase(string mergedMslPath, CandidatePriors priors)
+        {
+            var mods = GlobalVariables.AllModsKnownDictionary;
+            var digestionParams = new DigestionParams("trypsin", maxMissedCleavages: 0);
+
+            // dbTag -> (accession-within-db -> shared-protein layout)
+            var byDb = new Dictionary<string, Dictionary<string, AccessionGroup>>();
+            var candidateIdx = new List<int>();
+            int totalEntries = 0, massRtCandidates = 0;
+            var swPhase = System.Diagnostics.Stopwatch.StartNew();
+            long loadMs;
+
+            using (var library = MslLibrary.LoadIndexOnly(mergedMslPath))
+            {
+                loadMs = swPhase.ElapsedMilliseconds;
+                // PASS 1 — mass+RT filter over the whole merged index (no fragment I/O).
+                foreach (var idx in library.QueryMzWindow(float.MinValue, float.MaxValue))
+                {
+                    totalEntries++;
+                    double neutralMass = ((double)idx.PrecursorMz).ToMass(idx.Charge);
+                    double tolDa = neutralMass * priors.PrecursorTolPpm * 1e-6 + MassPreFilterMarginDa;
+                    int a = LowerBound(priors.SortedScanMasses, neutralMass - tolDa);
+                    double hi = neutralMass + tolDa;
+                    if (a >= priors.SortedScanMasses.Length || priors.SortedScanMasses[a] > hi)
+                        continue;
+                    bool rtOk = idx.Irt == 0f;
+                    if (!rtOk)
+                    {
+                        double predRt = priors.RtSlope * idx.Irt + priors.RtIntercept;
+                        for (int i = a; i < priors.SortedScanMasses.Length && priors.SortedScanMasses[i] <= hi; i++)
+                            if (Math.Abs(priors.ScanRetentionTimes[i] - predRt) <= priors.RtWindowMin) { rtOk = true; break; }
+                    }
+                    if (!rtOk) continue;
+                    massRtCandidates++;
+                    candidateIdx.Add(idx.PrecursorIdx);
+                }
+
+                // PASS 2 — fetch candidates in on-disk order (sequential), group by source database.
+                candidateIdx.Sort();
+                foreach (int pid in candidateIdx)
+                {
+                    MslLibraryEntry entry = library.GetEntry(pid);
+                    if (entry is null) continue;
+
+                    string tagged = entry.ProteinAccession ?? "";
+                    int bar = tagged.IndexOf('|');
+                    string dbTag = bar > 0 ? tagged.Substring(0, bar) : "UNKNOWN";
+                    string accession = bar >= 0 ? tagged.Substring(bar + 1) : tagged;
+                    if (string.IsNullOrEmpty(accession)) accession = dbTag + "_UNKNOWN";
+
+                    string fullSequence = entry.FullSequence;
+                    string baseSequence = IBioPolymerWithSetMods.GetBaseSequenceFromFullSequence(fullSequence);
+
+                    if (!byDb.TryGetValue(dbTag, out var accGroups))
+                    {
+                        accGroups = new Dictionary<string, AccessionGroup>();
+                        byDb[dbTag] = accGroups;
+                    }
+                    if (!accGroups.TryGetValue(accession, out var group))
+                    {
+                        group = new AccessionGroup { IsDecoy = entry.IsDecoy };
+                        accGroups[accession] = group;
+                    }
+                    int start = group.Sequence.Length + 1;
+                    group.Sequence.Append(baseSequence);
+                    List<Product> built = entry.MatchedFragmentIons is { Count: > 0 } ? BuildProducts(entry.MatchedFragmentIons) : null;
+                    group.Peptides.Add(new PendingPeptide(fullSequence, start, baseSequence.Length, built));
+                }
+            }
+
+            if (Environment.GetEnvironmentVariable("MM_PARALLELSEARCH_DIAG") == "1")
+                Console.WriteLine($"MSL_MERGED: entries={totalEntries} candidates={massRtCandidates} " +
+                    $"({Pct(massRtCandidates, totalEntries)}%) databases={byDb.Count} load={loadMs}ms total={swPhase.ElapsedMilliseconds}ms");
+
+            // Materialize per-database peptide lists (each database is searched independently downstream).
+            var result = new Dictionary<string, List<(IBioPolymerWithSetMods, List<Product>)>>(byDb.Count);
+            foreach (var dbKvp in byDb)
+            {
+                var list = new List<(IBioPolymerWithSetMods, List<Product>)>();
+                foreach (var accKvp in dbKvp.Value)
+                {
+                    var protein = new Protein(accKvp.Value.Sequence.ToString(), accKvp.Key, isDecoy: accKvp.Value.IsDecoy);
+                    foreach (var pending in accKvp.Value.Peptides)
+                    {
+                        var peptide = new PeptideWithSetModifications(
+                            pending.FullSequence, mods, p: protein, digestionParams: digestionParams,
+                            oneBasedStartResidueInProtein: pending.Start,
+                            oneBasedEndResidueInProtein: pending.Start + pending.Length - 1,
+                            missedCleavages: 0);
+                        list.Add((peptide, pending.Fragments));
+                    }
+                }
+                result[dbKvp.Key] = list;
             }
             return result;
         }
