@@ -119,6 +119,9 @@ public class ParallelSearchTask : SearchTask
     // precursor tolerance, and the iRT→observed-RT regression + window. Null until learned (and stays
     // null when no transient database is a .msl library). See LearnMslCalibration.
     [TomlIgnore] private MslCandidateCalibration? _mslCalibration;
+    // Scan precursor masses (ascending) + their RTs, cached once (identical across all .msl databases).
+    [TomlIgnore] private double[]? _sortedScanMasses;
+    [TomlIgnore] private double[]? _scanRetentionTimes;
 
 
     // Optimization caches for FDR alignment and parsimony
@@ -442,6 +445,10 @@ public class ParallelSearchTask : SearchTask
                 d => d.FilePath.EndsWith(".msl", StringComparison.OrdinalIgnoreCase)))
         {
             _mslCalibration = LearnMslCalibration(baselinePsms, taskId);
+            // Cache the (mass-sorted) scan mass + RT arrays ONCE — they are identical for every .msl
+            // database, so rebuilding them per database (1000s of times) would be pure waste.
+            _sortedScanMasses = Array.ConvertAll(AllSortedMs2Scans, s => s.PrecursorMass);
+            _scanRetentionTimes = Array.ConvertAll(AllSortedMs2Scans, s => s.RetentionTime);
         }
 
         if (SearchParameters.DoParsimony)
@@ -674,8 +681,9 @@ public class ParallelSearchTask : SearchTask
             }
         }
 
-        if (!Directory.Exists(dbOutputFolder))
-            Directory.CreateDirectory(dbOutputFolder);
+        // NOTE: the output folder is created lazily by the writer, and ONLY for databases that produced
+        // transient PSMs — at 1000s of databases the vast majority match nothing, so creating a folder +
+        // header-only files for each was a large fraction of the runtime. See WriteCompletedDatabaseOutputsAsync.
 
         Status($"Loading transient database {dbName}...", nestedIds);
         ReportDatabaseDashboard(taskId, ParallelSearchDashboardUpdateKind.DatabaseProgress, dbName,
@@ -692,8 +700,8 @@ public class ParallelSearchTask : SearchTask
             // S3: index-only candidate pre-filter on TWO axes — precursor mass AND Chronologer-iRT
             // retention time (stored in the .msl), using the calibration LEARNED from the base search (S1).
             // AllSortedMs2Scans is ascending by PrecursorMass, so masses + RTs are in the same order.
-            var sortedScanMasses = Array.ConvertAll(AllSortedMs2Scans, s => s.PrecursorMass);
-            var scanRetentionTimes = Array.ConvertAll(AllSortedMs2Scans, s => s.RetentionTime);
+            var sortedScanMasses = _sortedScanMasses ?? Array.ConvertAll(AllSortedMs2Scans, s => s.PrecursorMass);
+            var scanRetentionTimes = _scanRetentionTimes ?? Array.ConvertAll(AllSortedMs2Scans, s => s.RetentionTime);
             var cal = _mslCalibration ?? new MslCandidateCalibration(
                 CommonParameters.PrecursorMassTolerance.Value, 1, 0, double.PositiveInfinity);
             var priors = new MslPeptideReader.CandidatePriors(
@@ -846,7 +854,11 @@ public class ParallelSearchTask : SearchTask
 
             double pMean = ppmErrors.Average();
             double pSd = Math.Sqrt(ppmErrors.Sum(e => (e - pMean) * (e - pMean)) / ppmErrors.Count);
-            double tolPpm = Math.Min(configuredTolPpm, Math.Max(3.0, Math.Abs(pMean) + 3.0 * pSd));
+            // Trust the calibration: the real precursor accuracy (|mean|+3σ of the confident base PSMs) IS
+            // the tolerance, regardless of the looser configured/standard value. This is applied to BOTH the
+            // candidate pre-filter AND the transient search's acceptor (see PerformSearch), so they are
+            // consistent — peptides outside it are rejected as loose-tolerance false positives, not lost.
+            double tolPpm = Math.Max(2.0, Math.Abs(pMean) + 3.0 * pSd);
 
             // Chronologer iRT for the confident peptides, then OLS observedRT vs iRT.
             using var predictor = RetentionTimePredictorFactory.Create(PredictorType.Chronologer);
@@ -891,8 +903,14 @@ public class ParallelSearchTask : SearchTask
     /// </summary>
      private void PerformSearch(List<IBioPolymer> proteinsToSearch, SpectralMatch[] spectralMatchArray, List<string> nestedIds, out HashSet<int> updatedPsmIndexes, out int peptidesSearched, bool useCopyOnWrite = false, List<(IBioPolymerWithSetMods Peptide, List<Product> Fragments)> precomputedPeptides = null)
      {
+         // For a .msl search, use the LEARNED precursor tolerance (S1) so the search engine and the
+         // candidate pre-filter agree — the calibration is trusted over the looser configured tolerance.
+         MzLibUtil.Tolerance precursorTolerance = CommonParameters.PrecursorMassTolerance;
+         if (precomputedPeptides != null && _mslCalibration.HasValue)
+             precursorTolerance = new MzLibUtil.PpmTolerance(_mslCalibration.Value.PrecursorTolPpm);
+
          var massDiffAcceptor = GetMassDiffAcceptor(
-             CommonParameters.PrecursorMassTolerance,
+             precursorTolerance,
              SearchParameters.MassDiffAcceptorType,
              SearchParameters.CustomMdac);
 
@@ -1099,6 +1117,26 @@ public class ParallelSearchTask : SearchTask
         string outputFolder = context.OutputFolder;
         List<string> nestedIds = context.NestedIds;
         bool writeAllResults = !ParallelSearchParameters.WriteTransientResultsOnly;
+
+        // Skip per-database output entirely when the database produced no transient PSMs. At 1000s of
+        // databases the vast majority match nothing; writing a folder + header-only files for each was a
+        // dominant cost. The database is still recorded in the cross-database summary/checkpoint below, so
+        // it counts as processed (and resume still works — HasCachedResults reads the checkpoint, not disk).
+        bool hasTransientOutput = (context.TransientPsms?.Count ?? 0) > 0;
+        if (!hasTransientOutput)
+        {
+            _resultsManager!.AppendCheckpoint(metrics);
+            MarkDatabaseCompleted();
+            UpdateProgress(TotalDatabases, nestedIds[0]);
+            ReportDatabaseDashboard(nestedIds[0], ParallelSearchDashboardUpdateKind.DatabaseFinished, dbName,
+                $"Finished {dbName} (no transient hits)", DashboardDatabaseFinishedProgress);
+            ReportProgress(new(100, $"Finished {dbName} (no transient hits)", nestedIds));
+            return;
+        }
+
+        // Create the output folder lazily — only databases with transient hits get one.
+        if (!Directory.Exists(outputFolder))
+            Directory.CreateDirectory(outputFolder);
 
         Status($"Writing results for {dbName}...", nestedIds);
         ReportDatabaseDashboard(nestedIds[0], ParallelSearchDashboardUpdateKind.DatabaseProgress, dbName,
