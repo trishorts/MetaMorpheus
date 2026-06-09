@@ -82,8 +82,14 @@ namespace EngineLayer.ParallelSearch
             int totalEntries = 0, massCandidates = 0, massRtCandidates = 0;
             var sw = System.Diagnostics.Stopwatch.StartNew();
 
+            long loadMs, getEntryTicks = 0, buildTicks = 0;
+            var swPhase = System.Diagnostics.Stopwatch.StartNew();
+            var candidateIdx = new List<int>();
             using (var library = MslLibrary.LoadIndexOnly(mslPath))
             {
+                loadMs = swPhase.ElapsedMilliseconds; // cost of LoadIndexOnly (metadata read + sort)
+
+                // PASS 1 — filter on mass + RT using ONLY the in-memory index (no fragment I/O).
                 foreach (var idx in library.QueryMzWindow(float.MinValue, float.MaxValue))
                 {
                     totalEntries++;
@@ -111,8 +117,20 @@ namespace EngineLayer.ParallelSearch
                     if (!rtOk)
                         continue;
                     massRtCandidates++;
+                    candidateIdx.Add(idx.PrecursorIdx);
+                }
 
-                    MslLibraryEntry entry = library.GetEntry(idx.PrecursorIdx);
+                // PASS 2 — fetch fragments in ON-DISK (PrecursorIdx/write) order, not the m/z order the
+                // window query yielded. Fragment blocks are stored in PrecursorIdx order, so a sorted walk
+                // reads the file front-to-back (sequential, OS read-ahead) instead of one random seek per
+                // candidate — the dominant reader cost. Result order doesn't affect IDs/scores; the shared
+                // protein concatenation just follows this order.
+                candidateIdx.Sort();
+                foreach (int pid in candidateIdx)
+                {
+                    long t0 = swPhase.ElapsedTicks;
+                    MslLibraryEntry entry = library.GetEntry(pid);
+                    getEntryTicks += swPhase.ElapsedTicks - t0;
                     if (entry is null) continue;
 
                     string fullSequence = entry.FullSequence;
@@ -127,14 +145,22 @@ namespace EngineLayer.ParallelSearch
 
                     int start = group.Sequence.Length + 1;
                     group.Sequence.Append(baseSequence);
-                    group.Peptides.Add(new PendingPeptide(
-                        fullSequence, start, baseSequence.Length, BuildProducts(entry.MatchedFragmentIons)));
+                    long t1 = swPhase.ElapsedTicks;
+                    var built = BuildProducts(entry.MatchedFragmentIons);
+                    buildTicks += swPhase.ElapsedTicks - t1;
+                    group.Peptides.Add(new PendingPeptide(fullSequence, start, baseSequence.Length, built));
                 }
             }
+            double getEntryMs = getEntryTicks * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            double buildMs = buildTicks * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
 
-            Console.WriteLine($"MSL_RT {databaseName}: entries={totalEntries} massCand={massCandidates} " +
-                $"({Pct(massCandidates, totalEntries)}%) massRtCand={massRtCandidates} ({Pct(massRtCandidates, totalEntries)}%) " +
-                $"tolPpm={priors.PrecursorTolPpm:F1} rtWin=+/-{priors.RtWindowMin:F1}min ms={sw.ElapsedMilliseconds}");
+            // Per-database candidate-filter diagnostics. Opt-in (MM_PARALLELSEARCH_DIAG=1) so it is
+            // available when profiling the .msl reader but silent in normal runs.
+            if (Environment.GetEnvironmentVariable("MM_PARALLELSEARCH_DIAG") == "1")
+                Console.WriteLine($"MSL_RT {databaseName}: entries={totalEntries} massCand={massCandidates} " +
+                    $"({Pct(massCandidates, totalEntries)}%) massRtCand={massRtCandidates} ({Pct(massRtCandidates, totalEntries)}%) " +
+                    $"load={loadMs}ms getEntry={getEntryMs:F0}ms build={buildMs:F0}ms " +
+                    $"tolPpm={priors.PrecursorTolPpm:F1} rtWin=+/-{priors.RtWindowMin:F1}min ms={sw.ElapsedMilliseconds}");
 
             var result = new List<(IBioPolymerWithSetMods, List<Product>)>();
             foreach (var kvp in groups)
