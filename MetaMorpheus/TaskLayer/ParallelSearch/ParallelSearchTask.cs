@@ -1072,14 +1072,23 @@ public class ParallelSearchTask : SearchTask
 
     private void InitializeCompletedDatabaseWriter()
     {
+        // The completed-database output (per-db folder + PSM/peptide/results files) was written by ONE
+        // consumer draining a capacity-2 channel, so at 1000s of databases the parallel searchers blocked
+        // on a single serial writer (low CPU utilization). Run several writer consumers — each writes a
+        // different database's folder, so it's safe (the shared checkpoint/progress bookkeeping is locked)
+        // — and widen the channel so searchers don't stall waiting for a write slot.
+        int writerCount = Math.Max(2, Environment.ProcessorCount / 4);
         _completedDatabaseWriteChannel = Channel.CreateBounded<(TransientDatabaseContext Context, TransientDatabaseMetrics Metrics)>(
-            new BoundedChannelOptions(2)
+            new BoundedChannelOptions(Math.Max(writerCount * 4, 32))
             {
-                SingleReader = true,
+                SingleReader = false, // multiple parallel writer consumers
                 SingleWriter = false,
                 FullMode = BoundedChannelFullMode.Wait
             });
-        _completedDatabaseWriterTask = Task.Run(RunCompletedDatabaseWriterLoopAsync);
+        var writers = new Task[writerCount];
+        for (int i = 0; i < writerCount; i++)
+            writers[i] = Task.Run(RunCompletedDatabaseWriterLoopAsync);
+        _completedDatabaseWriterTask = Task.WhenAll(writers);
     }
 
     private void CompleteCompletedDatabaseWriter()
