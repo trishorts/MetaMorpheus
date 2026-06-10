@@ -1484,37 +1484,44 @@ public class ParallelSearchTask : SearchTask
     {
         double qValueThreshold = CommonParameters.QValueThreshold;
         int minFamilyPasses = MinFamiliesForSignificance;
-        const double significanceAlpha = 0.05;
-        const string overallCombinedMetric = "All"; // CombinedResultNames.AllMetricName
-
         // Resolve the source DbForTask for a database tag. In merged-index mode TransientDatabases holds only the
         // single merged .msl, so there is no per-organism DbForTask — synthesize one keyed by the db tag.
         DbForTask ResolveDb(string dbTag) =>
             ParallelSearchParameters.TransientDatabases.FirstOrDefault(db => Path.GetFileNameWithoutExtension(db.FileName) == dbTag)
             ?? new DbForTask(dbTag, false);
 
-        // Compute passed-family count and the overall combined q-value DIRECTLY from the test results — the same
-        // source the StatisticalAnalysis_Results.csv uses — rather than the metrics-summary fields, which are not
-        // reliably populated for this writer (and were silently selecting nothing, even for SARS-CoV-2 at 7/7).
         return _resultsManager!.StatisticalTestResultList
             .GroupBy(p => p.DatabaseName)
-            .Where(g =>
-            {
-                int passedFamilies = g
-                    .Where(r => !r.IsCombinedResult && r.EvidenceFamily.HasValue && r.IsSignificant(significanceAlpha))
-                    .Select(r => r.EvidenceFamily!.Value)
-                    .Distinct()
-                    .Count();
-                double combinedQ = g
-                    .Where(r => r.IsCombinedResult && r.MetricName == overallCombinedMetric)
-                    .Select(r => r.QValue)
-                    .DefaultIfEmpty(double.NaN)
-                    .First();
-                return passedFamilies >= minFamilyPasses
-                    && !double.IsNaN(combinedQ)
-                    && combinedQ <= qValueThreshold;
-            })
+            .Where(g => QualifiesAsDetectedOrganism(g, minFamilyPasses, qValueThreshold))
             .ToDictionary(g => ResolveDb(g.Key), g => g.OrderBy(t => t.ToString()).ToList());
+    }
+
+    /// <summary>
+    /// The family-aware detection predicate (extracted for testing): a database qualifies as a confidently
+    /// detected organism when at least <paramref name="minFamilyPasses"/> independent evidence families are
+    /// significant AND the overall combined q-value is at or below <paramref name="qValueThreshold"/>. Both
+    /// quantities are computed DIRECTLY from the test results — the same source StatisticalAnalysis_Results.csv
+    /// uses — rather than from the metrics-summary fields, which are not reliably populated for this writer
+    /// (and were silently selecting nothing, even for SARS-CoV-2 at 7/7).
+    /// </summary>
+    internal static bool QualifiesAsDetectedOrganism(
+        IEnumerable<StatisticalTestResult> dbResults, int minFamilyPasses, double qValueThreshold,
+        double significanceAlpha = 0.05, string overallCombinedMetric = "All")
+    {
+        var results = dbResults as ICollection<StatisticalTestResult> ?? dbResults.ToList();
+        int passedFamilies = results
+            .Where(r => !r.IsCombinedResult && r.EvidenceFamily.HasValue && r.IsSignificant(significanceAlpha))
+            .Select(r => r.EvidenceFamily!.Value)
+            .Distinct()
+            .Count();
+        double combinedQ = results
+            .Where(r => r.IsCombinedResult && r.MetricName == overallCombinedMetric)
+            .Select(r => r.QValue)
+            .DefaultIfEmpty(double.NaN)
+            .First();
+        return passedFamilies >= minFamilyPasses
+            && !double.IsNaN(combinedQ)
+            && combinedQ <= qValueThreshold;
     }
 
 
