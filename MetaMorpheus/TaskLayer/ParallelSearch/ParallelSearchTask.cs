@@ -492,12 +492,13 @@ public class ParallelSearchTask : SearchTask
             // database, so rebuilding them per database (1000s of times) would be pure waste.
             _sortedScanMasses = Array.ConvertAll(AllSortedMs2Scans, s => s.PrecursorMass);
             _scanRetentionTimes = Array.ConvertAll(AllSortedMs2Scans, s => s.RetentionTime);
-
-            // PEP: train ONE model on the (large, high-quality) base human PSMs and reuse it to assign a PEP
-            // to every transient database's PSMs — those databases are far too small to train their own model.
-            // Uses Chronologer for the RT-residual feature. Best-effort: any failure leaves transient PEP unset.
-            TrainBasePepModel(baselinePsms, outputFolder, taskId);
         }
+
+        // PEP: train ONE model on the (large, high-quality) base human PSMs and reuse it to assign a PEP
+        // to every transient database's PSMs — those databases are far too small to train their own model.
+        // Independent of the .msl path, so FASTA transient searches get PEP too. Uses Chronologer for the
+        // RT-residual feature. Best-effort: any failure leaves transient PEP unset.
+        TrainBasePepModel(baselinePsms, outputFolder, taskId);
 
         if (SearchParameters.DoParsimony)
         {
@@ -868,16 +869,7 @@ public class ParallelSearchTask : SearchTask
          ).GetAwaiter().GetResult();
         Interlocked.Add(ref _postAnalysisTicks, Stopwatch.GetTimestamp() - postAnalysisStart);
 
-        // PEP: assign each transient PSM (and peptide) a posterior error probability from the base-trained
-        // model and a PEP-based q-value (no-op when PEP is disabled). Runs after the per-database FDR so the
-        // matches already carry the cumulative target/decoy state used for the q-value.
-        if (_pepEngine != null)
-        {
-            _pepEngine.AssignPepFromTrainedModel(analysisContext.TransientPsms, peptideLevel: false);
-            if (analysisContext.TransientPeptides is { Count: > 0 })
-                _pepEngine.AssignPepFromTrainedModel(analysisContext.TransientPeptides, peptideLevel: true);
-        }
-
+        // (PEP is now assigned inside PerformPostSearchAnalysis, before the metric collectors run.)
         _completedDatabaseWriteChannel!.Writer.WriteAsync((analysisContext, dbResults)).AsTask().GetAwaiter().GetResult();
 
         // Cleanup transient proteins to free memory
@@ -1098,6 +1090,16 @@ public class ParallelSearchTask : SearchTask
         var transientPeptides = FilterToTransientDatabaseOnly(allPeptides, transientProteinAccessions).ToList();
         _ = _peptideFdrAlignmentService.ApplyBaseline(transientPeptides);
 
+        // PEP: assign each transient PSM/peptide a posterior error probability + PEP_QValue (mapped onto the
+        // background curve) BEFORE the metric collectors and statistics run, so confident counts and family
+        // tests can use PEP_QValue. Runs after the FDR alignment so the borrowed score-based QValue is in place.
+        if (_pepEngine != null)
+        {
+            _pepEngine.AssignPepFromTrainedModel(transientPsms, peptideLevel: false);
+            if (transientPeptides.Count > 0)
+                _pepEngine.AssignPepFromTrainedModel(transientPeptides, peptideLevel: true);
+        }
+
         List<ProteinGroup>? proteinGroups = null;
         if (SearchParameters.DoParsimony && transientPsms.Count > 0)
         {
@@ -1253,22 +1255,36 @@ public class ParallelSearchTask : SearchTask
         }
     }
 
-    /// <summary>Confidence threshold for what gets written to the per-database output files.</summary>
+    /// <summary>Confidence thresholds for what gets written to the per-database output files.</summary>
     private const double OutputQValueThreshold = 0.05;
+    private const double OutputPepQValueThreshold = 0.05;
 
     /// <summary>
-    /// Row-level confidence filter: keep only matches at or below <see cref="OutputQValueThreshold"/> q-value.
-    /// Uses the peptide-level FdrInfo when <paramref name="peptideLevel"/> is set, otherwise the PSM-level one.
-    /// Returns the input unchanged when null/empty so writers behave as before for empty lists.
+    /// A match is confident when its PEP-based q-value is below <see cref="OutputPepQValueThreshold"/> — the
+    /// PEP_QValue is assigned by mapping the match's model PEP onto the background curve (see PepAnalysisEngine),
+    /// so it is meaningful even though the tiny transient databases can't compute their own. When PEP is
+    /// unavailable (no trained model), falls back to the borrowed score-based QValue.
     /// </summary>
-    private static List<SpectralMatch> FilterToConfident(List<SpectralMatch> matches, bool peptideLevel)
+    private bool IsConfident(SpectralMatch p, bool peptideLevel)
+    {
+        var info = p?.GetFdrInfo(peptideLevel);
+        if (info == null)
+            return false;
+        return _pepEngine != null
+            ? info.PEP_QValue < OutputPepQValueThreshold
+            : info.QValue <= OutputQValueThreshold;
+    }
+
+    /// <summary>
+    /// Row-level confidence filter (see <see cref="IsConfident"/>). Uses the peptide-level FdrInfo when
+    /// <paramref name="peptideLevel"/> is set, otherwise the PSM-level one. Returns the input unchanged when
+    /// null/empty so writers behave as before for empty lists.
+    /// </summary>
+    private List<SpectralMatch> FilterToConfident(List<SpectralMatch> matches, bool peptideLevel)
     {
         if (matches == null || matches.Count == 0)
             return matches;
-        return matches
-            .Where(p => p?.GetFdrInfo(peptideLevel) != null
-                        && p.GetFdrInfo(peptideLevel).QValue <= OutputQValueThreshold)
-            .ToList();
+        return matches.Where(p => IsConfident(p, peptideLevel)).ToList();
     }
 
     private async Task WriteCompletedDatabaseOutputsAsync(TransientDatabaseContext context, TransientDatabaseMetrics metrics)
@@ -1282,8 +1298,9 @@ public class ParallelSearchTask : SearchTask
         // databases the vast majority match nothing (or only sub-threshold noise); writing a folder + files
         // for each was a dominant cost. The database is still recorded in the cross-database summary/checkpoint
         // below, so it counts as processed (and resume still works — HasCachedResults reads the checkpoint).
-        bool hasTransientOutput = context.TransientPsms != null
-            && context.TransientPsms.Any(p => p?.PsmFdrInfo != null && p.PsmFdrInfo.QValue <= OutputQValueThreshold);
+        bool hasTransientOutput =
+            (context.TransientPeptides != null && context.TransientPeptides.Any(p => IsConfident(p, true)))
+            || (context.TransientPsms != null && context.TransientPsms.Any(p => IsConfident(p, false)));
         if (!hasTransientOutput)
         {
             _resultsManager!.AppendCheckpoint(metrics);
