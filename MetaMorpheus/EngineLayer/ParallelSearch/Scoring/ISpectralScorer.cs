@@ -8,14 +8,12 @@ namespace EngineLayer.ParallelSearch.Scoring
     /// experimental fragment within tolerance and the charge filter.
     ///
     /// Deliberately narrow: the scorer does ONLY the matching (the expensive binary-search +
-    /// tolerance work that is identical across all 30k databases and is what we offload to the
-    /// GPU). Score computation, the <c>ScoreCutoff</c> gate, MatchedFragmentIon construction and
-    /// PSM updates all stay in the engine, byte-for-byte as before — so the CPU path is
-    /// bit-identical and the GPU path only has to reproduce the match set.
+    /// tolerance work that is identical across all 30k databases). Score computation, the
+    /// <c>ScoreCutoff</c> gate, MatchedFragmentIon construction and PSM updates all stay in the
+    /// engine.
     ///
-    /// Implementations:
-    ///   CpuSpectralScorer — binary search per fragment on the CPU (the comparison baseline).
-    ///   GpuSpectralScorer — batches all work items onto the GPU (ILGPU/CUDA), spectra resident.
+    /// Implementation:
+    ///   CpuSpectralScorer — binary search per fragment on the CPU.
     ///
     /// One instance per thread (not safe for concurrent ScoreBatch calls on the same instance).
     /// </summary>
@@ -63,9 +61,9 @@ namespace EngineLayer.ParallelSearch.Scoring
     }
 
     /// <summary>
-    /// A batch of (peptide, candidate-scan) work items to match, in struct-of-arrays form so the
-    /// GPU backend can upload it as flat buffers. Theoretical fragment masses are concatenated per
-    /// peptide slot (CSR via <see cref="PeptideFragmentOffsets"/>); NaN masses are kept in place so
+    /// A batch of (peptide, candidate-scan) work items to match, in struct-of-arrays form.
+    /// Theoretical fragment masses are concatenated per peptide slot (CSR via
+    /// <see cref="PeptideFragmentOffsets"/>); NaN masses are kept in place so
     /// <see cref="FragmentMatch.LocalProductIndex"/> aligns with the peptide's product list (the
     /// scorer skips NaN, which never matches).
     /// </summary>

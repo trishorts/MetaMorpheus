@@ -77,16 +77,10 @@ namespace EngineLayer.ParallelSearch
             {
 
                 // Experimental spectra are identical and read-only across every transient database
-                // search, so flatten them once (struct-of-arrays) and reuse. This is the payload the
-                // GPU keeps resident in VRAM; the CPU scorer reads the same arrays.
+                // search, so flatten them once (struct-of-arrays) and reuse across all peptides/threads.
                 var scoringData = GetOrBuildScoringData(ArrayOfSortedMS2Scans);
-                // GPU is OPT-IN (set MM_PARALLELSEARCH_GPU=1). It is byte-identical but currently
-                // SLOWER end-to-end than CPU because ~60 search threads serialize on one GPU via
-                // synchronous locked round-trips; see GPU_PLAN.md for the producer/consumer redesign
-                // that is required before the fast kernel (8.6x in isolation) wins in practice.
-                bool gpuEnabled = Environment.GetEnvironmentVariable("MM_PARALLELSEARCH_GPU") == "1";
-                using var scorerProvider = SpectralScorerFactory.Create(
-                    scoringData, CommonParameters.ProductMassTolerance, preferCpu: !gpuEnabled);
+                using var scorerProvider = new CpuScorerProvider(
+                    scoringData, CommonParameters.ProductMassTolerance);
                 Status("ParallelSearch scoring backend: " + scorerProvider.BackendDescription);
 
                 // Shared per-peptide work: fragment (in double), queue candidate scans, flush. The
