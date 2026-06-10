@@ -210,7 +210,7 @@ namespace EngineLayer
         /// PEP-based q-value on this set, then captures the two monotone arrays. Mutates the matches' PEP_QValue
         /// and cumulative target/decoy (harmless — the score-based QValue lives in a different field).
         /// </summary>
-        private static (double[] pepAsc, double[] qByPep) BuildPepQValueCurve(List<SpectralMatch> matches, bool peptideLevel)
+        internal static (double[] pepAsc, double[] qByPep) BuildPepQValueCurve(List<SpectralMatch> matches, bool peptideLevel)
         {
             var ordered = matches.Where(m => m?.GetFdrInfo(peptideLevel) != null)
                                  .OrderBy(m => m.GetFdrInfo(peptideLevel).PEP).ToList();
@@ -232,7 +232,7 @@ namespace EngineLayer
         /// is the smallest value &gt;= <paramref name="pep"/> (lower-bound). Because PEP_QValue is monotone in PEP,
         /// this is the q-value at that confidence level. Returns 2 (the FdrInfo sentinel) when no curve exists.
         /// </summary>
-        private static double LookupBackgroundPepQValue(double pep, double[] pepAsc, double[] qByPep)
+        internal static double LookupBackgroundPepQValue(double pep, double[] pepAsc, double[] qByPep)
         {
             if (pepAsc.Length == 0)
                 return 2.0;

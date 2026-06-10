@@ -1266,13 +1266,20 @@ public class ParallelSearchTask : SearchTask
     /// unavailable (no trained model), falls back to the borrowed score-based QValue.
     /// </summary>
     private bool IsConfident(SpectralMatch p, bool peptideLevel)
+        => IsConfidentMatch(p?.GetFdrInfo(peptideLevel), _pepEngine != null, OutputPepQValueThreshold, OutputQValueThreshold);
+
+    /// <summary>
+    /// Pure confidence decision (extracted for testing): when <paramref name="pepActive"/>, a match is confident
+    /// if its PEP_QValue is below <paramref name="pepQThreshold"/>; otherwise it falls back to the score-based
+    /// QValue being at or below <paramref name="qThreshold"/>. A null FdrInfo is never confident.
+    /// </summary>
+    internal static bool IsConfidentMatch(EngineLayer.FdrAnalysis.FdrInfo info, bool pepActive, double pepQThreshold, double qThreshold)
     {
-        var info = p?.GetFdrInfo(peptideLevel);
         if (info == null)
             return false;
-        return _pepEngine != null
-            ? info.PEP_QValue < OutputPepQValueThreshold
-            : info.QValue <= OutputQValueThreshold;
+        return pepActive
+            ? info.PEP_QValue < pepQThreshold
+            : info.QValue <= qThreshold;
     }
 
     /// <summary>
