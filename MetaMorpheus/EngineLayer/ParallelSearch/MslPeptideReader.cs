@@ -93,31 +93,13 @@ namespace EngineLayer.ParallelSearch
                 foreach (var idx in library.QueryMzWindow(float.MinValue, float.MaxValue))
                 {
                     totalEntries++;
-                    double neutralMass = ((double)idx.PrecursorMz).ToMass(idx.Charge);
-
-                    // Axis 1: precursor mass — find experimental scans within the learned ppm window.
-                    double tolDa = neutralMass * priors.PrecursorTolPpm * 1e-6 + MassPreFilterMarginDa;
-                    int a = LowerBound(priors.SortedScanMasses, neutralMass - tolDa);
-                    double hi = neutralMass + tolDa;
-                    if (a >= priors.SortedScanMasses.Length || priors.SortedScanMasses[a] > hi)
-                        continue; // no mass match at all
-                    massCandidates++;
-
-                    // Axis 2: retention time — at least one mass-matching scan must elute within the
-                    // peptide's predicted RT window. iRT==0 (unpredicted) ⇒ keep on mass alone.
-                    bool rtOk = idx.Irt == 0f;
-                    if (!rtOk)
+                    if (IsCandidate(idx.PrecursorMz, idx.Charge, idx.Irt, priors, out bool massMatched))
                     {
-                        double predRt = priors.RtSlope * idx.Irt + priors.RtIntercept;
-                        for (int i = a; i < priors.SortedScanMasses.Length && priors.SortedScanMasses[i] <= hi; i++)
-                        {
-                            if (Math.Abs(priors.ScanRetentionTimes[i] - predRt) <= priors.RtWindowMin) { rtOk = true; break; }
-                        }
+                        massRtCandidates++;
+                        candidateIdx.Add(idx.PrecursorIdx);
                     }
-                    if (!rtOk)
-                        continue;
-                    massRtCandidates++;
-                    candidateIdx.Add(idx.PrecursorIdx);
+                    if (massMatched)
+                        massCandidates++;
                 }
 
                 // PASS 2 — fetch fragments in ON-DISK (PrecursorIdx/write) order, not the m/z order the
@@ -211,22 +193,11 @@ namespace EngineLayer.ParallelSearch
                 foreach (var idx in library.QueryMzWindow(float.MinValue, float.MaxValue))
                 {
                     totalEntries++;
-                    double neutralMass = ((double)idx.PrecursorMz).ToMass(idx.Charge);
-                    double tolDa = neutralMass * priors.PrecursorTolPpm * 1e-6 + MassPreFilterMarginDa;
-                    int a = LowerBound(priors.SortedScanMasses, neutralMass - tolDa);
-                    double hi = neutralMass + tolDa;
-                    if (a >= priors.SortedScanMasses.Length || priors.SortedScanMasses[a] > hi)
-                        continue;
-                    bool rtOk = idx.Irt == 0f;
-                    if (!rtOk)
+                    if (IsCandidate(idx.PrecursorMz, idx.Charge, idx.Irt, priors, out _))
                     {
-                        double predRt = priors.RtSlope * idx.Irt + priors.RtIntercept;
-                        for (int i = a; i < priors.SortedScanMasses.Length && priors.SortedScanMasses[i] <= hi; i++)
-                            if (Math.Abs(priors.ScanRetentionTimes[i] - predRt) <= priors.RtWindowMin) { rtOk = true; break; }
+                        massRtCandidates++;
+                        candidateIdx.Add(idx.PrecursorIdx);
                     }
-                    if (!rtOk) continue;
-                    massRtCandidates++;
-                    candidateIdx.Add(idx.PrecursorIdx);
                 }
 
                 // PASS 2 — fetch candidates in on-disk order (sequential), group by source database.
@@ -236,11 +207,7 @@ namespace EngineLayer.ParallelSearch
                     MslLibraryEntry entry = library.GetEntry(pid);
                     if (entry is null) continue;
 
-                    string tagged = entry.ProteinAccession ?? "";
-                    int bar = tagged.IndexOf('|');
-                    string dbTag = bar > 0 ? tagged.Substring(0, bar) : "UNKNOWN";
-                    string accession = bar >= 0 ? tagged.Substring(bar + 1) : tagged;
-                    if (string.IsNullOrEmpty(accession)) accession = dbTag + "_UNKNOWN";
+                    var (dbTag, accession) = ParseDbTagAndAccession(entry.ProteinAccession);
 
                     string fullSequence = entry.FullSequence;
                     string baseSequence = IBioPolymerWithSetMods.GetBaseSequenceFromFullSequence(fullSequence);
@@ -292,10 +259,51 @@ namespace EngineLayer.ParallelSearch
         private static double Pct(int n, int d) => d == 0 ? 0 : Math.Round(100.0 * n / d, 1);
 
         /// <summary>First index i where sorted[i] >= value (sorted ascending).</summary>
-        private static int LowerBound(double[] sorted, double value)
+        internal static int LowerBound(double[] sorted, double value)
         {
             int i = Array.BinarySearch(sorted, value);
             return i < 0 ? ~i : i;
+        }
+
+        /// <summary>
+        /// The .msl candidate pre-filter (extracted for testing): does any experimental scan match this library
+        /// entry on BOTH precursor mass (within the learned ppm window) AND retention time (within the calibrated
+        /// window of the entry's predicted RT)? An iRT of 0 (unpredicted) keeps the entry on mass alone.
+        /// <paramref name="massMatched"/> reports whether the mass axis alone matched (for diagnostics).
+        /// </summary>
+        internal static bool IsCandidate(double precursorMz, int charge, float irt, in CandidatePriors priors, out bool massMatched)
+        {
+            massMatched = false;
+            double neutralMass = precursorMz.ToMass(charge);
+            double tolDa = neutralMass * priors.PrecursorTolPpm * 1e-6 + MassPreFilterMarginDa;
+            int a = LowerBound(priors.SortedScanMasses, neutralMass - tolDa);
+            double hi = neutralMass + tolDa;
+            if (a >= priors.SortedScanMasses.Length || priors.SortedScanMasses[a] > hi)
+                return false; // no mass match at all
+            massMatched = true;
+
+            if (irt == 0f)
+                return true; // unpredicted RT -> keep on mass alone
+            double predRt = priors.RtSlope * irt + priors.RtIntercept;
+            for (int i = a; i < priors.SortedScanMasses.Length && priors.SortedScanMasses[i] <= hi; i++)
+                if (Math.Abs(priors.ScanRetentionTimes[i] - predRt) <= priors.RtWindowMin)
+                    return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Splits a merged-index accession stamped "db|accession" into its (dbTag, accession) parts. An entry
+        /// with no bar falls back to dbTag "UNKNOWN"; an empty accession becomes "&lt;dbTag&gt;_UNKNOWN".
+        /// </summary>
+        internal static (string dbTag, string accession) ParseDbTagAndAccession(string tagged)
+        {
+            tagged ??= "";
+            int bar = tagged.IndexOf('|');
+            string dbTag = bar > 0 ? tagged.Substring(0, bar) : "UNKNOWN";
+            string accession = bar >= 0 ? tagged.Substring(bar + 1) : tagged;
+            if (string.IsNullOrEmpty(accession))
+                accession = dbTag + "_UNKNOWN";
+            return (dbTag, accession);
         }
 
         private static List<Product> BuildProducts(List<MslFragmentIon> ions)
