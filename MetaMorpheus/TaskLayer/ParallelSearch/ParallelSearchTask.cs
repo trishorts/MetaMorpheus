@@ -1429,17 +1429,17 @@ public class ParallelSearchTask : SearchTask
          // Write global summary text file
          WriteGlobalResultsText(_resultsManager.TransientDatabaseMetricsDictionary, outputFolder, taskId, numFiles);
 
-        // Deal with custom reduced database writing
-        // TODO: Revise this to only be the family one. 
-        bool useFamilyRanking = ParallelSearchParameters.UseFamilyAwareRanking;
-        var statsByDatabase = useFamilyRanking
-            ? SelectDatabasesForWritingByFamily()
-            : SelectDatabasesForWritingByTestRatio();
+        // Deal with custom reduced database writing.
+        // Always use the family-aware gate (combined q-value + a minimum number of evidence families).
+        // The old test-ratio gate required passing >=50% of ALL tests, which even a perfect spike-in
+        // (SARS-CoV-2 passed 31/78) can't clear — many sub-tests structurally cannot fire for a small
+        // genome (NullEvidence / Undefined / BelowEligibilityThreshold), so nothing was ever written.
+        var statsByDatabase = SelectDatabasesForWritingByFamily();
 
          Task[] dbWritingTasks = new Task[3];
          if (statsByDatabase.Count > 0)
          {
-              Log($"Found {statsByDatabase.Count} significant databases passing cutoff (mode: {(useFamilyRanking ? "family-aware" : "test-ratio")})", [taskId]);
+              Log($"Found {statsByDatabase.Count} significant databases passing cutoff (family-aware, >={MinFamiliesForSignificance}/7 families)", [taskId]);
 
             dbWritingTasks[0] = ParallelSearchParameters.DatabasesToWriteAndSearch[DatabaseToProduce.AllSignificantOrganisms].Write
                 ? Task.Run(() => CreateCombinedDatabaseWithAllProteins(taskId, statsByDatabase.Select(p => p.Key), outputFolder))
@@ -1472,30 +1472,49 @@ public class ParallelSearchTask : SearchTask
                 p => p.OrderBy(t => t.ToString()).ToList());
     }
 
+    /// <summary>Minimum number (of 7) of independent evidence families a database must pass to be written
+    /// as a confidently-detected organism.
+    /// NOTE on tuning: on the SARS virus spike-in, SARS-CoV-2 passes 7/7 and SARS-CoV 5/7, while a tail of
+    /// phage databases that floor out at the combined-q value only reach 4/7. So a bar of 4 admits that phage
+    /// tail (more sensitive, noisier) and a bar of 5 isolates the genuine detections. Left at 4 by request;
+    /// raise to 5 if the phage tail proves to be false positives.</summary>
+    private const int MinFamiliesForSignificance = 4;
+
     private Dictionary<DbForTask, List<StatisticalTestResult>> SelectDatabasesForWritingByFamily()
     {
         double qValueThreshold = CommonParameters.QValueThreshold;
-        int minFamilyPasses = Math.Max(1, ParallelSearchParameters.TestRatioForWriting > 0
-            ? (int)Math.Ceiling(ParallelSearchParameters.TestRatioForWriting * 7)
-            : 1);
+        int minFamilyPasses = MinFamiliesForSignificance;
+        const double significanceAlpha = 0.05;
+        const string overallCombinedMetric = "All"; // CombinedResultNames.AllMetricName
 
+        // Resolve the source DbForTask for a database tag. In merged-index mode TransientDatabases holds only the
+        // single merged .msl, so there is no per-organism DbForTask — synthesize one keyed by the db tag.
+        DbForTask ResolveDb(string dbTag) =>
+            ParallelSearchParameters.TransientDatabases.FirstOrDefault(db => Path.GetFileNameWithoutExtension(db.FileName) == dbTag)
+            ?? new DbForTask(dbTag, false);
+
+        // Compute passed-family count and the overall combined q-value DIRECTLY from the test results — the same
+        // source the StatisticalAnalysis_Results.csv uses — rather than the metrics-summary fields, which are not
+        // reliably populated for this writer (and were silently selecting nothing, even for SARS-CoV-2 at 7/7).
         return _resultsManager!.StatisticalTestResultList
             .GroupBy(p => p.DatabaseName)
-            .Where(p =>
+            .Where(g =>
             {
-                if (!_resultsManager!.TransientDatabaseMetricsDictionary.TryGetValue(p.Key, out var metrics))
-                    return false;
-
-                int passedFamilies = metrics.PassedFamilyCount;
-                double combinedQ = metrics.CombinedQValue;
-
+                int passedFamilies = g
+                    .Where(r => !r.IsCombinedResult && r.EvidenceFamily.HasValue && r.IsSignificant(significanceAlpha))
+                    .Select(r => r.EvidenceFamily!.Value)
+                    .Distinct()
+                    .Count();
+                double combinedQ = g
+                    .Where(r => r.IsCombinedResult && r.MetricName == overallCombinedMetric)
+                    .Select(r => r.QValue)
+                    .DefaultIfEmpty(double.NaN)
+                    .First();
                 return passedFamilies >= minFamilyPasses
                     && !double.IsNaN(combinedQ)
                     && combinedQ <= qValueThreshold;
             })
-            .ToDictionary(
-                p => ParallelSearchParameters.TransientDatabases.First(db => Path.GetFileNameWithoutExtension(db.FileName) == p.Key),
-                p => p.OrderBy(t => t.ToString()).ToList());
+            .ToDictionary(g => ResolveDb(g.Key), g => g.OrderBy(t => t.ToString()).ToList());
     }
 
 
