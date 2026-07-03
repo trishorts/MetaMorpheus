@@ -312,7 +312,11 @@ namespace Test.DIATests
                     useProvidedPrecursorInfo: true,
                     deconvolutionMaxAssumedChargeState: 60,
                     productMassTolerance: new PpmTolerance(20),
-                    productDeconParams: new ClassicDeconvolutionParameters(1, 1, 4, 3)), // MGF fragments are neutral (z=1)
+                    productDeconParams: new ClassicDeconvolutionParameters(1, 1, 4, 3), // MGF fragments are neutral (z=1)
+                    // pseudo-MS2 peaks are all real deconvoluted fragments -> do NOT trim them
+                    // (matches td_pseudoMS2.toml; CommonParameters defaults trimMsMsPeaks=true otherwise)
+                    trimMs1Peaks: false,
+                    trimMsMsPeaks: false),
                 SearchParameters = new SearchParameters
                 {
                     SearchType = SearchType.Classic,
