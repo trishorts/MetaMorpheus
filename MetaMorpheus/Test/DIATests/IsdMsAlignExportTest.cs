@@ -322,6 +322,7 @@ namespace Test.DIATests
                     SearchType = SearchType.Classic,
                     MassDiffAcceptorType = MassDiffAcceptorType.PlusOrMinusThreeMM,
                     DecoyType = DecoyType.Reverse,
+                    DoParsimony = true,               // keep protein inference identical to the ISD/DDA tomls
                     DoLabelFreeQuantification = false,
                     WriteMzId = false,
                 }

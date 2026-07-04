@@ -5,6 +5,15 @@ configs (`tomls/`), parameterized scripts (`scripts/`), and how the pieces fit t
 are written up in the manuscript repo `collab_zs/analysis/RESULTS_isd_vs_dda_gptmd.md` and
 `RESULTS_consensus_xic_ids.md`.
 
+## DEFAULT DDA strategy = the consensus-paper way
+**We search DDA by default with precursor feature tracing + FromFile assembly** (consensus-trace the MS1 →
+`_ms1.feature` → `ms2.GetIsolatedMassesAndCharges(ms1, FromFileDeconvolutionParameters)` → real fragments →
+MGF → search). Script `05_dda_fromfile_search.sh`; in-code `SearchDdaWithFromFileConsensusFeatures_Complete_FromEnv`.
+This makes DDA and ISD share the **same** search config (`td_pseudoMS2_search.toml`, provided precursors) — the
+only difference between them is how the fragments are obtained (consensus-traced for ISD vs the real isolated MS2
+for DDA). **Normal live-deconvolution DDA (`02_dda_search.sh`, `dda_topdown_search.toml`) is kept only as a
+labeled baseline.**
+
 ## The method, end to end
 Two stages: **(A) generate pseudo-MS2 spectra** (code in this branch), **(B) search them** (MetaMorpheus CMD).
 
@@ -60,17 +69,21 @@ dotnet build MetaMorpheus/MetaMorpheus/Test/Test.csproj -c Debug
 ## Run (edit paths in `scripts/config.sh` first)
 ```bash
 cd isd-search-reproduction/scripts
-# ISD consensus search (correlation sweep; fragment aggregation on):
+
+# --- ISD (consensus tracing) ---
 ./01_isd_consensus_search.sh  "$RAWDIR/09-18-25_YC_81min_ISD60-80-100_preFilter700-900-1100_rep1.raw"  YC  "0,0.4,0.6,0.7"  true
-# ...fragment mass tracing only (no charge aggregation):
-./01_isd_consensus_search.sh  "$RAWDIR/09-18-25_YC_..._rep1.raw"  YC_noagg  "0"  false
-# normal DDA:
-./02_dda_search.sh            "$RAWDIR/09-18-25_YC_81min_DDA_1-5iso_mscan4_rep1.raw"  YC
-# DDA via consensus precursors:
-./03_dda_consensus_search.sh  "$RAWDIR/09-18-25_YC_81min_DDA_1-5iso_mscan4_rep1.raw"  YC
-# GPTMD (point at the MGF for ISD, or the mzML for DDA):
+
+# --- DDA: DEFAULT = consensus-paper FromFile method ---
+./05_dda_fromfile_search.sh   "$RAWDIR/09-18-25_YC_81min_DDA_1-5iso_mscan4_rep1.raw"  YC
+# GPTMD on the default DDA (FromFile MGF) uses the ISD/MGF search config:
+./04_gptmd.sh  isd  "$OUT/YC/dda_fromfile.mgf"             YC_dda
+
+# --- DDA baselines (for comparison only) ---
+./02_dda_search.sh            "$RAWDIR/09-18-25_YC_81min_DDA_1-5iso_mscan4_rep1.raw"  YC   # live deconvolution
+./03_dda_consensus_search.sh  "$RAWDIR/09-18-25_YC_81min_DDA_1-5iso_mscan4_rep1.raw"  YC   # hand-rolled match
+
+# --- ISD + GPTMD ---
 ./04_gptmd.sh  isd  "$OUT/YC/consensus_corr0.mgf"          YC
-./04_gptmd.sh  dda  "$OUT/YC/09-18-25_YC_..._rep1.mzML"    YC
 ```
 Each script prints `RESULT ... (total ptm)= <N> <M>` = proteoforms and PTM-bearing proteoforms at 1% FDR.
 
