@@ -113,6 +113,84 @@ namespace Test
         }
 
         /// <summary>
+        /// Phase B, first increment. Two questions on a real peptide/spectrum pair:
+        /// (1) do decoy sites actually compete inside the graph, or are they inert;
+        /// (2) B2a -- does adding decoy positions shift the probabilities of the REAL sites? GetLocalFragment
+        /// brackets ions by ADJACENT ModPos entries, so a decoy inserted between two real sites re-partitions
+        /// the fragment evidence. If that perturbation is large the decoy method measures something it is
+        /// itself changing, and paired graphs become necessary.
+        /// </summary>
+        [Test]
+        [Explicit("Measurement harness, not a correctness test. Run deliberately.")]
+        public static void Measure_DecoySiteCompetition_AndTargetPerturbation()
+        {
+            var commonParameters = new CommonParameters(dissociationType: DissociationType.ETD, trimMsMsPeaks: false);
+            string spectraFile = Path.Combine(TestContext.CurrentContext.TestDirectory,
+                @"GlycoTestData\181217_Fusion_(LC2)_NewObj_Serum_deSA_Jacalin_HRM_4h_ETD_HCD_DDA_mz(400_1200)_21707.mgf");
+            var file = new MyFileManager(true).LoadFile(spectraFile, commonParameters);
+            var scan = MetaMorpheusTask.GetMs2Scans(file, spectraFile, commonParameters).First();
+
+            // A peptide/spectrum pair with genuine matching fragments, so costs are real rather than all-zero.
+            var protein = new Protein("AATVGSLAGQPLQER", "P16150");
+            var peptide = protein.Digest(new DigestionParams(), new List<Modification>(), new List<Modification>()).First();
+            var products = new List<Product>();
+            peptide.Fragment(DissociationType.ETD, FragmentationTerminus.Both, products);
+
+            var glycanBox = OGlycanBoxes[1];
+            var childBoxes = GlycanBox.BuildChildOGlycanBoxes(glycanBox.NumberOfMods, glycanBox.ModIds).ToArray();
+
+            Dictionary<int, double> RunGraph(SortedDictionary<int, string> modPos)
+            {
+                var graph = new LocalizationGraph(modPos, glycanBox, childBoxes, -1);
+                LocalizationGraph.LocalizeOGlycan(graph, scan, commonParameters.ProductMassTolerance, products);
+                var routes = LocalizationGraph.GetAllPaths_CalP(graph, 0.1, products.Count);
+                var pairs = routes.SelectMany(p => p.ModSitePairs).Distinct().ToList();
+                LocalizationGraph.CalProbabilityForModSitePair(routes, pairs);
+                return pairs.GroupBy(p => p.SiteIndex).ToDictionary(g => g.Key, g => g.Sum(p => p.Probability));
+            }
+
+            // Arm 1: targets only, the current behaviour.
+            var targetsOnly = GlycoSpectralMatch.GetPossibleModSites(peptide, new string[] { "S", "T" });
+            var targetsOnlyProbabilities = RunGraph(targetsOnly);
+
+            // Arm 2: targets plus alanine decoys. The decoy label must match the target motif of the glycans
+            // in this box, because MotifCheck admits a glycan onto a position by comparing the glycan's Target
+            // to the recorded motif. O-Pair loads each composition twice, once targeting S and once T, so a
+            // fixed label would only ever compete against half the glycan instances.
+            string boxTargetMotif = GlycanBox.GlobalOGlycans[glycanBox.ModIds[0]].Target.ToString();
+            TestContext.WriteLine($"Box target motif: {boxTargetMotif}");
+            var withDecoys = GlycoSpectralMatch.GetPossibleModSites(peptide, new string[] { "S", "T" });
+            var decoySites = GlycoSpectralMatch.AddDecoyModSites(withDecoys, peptide, new string[] { "A" }, boxTargetMotif);
+            var withDecoysProbabilities = RunGraph(withDecoys);
+
+            TestContext.WriteLine($"Peptide {peptide.BaseSequence}");
+            TestContext.WriteLine($"Real sites: {string.Join(",", targetsOnly.Select(p => p.Key + p.Value))}");
+            TestContext.WriteLine($"Decoy sites: {string.Join(",", decoySites.OrderBy(p => p))}");
+            TestContext.WriteLine("");
+            TestContext.WriteLine("Site  Kind    TargetsOnly  WithDecoys   Delta");
+
+            foreach (var site in withDecoysProbabilities.Keys.OrderBy(p => p))
+            {
+                bool isDecoy = decoySites.Contains(site);
+                targetsOnlyProbabilities.TryGetValue(site, out double before);
+                double after = withDecoysProbabilities[site];
+                string kind = isDecoy ? "DECOY " : "target";
+                string beforeText = isDecoy ? "     -" : before.ToString("F4");
+                TestContext.WriteLine($"{site,4}  {kind}  {beforeText,11}  {after,10:F4}  {(isDecoy ? "" : (after - before).ToString("+0.0000;-0.0000"))}");
+            }
+
+            double decoyMass = withDecoysProbabilities.Where(p => decoySites.Contains(p.Key)).Sum(p => p.Value);
+            double maxTargetShift = targetsOnlyProbabilities.Keys
+                .Where(withDecoysProbabilities.ContainsKey)
+                .Select(k => Math.Abs(withDecoysProbabilities[k] - targetsOnlyProbabilities[k]))
+                .DefaultIfEmpty(0).Max();
+
+            TestContext.WriteLine("");
+            TestContext.WriteLine($"Total probability landing on decoy sites : {decoyMass:F4}");
+            TestContext.WriteLine($"Largest shift in any real site           : {maxTargetShift:F4}");
+        }
+
+        /// <summary>
         /// Runs a real O-glyco search and summarises the written results by localization level, recording how
         /// many rows carry a site-specific probability. This is the before/after evidence for A1: today
         /// GlycoSearchTask only computes probabilities for Level1 and Level2, so Level3 rows -- the ambiguous

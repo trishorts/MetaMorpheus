@@ -89,6 +89,68 @@ namespace EngineLayer.GlycoSearch
             return modMotif;
         }
 
+        /// <summary>
+        /// Adds decoy glycosites to an existing candidate-site map, so that a false localization rate can be
+        /// estimated from how often the localizer prefers a site that cannot carry the glycan.
+        /// <para>
+        /// A decoy site is a residue that is chemically incapable of carrying the modification -- alanine for
+        /// an O-glycan, in the same sense that alanine is used as a phosphorylation decoy. Any route that
+        /// places a glycan there is wrong by construction, so counting those placements, normalised by the
+        /// ratio of real to decoy residues, gives a tool-independent error estimate.
+        /// </para>
+        /// <para>
+        /// The decoy sites are recorded in the map under <paramref name="decoyLabelMotif"/> rather than under
+        /// the residue actually present. That is deliberate and is what makes the decoy compete inside the
+        /// graph instead of being scored afterwards: <see cref="LocalizationGraph.MotifCheck"/> admits a
+        /// glycan onto a position by comparing the glycan's Target to the motif recorded here, never to the
+        /// residue itself, so a decoy position labelled with a real target motif is reachable by exactly the
+        /// glycans that could reach a genuine site. No decoy glycan objects are required.
+        /// </para>
+        /// </summary>
+        /// <param name="modMotif">Candidate-site map from <see cref="GetPossibleModSites"/>. Mutated in place.</param>
+        /// <param name="peptide">The peptide whose residues are searched for decoy positions.</param>
+        /// <param name="decoyMotifs">Residues that cannot carry the modification, e.g. "A".</param>
+        /// <param name="decoyLabelMotif">The target motif decoy sites are recorded under, e.g. "S".</param>
+        /// <returns>The site indices that are decoys, in the same 1-is-N-terminus convention as the map.</returns>
+        public static HashSet<int> AddDecoyModSites(SortedDictionary<int, string> modMotif, PeptideWithSetModifications peptide,
+            string[] decoyMotifs, string decoyLabelMotif)
+        {
+            HashSet<int> decoySiteIndices = new HashSet<int>();
+
+            foreach (var decoyMotif in decoyMotifs)
+            {
+                if (!ModificationMotif.TryGetMotif(decoyMotif, out ModificationMotif aMotif))
+                {
+                    continue;
+                }
+
+                Modification modWithMotif = new Modification(_target: aMotif, _locationRestriction: "Anywhere.");
+
+                for (int r = 0; r < peptide.Length; r++)
+                {
+                    // Skip residues already carrying a modification, matching GetPossibleModSites.
+                    if (peptide.AllModsOneIsNterminus.Keys.Contains(r + 2))
+                    {
+                        continue;
+                    }
+
+                    // Never shadow a genuine candidate site.
+                    if (modMotif.ContainsKey(r + 2))
+                    {
+                        continue;
+                    }
+
+                    if (ModificationLocalization.ModFits(modWithMotif, peptide.BaseSequence, r + 1, peptide.Length, r + 1))
+                    {
+                        modMotif.Add(r + 2, decoyLabelMotif);
+                        decoySiteIndices.Add(r + 2);
+                    }
+                }
+            }
+
+            return decoySiteIndices;
+        }
+
         public static bool MotifExist(string baseSeq, string[] motifs)
         {
             List<Modification> modifications = new List<Modification>();
