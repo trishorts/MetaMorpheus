@@ -425,6 +425,170 @@ namespace Test
         }
 
         /// <summary>
+        /// Mirrors GlycoSearchEngine.GraphCheck: the peptide's candidate-site motifs must cover what the box
+        /// requires. LocalizationGraph.LocalizeOGlycan dereferences its terminal node unguarded (line ~140),
+        /// so it throws NullReferenceException if this is not checked first. The engine always checks; any
+        /// harness driving the graph directly has to check too.
+        /// </summary>
+        private static bool GraphCheck(SortedDictionary<int, string> modPos, GlycanBox glycanBox)
+        {
+            if (modPos.Count < glycanBox.NumberOfMods)
+            {
+                return false;
+            }
+
+            var required = glycanBox.ModIds
+                .Select(id => GlycanBox.GlobalOGlycans[id].Target.ToString())
+                .GroupBy(m => m).ToDictionary(g => g.Key, g => g.Count());
+            var available = modPos.Values.GroupBy(m => m).ToDictionary(g => g.Key, g => g.Count());
+
+            return required.All(kv => available.TryGetValue(kv.Key, out int n) && n >= kv.Value);
+        }
+
+        /// <summary>
+        /// The M5 replication, on the full StcEmix EThcD run from PXD017646 rather than a sliced fixture.
+        /// <para>
+        /// Peptide identifications come from the deposited Byonic glycoPSM table, not from a MetaMorpheus
+        /// search, so the peptide/scan/glycan assignments are independent of O-Pair. For each identification
+        /// with more than one candidate site, a single decoy is swept across every non-candidate position and
+        /// its probability recorded against the number of matched backbone ions separating it from the real
+        /// site. Aggregating over hundreds of identifications is what turns M5 into a result.
+        /// </para>
+        /// Requires the 395 MB raw file and the glycoPSM table; skips cleanly if either is absent.
+        /// </summary>
+        [Test]
+        [Explicit("Measurement harness. Requires the PXD017646 raw file to be present locally.")]
+        public static void Measure_BracketingSweep_FullRun_ByonicIdentifications()
+        {
+            string dataDirectory = @"E:\CodeReview\localization\data\raw";
+            string rawPath = Path.Combine(dataDirectory, "2019_09_16_StcEmix_35trig_EThcD25_rep1.raw");
+            string tablePath = Path.Combine(dataDirectory, "StcEmix_35trig_EThcD25_rep1_GlycoPSMs.txt");
+            if (!File.Exists(rawPath) || !File.Exists(tablePath))
+            {
+                Assert.Ignore("PXD017646 raw file or glycoPSM table not present locally.");
+            }
+
+            var commonParameters = new CommonParameters(dissociationType: DissociationType.EThcD, trimMsMsPeaks: false);
+            var file = new MyFileManager(true).LoadFile(rawPath, commonParameters);
+            var scansByNumber = MetaMorpheusTask.GetMs2Scans(file, rawPath, commonParameters)
+                .GroupBy(p => p.OneBasedScanNumber).ToDictionary(g => g.Key, g => g.First());
+            TestContext.WriteLine($"Loaded {scansByNumber.Count} MS2 scans from {Path.GetFileName(rawPath)}");
+
+            var lines = File.ReadAllLines(tablePath);
+            var header = lines[0].Split('\t');
+            int iSeq = Array.IndexOf(header, "Sequence");
+            int iScan = Array.IndexOf(header, "ScanNumber");
+            int iFrag = Array.IndexOf(header, "Fragmentation");
+            int iCalcMH = Array.IndexOf(header, "calcMH");
+            int iPepMass = Array.IndexOf(header, "PepMassNoMod");
+            int iSites = Array.IndexOf(header, "#GlycoSitesOnPep");
+
+            const double protonMass = 1.00727646677;
+            var rows = new List<string> { "Peptide,Scan,DecoyPos,Residue,Distance,SeparatingIons,DecoyProb,RealSiteProb,GraphScore" };
+            int considered = 0, swept = 0, skippedNoBox = 0, skippedNoScan = 0, skippedNoEvidence = 0;
+
+            foreach (var line in lines.Skip(1).Where(l => !string.IsNullOrWhiteSpace(l)))
+            {
+                var f = line.Split('\t');
+                if (f.Length <= iSites) continue;
+
+                // Electron-based scans only: localization is scored on c/zDot ions.
+                string fragmentation = f[iFrag].Trim();
+                if (!fragmentation.Contains("ETD", StringComparison.OrdinalIgnoreCase)
+                    && !fragmentation.Contains("EThcD", StringComparison.OrdinalIgnoreCase)) continue;
+
+                // A single candidate site has nothing to localize (about half the corpus -- see M6).
+                if (!int.TryParse(f[iSites].Trim(), out int byonicSites) || byonicSites < 2) continue;
+                considered++;
+
+                if (!int.TryParse(f[iScan].Trim(), out int scanNumber)) continue;
+                if (!scansByNumber.TryGetValue(scanNumber, out var scan)) { skippedNoScan++; continue; }
+                if (!double.TryParse(f[iCalcMH].Trim(), out double calcMH)) continue;
+                if (!double.TryParse(f[iPepMass].Trim(), out double pepMassNoMod)) continue;
+
+                string sequence = f[iSeq].Trim();
+                if (string.IsNullOrWhiteSpace(sequence) || !sequence.All(char.IsLetter)) continue;
+
+                double glycanMass = calcMH - protonMass - pepMassNoMod;
+                var glycanBox = OGlycanBoxes.FirstOrDefault(p => Math.Abs(p.Mass - glycanMass) < 0.02);
+                if (glycanBox == null) { skippedNoBox++; continue; }
+
+                var peptide = new Protein(sequence, "byonic")
+                    .Digest(new DigestionParams(minPeptideLength: 1), new List<Modification>(), new List<Modification>()).FirstOrDefault();
+                if (peptide == null) continue;
+
+                var products = new List<Product>();
+                peptide.Fragment(DissociationType.ETD, FragmentationTerminus.Both, products);
+                var childBoxes = GlycanBox.BuildChildOGlycanBoxes(glycanBox.NumberOfMods, glycanBox.ModIds).ToArray();
+                string boxTargetMotif = GlycanBox.GlobalOGlycans[glycanBox.ModIds[0]].Target.ToString();
+
+                var targetsOnly = GlycoSpectralMatch.GetPossibleModSites(peptide, new string[] { "S", "T" });
+                if (targetsOnly.Count(p => p.Value == boxTargetMotif) < 2) continue;
+                if (!GraphCheck(targetsOnly, glycanBox)) { skippedNoBox++; continue; }
+                int realSite = targetsOnly.First(p => p.Value == boxTargetMotif).Key;
+
+                // Require the peptide/scan/box triple to carry real evidence, or the posterior is uniform and
+                // the arm measures nothing (the M7 failure mode).
+                var baseGraph = new LocalizationGraph(targetsOnly, glycanBox, childBoxes, -1);
+                LocalizationGraph.LocalizeOGlycan(baseGraph, scan, commonParameters.ProductMassTolerance, products);
+                if (baseGraph.TotalScore < 2.0) { skippedNoEvidence++; continue; }
+
+                var matchedPositions = MetaMorpheusEngine.MatchFragmentIons(scan, products, commonParameters)
+                    .Select(p => p.NeutralTheoreticalProduct.ResiduePosition).Distinct().OrderBy(p => p).ToList();
+
+                swept++;
+
+                for (int r = 0; r < peptide.BaseSequence.Length; r++)
+                {
+                    int siteKey = r + 2;
+                    if (targetsOnly.ContainsKey(siteKey)) continue;
+
+                    var modPos = new SortedDictionary<int, string>(targetsOnly.ToDictionary(p => p.Key, p => p.Value));
+                    modPos[siteKey] = boxTargetMotif;
+
+                    var graph = new LocalizationGraph(modPos, glycanBox, childBoxes, -1);
+                    LocalizationGraph.LocalizeOGlycan(graph, scan, commonParameters.ProductMassTolerance, products);
+                    var routes = LocalizationGraph.GetAllPaths_CalP(graph, 0.1, products.Count);
+                    if (routes.Count == 0) continue;
+                    var pairs = routes.SelectMany(p => p.ModSitePairs).Distinct().ToList();
+                    LocalizationGraph.CalProbabilityForModSitePair(routes, pairs);
+                    var bySite = pairs.GroupBy(p => p.SiteIndex).ToDictionary(g => g.Key, g => g.Sum(p => p.Probability));
+
+                    bySite.TryGetValue(siteKey, out double decoyProbability);
+                    bySite.TryGetValue(realSite, out double realProbability);
+
+                    int low = Math.Min(siteKey, realSite);
+                    int high = Math.Max(siteKey, realSite);
+                    int separating = matchedPositions.Count(p => p >= low - 1 && p < high - 1);
+
+                    rows.Add($"{sequence},{scanNumber},{siteKey},{peptide.BaseSequence[r]},{Math.Abs(siteKey - realSite)},{separating},{decoyProbability:F4},{realProbability:F4},{graph.TotalScore:F3}");
+                }
+            }
+
+            string csv = Path.Combine(TestContext.CurrentContext.TestDirectory, "bracketing_sweep_fullrun.csv");
+            File.WriteAllLines(csv, rows);
+            TestContext.WriteLine($"Multi-site ETD identifications considered: {considered}");
+            TestContext.WriteLine($"  skipped, scan not in raw : {skippedNoScan}");
+            TestContext.WriteLine($"  skipped, no matching box : {skippedNoBox}");
+            TestContext.WriteLine($"  skipped, no evidence     : {skippedNoEvidence}");
+            TestContext.WriteLine($"  SWEPT                    : {swept}   (decoy arms: {rows.Count - 1})");
+            TestContext.WriteLine("Wrote " + csv);
+
+            var parsed = rows.Skip(1).Select(r => r.Split(',')).ToList();
+            if (parsed.Count == 0) return;
+
+            TestContext.WriteLine("");
+            TestContext.WriteLine("SeparatingIons  Arms  MeanDecoyProb  MedianDecoyProb  MaxDecoyProb  Frac>0.05");
+            foreach (var group in parsed.GroupBy(x => Math.Min(int.Parse(x[5]), 6)).OrderBy(g => g.Key))
+            {
+                var probabilities = group.Select(x => double.Parse(x[6])).OrderBy(p => p).ToList();
+                double median = probabilities[probabilities.Count / 2];
+                string label = group.Key == 6 ? "6+" : group.Key.ToString();
+                TestContext.WriteLine($"{label,14}  {probabilities.Count,4}  {probabilities.Average(),13:F4}  {median,15:F4}  {probabilities.Max(),12:F4}  {probabilities.Count(p => p > 0.05) / (double)probabilities.Count,9:F3}");
+            }
+        }
+
+        /// <summary>
         /// Runs a real O-glyco search and summarises the written results by localization level, recording how
         /// many rows carry a site-specific probability. This is the before/after evidence for A1: today
         /// GlycoSearchTask only computes probabilities for Level1 and Level2, so Level3 rows -- the ambiguous
