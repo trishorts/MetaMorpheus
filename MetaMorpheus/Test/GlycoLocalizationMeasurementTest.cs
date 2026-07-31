@@ -574,14 +574,35 @@ namespace Test
         public static void Measure_BracketingSweep_FullRun_ByonicIdentifications()
         {
             string dataDirectory = @"E:\CodeReview\localization\data\raw";
-            string rawPath = Path.Combine(dataDirectory, "2019_09_16_StcEmix_35trig_EThcD25_rep1.raw");
-            string tablePath = Path.Combine(dataDirectory, "StcEmix_35trig_EThcD25_rep1_GlycoPSMs.txt");
-            if (!File.Exists(rawPath) || !File.Exists(tablePath))
+
+            // Every StcEmix electron-based run present locally, each paired with its Byonic table.
+            var runs = Directory.GetFiles(dataDirectory, "*StcEmix_35trig_*.raw")
+                .Select(raw =>
+                {
+                    string stem = Path.GetFileNameWithoutExtension(raw);
+                    int idx = stem.IndexOf("StcEmix_35trig_", StringComparison.Ordinal);
+                    string table = Path.Combine(dataDirectory, stem.Substring(idx) + "_GlycoPSMs.txt");
+                    return (Raw: raw, Table: table);
+                })
+                .Where(p => File.Exists(p.Table))
+                .OrderBy(p => p.Raw).ToList();
+
+            if (runs.Count == 0)
             {
-                Assert.Ignore("PXD017646 raw file or glycoPSM table not present locally.");
+                Assert.Ignore("No PXD017646 raw/glycoPSM pairs present locally.");
             }
+            TestContext.WriteLine($"Runs available: {runs.Count}");
 
             var commonParameters = new CommonParameters(dissociationType: DissociationType.EThcD, trimMsMsPeaks: false);
+            var allRows = new List<string> { "Run,Peptide,Scan,DecoyPos,Residue,Distance,SeparatingIons,DecoyProb,RealSiteProb,GraphScore" };
+            int totalConsidered = 0, totalSwept = 0, totalNoBox = 0, totalNoScan = 0, totalNoEvidence = 0;
+
+            foreach (var run in runs)
+            {
+            string rawPath = run.Raw;
+            string tablePath = run.Table;
+            string runName = Path.GetFileNameWithoutExtension(rawPath);
+
             var file = new MyFileManager(true).LoadFile(rawPath, commonParameters);
             var scansByNumber = MetaMorpheusTask.GetMs2Scans(file, rawPath, commonParameters)
                 .GroupBy(p => p.OneBasedScanNumber).ToDictionary(g => g.Key, g => g.First());
@@ -597,7 +618,7 @@ namespace Test
             int iSites = Array.IndexOf(header, "#GlycoSitesOnPep");
 
             const double protonMass = 1.00727646677;
-            var rows = new List<string> { "Peptide,Scan,DecoyPos,Residue,Distance,SeparatingIons,DecoyProb,RealSiteProb,GraphScore" };
+            var rows = allRows;
             int considered = 0, swept = 0, skippedNoBox = 0, skippedNoScan = 0, skippedNoEvidence = 0;
 
             foreach (var line in lines.Skip(1).Where(l => !string.IsNullOrWhiteSpace(l)))
@@ -674,31 +695,44 @@ namespace Test
                     int high = Math.Max(siteKey, realSite);
                     int separating = matchedPositions.Count(p => p >= low - 1 && p < high - 1);
 
-                    rows.Add($"{sequence},{scanNumber},{siteKey},{peptide.BaseSequence[r]},{Math.Abs(siteKey - realSite)},{separating},{decoyProbability:F4},{realProbability:F4},{graph.TotalScore:F3}");
+                    rows.Add($"{runName},{sequence},{scanNumber},{siteKey},{peptide.BaseSequence[r]},{Math.Abs(siteKey - realSite)},{separating},{decoyProbability:F4},{realProbability:F4},{graph.TotalScore:F3}");
                 }
             }
 
+            TestContext.WriteLine($"  {runName}: considered {considered}, swept {swept} (no-box {skippedNoBox}, no-scan {skippedNoScan}, no-evidence {skippedNoEvidence})");
+            totalConsidered += considered; totalSwept += swept;
+            totalNoBox += skippedNoBox; totalNoScan += skippedNoScan; totalNoEvidence += skippedNoEvidence;
+            } // end foreach run
+
             string csv = Path.Combine(TestContext.CurrentContext.TestDirectory, "bracketing_sweep_fullrun.csv");
-            File.WriteAllLines(csv, rows);
-            TestContext.WriteLine($"Multi-site ETD identifications considered: {considered}");
-            TestContext.WriteLine($"  skipped, scan not in raw : {skippedNoScan}");
-            TestContext.WriteLine($"  skipped, no matching box : {skippedNoBox}");
-            TestContext.WriteLine($"  skipped, no evidence     : {skippedNoEvidence}");
-            TestContext.WriteLine($"  SWEPT                    : {swept}   (decoy arms: {rows.Count - 1})");
+            File.WriteAllLines(csv, allRows);
+            TestContext.WriteLine("");
+            TestContext.WriteLine($"TOTAL multi-site ETD identifications considered: {totalConsidered}");
+            TestContext.WriteLine($"  skipped, scan not in raw : {totalNoScan}");
+            TestContext.WriteLine($"  skipped, no matching box : {totalNoBox}");
+            TestContext.WriteLine($"  skipped, no evidence     : {totalNoEvidence}");
+            TestContext.WriteLine($"  SWEPT                    : {totalSwept}   (decoy arms: {allRows.Count - 1})");
             TestContext.WriteLine("Wrote " + csv);
 
-            var parsed = rows.Skip(1).Select(r => r.Split(',')).ToList();
+            var parsed = allRows.Skip(1).Select(r => r.Split(',')).ToList();
             if (parsed.Count == 0) return;
 
+            TestContext.WriteLine($"Unique peptide sequences: {parsed.Select(x => x[1]).Distinct().Count()}");
             TestContext.WriteLine("");
             TestContext.WriteLine("SeparatingIons  Arms  MeanDecoyProb  MedianDecoyProb  MaxDecoyProb  Frac>0.05");
-            foreach (var group in parsed.GroupBy(x => Math.Min(int.Parse(x[5]), 6)).OrderBy(g => g.Key))
+            foreach (var group in parsed.GroupBy(x => Math.Min(int.Parse(x[6]), 6)).OrderBy(g => g.Key))
             {
-                var probabilities = group.Select(x => double.Parse(x[6])).OrderBy(p => p).ToList();
+                var probabilities = group.Select(x => double.Parse(x[7])).OrderBy(p => p).ToList();
                 double median = probabilities[probabilities.Count / 2];
                 string label = group.Key == 6 ? "6+" : group.Key.ToString();
                 TestContext.WriteLine($"{label,14}  {probabilities.Count,4}  {probabilities.Average(),13:F4}  {median,15:F4}  {probabilities.Max(),12:F4}  {probabilities.Count(p => p > 0.05) / (double)probabilities.Count,9:F3}");
             }
+
+            int decoyBeatsReal = parsed.Count(x => double.Parse(x[7]) > double.Parse(x[8]));
+            int decoyOverCutoff = parsed.Count(x => double.Parse(x[7]) > 0.75);
+            TestContext.WriteLine("");
+            TestContext.WriteLine($"Decoy outscores the real site : {decoyBeatsReal} / {parsed.Count} = {decoyBeatsReal / (double)parsed.Count:P1}");
+            TestContext.WriteLine($"Decoy exceeds the 0.75 cutoff : {decoyOverCutoff} / {parsed.Count} = {decoyOverCutoff / (double)parsed.Count:P1}");
         }
 
         /// <summary>
