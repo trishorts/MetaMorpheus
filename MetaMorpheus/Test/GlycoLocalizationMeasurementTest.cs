@@ -1,4 +1,5 @@
 using EngineLayer;
+using EngineLayer.DatabaseLoading;
 using EngineLayer.GlycoSearch;
 using MassSpectrometry;
 using NUnit.Framework;
@@ -109,6 +110,85 @@ namespace Test
             string outputPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "route_count_measurement.csv");
             File.WriteAllLines(outputPath, rows);
             TestContext.WriteLine("Wrote " + outputPath);
+        }
+
+        /// <summary>
+        /// Runs a real O-glyco search and summarises the written results by localization level, recording how
+        /// many rows carry a site-specific probability. This is the before/after evidence for A1: today
+        /// GlycoSearchTask only computes probabilities for Level1 and Level2, so Level3 rows -- the ambiguous
+        /// ones an FLR is actually for -- come out empty.
+        /// </summary>
+        [Test]
+        [Explicit("Measurement harness, not a correctness test. Run deliberately.")]
+        public static void Measure_ProbabilityCoverage_ByLocalizationLevel()
+        {
+            string outputFolder = Path.Combine(TestContext.CurrentContext.TestDirectory, "TESTGlycoProbCoverage");
+            if (Directory.Exists(outputFolder))
+            {
+                Directory.Delete(outputFolder, true);
+            }
+            Directory.CreateDirectory(outputFolder);
+
+            var glycoSearchTask = Nett.Toml.ReadFile<GlycoSearchTask>(
+                Path.Combine(TestContext.CurrentContext.TestDirectory, @"GlycoTestData\GlycoSnip.toml"),
+                MetaMorpheusTask.tomlConfig);
+            glycoSearchTask._glycoSearchParameters.WriteContaminants = false;
+
+            var db = new DbForTask(Path.Combine(TestContext.CurrentContext.TestDirectory, @"GlycoTestData\GlycoProteinFASTA_7proteins.fasta"), false);
+            string spectraFile = Path.Combine(TestContext.CurrentContext.TestDirectory,
+                @"GlycoTestData\GlycoPepMix_snip.mzML");
+
+            new EverythingRunnerEngine(new List<(string, MetaMorpheusTask)> { ("Task", glycoSearchTask) },
+                new List<string> { spectraFile }, new List<DbForTask> { db }, outputFolder).Run();
+
+            var psmtsv = Directory.GetFiles(outputFolder, "*.psmtsv", SearchOption.AllDirectories)
+                .OrderByDescending(p => new FileInfo(p).Length).FirstOrDefault();
+            Assert.That(psmtsv, Is.Not.Null, "No .psmtsv written by the glyco search.");
+            TestContext.WriteLine("Reading " + psmtsv);
+
+            var lines = File.ReadAllLines(psmtsv);
+            var header = lines[0].Split('\t');
+            int levelColumn = Array.IndexOf(header, "GlycanLocalizationLevel");
+            // "Localized Glycans with ..." emits only pairs flagged Confident, which by construction excludes
+            // every Level3 match. "All SiteSpecific Localization Probability" emits the full posterior over
+            // candidate sites, so that is the column that shows whether a probability was computed at all.
+            int confidentColumn = Array.IndexOf(header, "Localized Glycans with Peptide Site Specific Probability");
+            int probabilityColumn = Array.IndexOf(header, "All SiteSpecific Localization Probability");
+            Assert.That(levelColumn, Is.GreaterThanOrEqualTo(0), "GlycanLocalizationLevel column not found.");
+            Assert.That(confidentColumn, Is.GreaterThanOrEqualTo(0), "Confident-pair probability column not found.");
+            Assert.That(probabilityColumn, Is.GreaterThanOrEqualTo(0), "All-site probability column not found.");
+
+            var byLevel = new SortedDictionary<string, (int Total, int WithProbability)>();
+            var perRow = new List<string> { "Level\tProbabilityField" };
+            foreach (var line in lines.Skip(1).Where(l => !string.IsNullOrWhiteSpace(l)))
+            {
+                var fields = line.Split('\t');
+                if (fields.Length <= Math.Max(levelColumn, Math.Max(confidentColumn, probabilityColumn)))
+                {
+                    continue;
+                }
+
+                string level = string.IsNullOrWhiteSpace(fields[levelColumn]) ? "(blank)" : fields[levelColumn].Trim();
+                bool hasProbability = !string.IsNullOrWhiteSpace(fields[probabilityColumn]);
+
+                byLevel.TryGetValue(level, out var counts);
+                byLevel[level] = (counts.Total + 1, counts.WithProbability + (hasProbability ? 1 : 0));
+                perRow.Add(level + "\t" + fields[confidentColumn].Trim() + "\t" + fields[probabilityColumn].Trim());
+            }
+
+            TestContext.WriteLine("Level        Rows   WithProbability");
+            foreach (var entry in byLevel)
+            {
+                TestContext.WriteLine($"{entry.Key,-10} {entry.Value.Total,6} {entry.Value.WithProbability,17}");
+            }
+
+            // Written so the values themselves can be diffed across a code change, not just the counts.
+            perRow.Sort(StringComparer.Ordinal);
+            string perRowPath = Path.Combine(TestContext.CurrentContext.TestDirectory, "probability_coverage.tsv");
+            File.WriteAllLines(perRowPath, perRow);
+            TestContext.WriteLine("Wrote " + perRowPath);
+
+            Directory.Delete(outputFolder, true);
         }
 
         /// <summary>

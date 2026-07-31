@@ -186,16 +186,19 @@ namespace TaskLayer
                         glycoSpectralMatch.LocalizedGlycan = GlycoSpectralMatch.GetLocalizedGlycan(glycoSpectralMatch.Routes, out localLevel);
                         glycoSpectralMatch.LocalizationLevel = localLevel;
 
-                        //Localization PValue.
-                        if (localLevel == LocalizationLevel.Level1 || localLevel == LocalizationLevel.Level2)
+                        // Localization PValue. Computed for every localization level, including Level3.
+                        // Level3 means no glycosite can be assigned unambiguously, which is precisely the
+                        // population a site-level error rate has to describe; skipping it would leave the
+                        // ambiguous matches with no probability at all and confine any error estimate to the
+                        // matches that were already unambiguous. Enumeration cost is not a reason to skip:
+                        // route count is C(candidate sites, glycans per box), so the widest realistic case
+                        // (40 sites, 3 glycans) is under ten thousand routes.
+                        List<Route> allRoutes = new List<Route>();
+                        foreach (var graph in glycoSpectralMatch.LocalizationGraphs)
                         {
-                            List<Route> allRoutes = new List<Route>();
-                            foreach (var graph in glycoSpectralMatch.LocalizationGraphs)
-                            {
-                                allRoutes.AddRange(LocalizationGraph.GetAllPaths_CalP(graph, glycoSpectralMatch.ScanInfo_p, glycoSpectralMatch.Thero_n));
-                            }
-                            glycoSpectralMatch.ModSitePairProbDict = LocalizationGraph.CalProbabilityForModSitePair(allRoutes, glycoSpectralMatch.LocalizedGlycan);
+                            allRoutes.AddRange(LocalizationGraph.GetAllPaths_CalP(graph, glycoSpectralMatch.ScanInfo_p, glycoSpectralMatch.Thero_n));
                         }
+                        glycoSpectralMatch.ModSitePairProbDict = LocalizationGraph.CalProbabilityForModSitePair(allRoutes, glycoSpectralMatch.LocalizedGlycan);
                     }
 
                     filteredAllPsms.Add(glycoSpectralMatch);
