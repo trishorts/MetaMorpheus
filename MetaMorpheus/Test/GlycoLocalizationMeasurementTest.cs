@@ -1,4 +1,4 @@
-using EngineLayer;
+﻿using EngineLayer;
 using EngineLayer.DatabaseLoading;
 using EngineLayer.GlycoSearch;
 using MassSpectrometry;
@@ -270,6 +270,158 @@ namespace Test
             }
 
             File.WriteAllLines(Path.Combine(TestContext.CurrentContext.TestDirectory, "decoy_bracketing_sweep.csv"), rows);
+        }
+
+        /// <summary>
+        /// Replicates the M5 bracketing sweep across every glycopeptide a real search identifies, rather than
+        /// the single hand-built peptide M5 used. Runs a glyco search, reads the identifications back out of
+        /// the written psmtsv, and for each one sweeps a single decoy across every non-candidate position.
+        /// <para>
+        /// Aggregating decoy probability against separating-ion count over many peptides is what turns M5
+        /// from a striking case into a result.
+        /// </para>
+        /// </summary>
+        [Test]
+        [Explicit("Measurement harness, not a correctness test. Run deliberately.")]
+        public static void Measure_BracketingSweep_AcrossIdentifiedGlycopeptides()
+        {
+            string outputFolder = Path.Combine(TestContext.CurrentContext.TestDirectory, "TESTGlycoSweep");
+            if (Directory.Exists(outputFolder))
+            {
+                Directory.Delete(outputFolder, true);
+            }
+            Directory.CreateDirectory(outputFolder);
+
+            var glycoSearchTask = Nett.Toml.ReadFile<GlycoSearchTask>(
+                Path.Combine(TestContext.CurrentContext.TestDirectory, @"GlycoTestData\GlycoSnip.toml"),
+                MetaMorpheusTask.tomlConfig);
+            glycoSearchTask._glycoSearchParameters.WriteContaminants = false;
+
+            var db = new DbForTask(Path.Combine(TestContext.CurrentContext.TestDirectory, @"GlycoTestData\GlycoProteinFASTA_7proteins.fasta"), false);
+            string spectraFile = Path.Combine(TestContext.CurrentContext.TestDirectory, @"GlycoTestData\GlycoPepMix_snip.mzML");
+
+            new EverythingRunnerEngine(new List<(string, MetaMorpheusTask)> { ("Task", glycoSearchTask) },
+                new List<string> { spectraFile }, new List<DbForTask> { db }, outputFolder).Run();
+
+            string psmtsv = Directory.GetFiles(outputFolder, "*.psmtsv", SearchOption.AllDirectories)
+                .OrderByDescending(p => new FileInfo(p).Length).First();
+            var lines = File.ReadAllLines(psmtsv);
+            var header = lines[0].Split('\t');
+            int iBaseSeq = Array.IndexOf(header, "Base Sequence");
+            int iScan = Array.IndexOf(header, "Scan Number");
+            int iGlycanMass = Array.IndexOf(header, "GlycanMass");
+            Assert.That(Math.Min(iBaseSeq, Math.Min(iScan, iGlycanMass)), Is.GreaterThanOrEqualTo(0),
+                "Required psmtsv columns not found.");
+
+            // Load the spectra once and index by scan number.
+            var commonParameters = new CommonParameters(dissociationType: DissociationType.EThcD, trimMsMsPeaks: false);
+            var file = new MyFileManager(true).LoadFile(spectraFile, commonParameters);
+            var scansByNumber = MetaMorpheusTask.GetMs2Scans(file, spectraFile, commonParameters)
+                .GroupBy(p => p.OneBasedScanNumber).ToDictionary(g => g.Key, g => g.First());
+
+            var rows = new List<string> { "Peptide,Scan,DecoyPos,Residue,Distance,SeparatingIons,DecoyProb,RealSiteProb" };
+            int peptidesSwept = 0;
+
+            foreach (var line in lines.Skip(1).Where(l => !string.IsNullOrWhiteSpace(l)))
+            {
+                var fields = line.Split('\t');
+                if (fields.Length <= Math.Max(iBaseSeq, Math.Max(iScan, iGlycanMass))) continue;
+
+                string baseSequence = fields[iBaseSeq].Trim();
+                if (string.IsNullOrWhiteSpace(baseSequence) || baseSequence.Contains("|")) continue; // ambiguous
+                if (!int.TryParse(fields[iScan].Trim(), out int scanNumber)) continue;
+                if (!double.TryParse(fields[iGlycanMass].Trim(), out double glycanMass)) continue;
+                if (!scansByNumber.TryGetValue(scanNumber, out var scan)) continue;
+
+                var peptide = new Protein(baseSequence, "sweep")
+                    .Digest(new DigestionParams(minPeptideLength: 1), new List<Modification>(), new List<Modification>()).FirstOrDefault();
+                if (peptide == null) continue;
+
+                // The box whose mass matches what the search assigned.
+                var glycanBox = OGlycanBoxes.FirstOrDefault(p => Math.Abs(p.Mass - glycanMass) < 0.02);
+                if (glycanBox == null) continue;
+
+                var products = new List<Product>();
+                peptide.Fragment(DissociationType.ETD, FragmentationTerminus.Both, products);
+                var childBoxes = GlycanBox.BuildChildOGlycanBoxes(glycanBox.NumberOfMods, glycanBox.ModIds).ToArray();
+                string boxTargetMotif = GlycanBox.GlobalOGlycans[glycanBox.ModIds[0]].Target.ToString();
+
+                var targetsOnly = GlycoSpectralMatch.GetPossibleModSites(peptide, new string[] { "S", "T" });
+                // Only peptides with a genuine localization choice are informative here.
+                if (targetsOnly.Count(p => p.Value == boxTargetMotif) < 2) continue;
+                int realSite = targetsOnly.First(p => p.Value == boxTargetMotif).Key;
+
+                // Localization is scored on c/zDot ions, so it must run against the electron-based CHILD scan.
+                // This data is HCD-pd-EThcD, so GetMs2Scans hands back the HCD parent, which carries no c/z at
+                // all -- passing it produces a graph score of exactly zero and a uniform posterior that looks
+                // like "decoys always win". Same trap as the localization-scan selection bug in #2692.
+                var localizationScan = scan.ChildScans.FirstOrDefault(c =>
+                    c.TheScan.DissociationType.HasValue
+                    && c.TheScan.DissociationType != DissociationType.Autodetect
+                    && GlycoPeptides.DissociationTypeContainETD(c.TheScan.DissociationType.Value, commonParameters.CustomIons))
+                    ?? scan;
+
+                var matchedPositions = MetaMorpheusEngine.MatchFragmentIons(localizationScan, products, commonParameters)
+                    .Select(p => p.NeutralTheoreticalProduct.ResiduePosition).Distinct().OrderBy(p => p).ToList();
+
+                peptidesSwept++;
+
+                // Diagnostic: if the peptide/scan/box triple is not a genuine match, every cost is zero and
+                // the posterior collapses to uniform 1/n, which would look like "decoys always take mass".
+                {
+                    var baseGraph = new LocalizationGraph(targetsOnly, glycanBox, childBoxes, -1);
+                    LocalizationGraph.LocalizeOGlycan(baseGraph, localizationScan, commonParameters.ProductMassTolerance, products);
+                    var baseRoutes = LocalizationGraph.GetAllPaths_CalP(baseGraph, 0.1, products.Count);
+                    var basePairs = baseRoutes.SelectMany(p => p.ModSitePairs).Distinct().ToList();
+                    LocalizationGraph.CalProbabilityForModSitePair(baseRoutes, basePairs);
+                    string dist = string.Join(" ", basePairs.GroupBy(p => p.SiteIndex).OrderBy(g => g.Key)
+                        .Select(g => $"{g.Key}:{g.Sum(p => p.Probability):F3}"));
+                    TestContext.WriteLine($"DIAG {baseSequence} scan={scanNumber} sites={targetsOnly.Count} matchedIons={matchedPositions.Count} graphTotalScore={baseGraph.TotalScore:F3} targetsOnly[{dist}]");
+                }
+
+                for (int r = 0; r < peptide.BaseSequence.Length; r++)
+                {
+                    int siteKey = r + 2;
+                    if (targetsOnly.ContainsKey(siteKey)) continue;
+
+                    var modPos = new SortedDictionary<int, string>(targetsOnly.ToDictionary(p => p.Key, p => p.Value));
+                    modPos[siteKey] = boxTargetMotif;
+
+                    var graph = new LocalizationGraph(modPos, glycanBox, childBoxes, -1);
+                    LocalizationGraph.LocalizeOGlycan(graph, localizationScan, commonParameters.ProductMassTolerance, products);
+                    var routes = LocalizationGraph.GetAllPaths_CalP(graph, 0.1, products.Count);
+                    if (routes.Count == 0) continue;
+                    var pairs = routes.SelectMany(p => p.ModSitePairs).Distinct().ToList();
+                    LocalizationGraph.CalProbabilityForModSitePair(routes, pairs);
+                    var bySite = pairs.GroupBy(p => p.SiteIndex).ToDictionary(g => g.Key, g => g.Sum(p => p.Probability));
+
+                    bySite.TryGetValue(siteKey, out double decoyProbability);
+                    bySite.TryGetValue(realSite, out double realProbability);
+
+                    int low = Math.Min(siteKey, realSite);
+                    int high = Math.Max(siteKey, realSite);
+                    int separating = matchedPositions.Count(p => p >= low - 1 && p < high - 1);
+
+                    rows.Add($"{baseSequence},{scanNumber},{siteKey},{peptide.BaseSequence[r]},{Math.Abs(siteKey - realSite)},{separating},{decoyProbability:F4},{realProbability:F4}");
+                }
+            }
+
+            string csv = Path.Combine(TestContext.CurrentContext.TestDirectory, "bracketing_sweep_all.csv");
+            File.WriteAllLines(csv, rows);
+            TestContext.WriteLine($"Peptides swept: {peptidesSwept}; decoy arms: {rows.Count - 1}");
+            TestContext.WriteLine("Wrote " + csv);
+
+            // Aggregate: does decoy probability track separating evidence across all peptides?
+            var parsed = rows.Skip(1).Select(r => r.Split(',')).ToList();
+            TestContext.WriteLine("");
+            TestContext.WriteLine("SeparatingIons  Arms  MeanDecoyProb  MaxDecoyProb  ArmsWithProb>0.01");
+            foreach (var group in parsed.GroupBy(f => int.Parse(f[5])).OrderBy(g => g.Key))
+            {
+                var probabilities = group.Select(f => double.Parse(f[6])).ToList();
+                TestContext.WriteLine($"{group.Key,14}  {probabilities.Count,4}  {probabilities.Average(),13:F4}  {probabilities.Max(),12:F4}  {probabilities.Count(p => p > 0.01),17}");
+            }
+
+            Directory.Delete(outputFolder, true);
         }
 
         /// <summary>
