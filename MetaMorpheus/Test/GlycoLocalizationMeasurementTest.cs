@@ -571,7 +571,11 @@ namespace Test
 
             var commonParameters = new CommonParameters(dissociationType: DissociationType.EThcD, trimMsMsPeaks: false);
             const double protonMass = 1.00727646677;
-            var rows = new List<string> { "Run,Activation,Peptide,Scan,TargetSites,DecoySites,WinnerIsDecoy,WinnerProb,TargetRatio" };
+            // Ala first, then Leu and Gly, following the decoy-amino-acid method. None can carry an
+            // O-glycan. Using all three roughly triples the decoy-site count, which both stabilises the
+            // estimate and stops peptides being dropped merely for lacking an alanine.
+            string[] decoyResidues = { "A" };
+            var rows = new List<string> { "Run,Activation,Peptide,Scan,TargetSites,DecoySites,WinnerIsDecoy,WinnerProb,TargetRatio,WinnerResidue,BestTargetProbNoDecoys" };
 
             foreach (var run in runs)
             {
@@ -618,10 +622,31 @@ namespace Test
                     int targetSites = modPos.Count(p => p.Value == boxTargetMotif);
                     if (targetSites < 2) continue;
 
-                    // Every alanine competes, all at once.
-                    var decoySites = GlycoSpectralMatch.AddDecoyModSites(modPos, peptide, new string[] { "A" }, boxTargetMotif);
+                    // Every decoy residue competes, all at once.
+                    var decoySites = GlycoSpectralMatch.AddDecoyModSites(modPos, peptide, decoyResidues, boxTargetMotif);
                     if (decoySites.Count == 0) continue;
                     if (!GraphCheck(modPos, glycanBox)) continue;
+
+                    // Paired control: the same identification scored WITHOUT decoys. If adding decoy
+                    // positions is merely revealing ambiguity, the best target site should keep roughly the
+                    // probability it had here. If it collapses as decoy density rises, then inserting
+                    // positions is re-partitioning the fragment windows GetLocalFragment brackets by, and the
+                    // decoys are destroying the evidence rather than competing for it.
+                    var targetsOnlyPos = GlycoSpectralMatch.GetPossibleModSites(peptide, new string[] { "S", "T" });
+                    double bestTargetProbNoDecoys = double.NaN;
+                    if (GraphCheck(targetsOnlyPos, glycanBox))
+                    {
+                        var baseGraph = new LocalizationGraph(targetsOnlyPos, glycanBox, childBoxes, -1);
+                        LocalizationGraph.LocalizeOGlycan(baseGraph, scan, commonParameters.ProductMassTolerance, products);
+                        var baseRoutes = LocalizationGraph.GetAllPaths_CalP(baseGraph, 0.1, products.Count);
+                        if (baseRoutes.Count > 0)
+                        {
+                            var basePairs = baseRoutes.SelectMany(p => p.ModSitePairs).Distinct().ToList();
+                            LocalizationGraph.CalProbabilityForModSitePair(baseRoutes, basePairs);
+                            bestTargetProbNoDecoys = basePairs.GroupBy(p => p.SiteIndex)
+                                .Select(g => g.Sum(p => p.Probability)).DefaultIfEmpty(0).Max();
+                        }
+                    }
 
                     var graph = new LocalizationGraph(modPos, glycanBox, childBoxes, -1);
                     LocalizationGraph.LocalizeOGlycan(graph, scan, commonParameters.ProductMassTolerance, products);
@@ -640,8 +665,10 @@ namespace Test
                     var winner = bySite[0];
                     bool winnerIsDecoy = decoySites.Contains(winner.Site);
                     double ratio = targetSites / (double)decoySites.Count;
+                    // Site keys are r+2, so the residue is at index key-2.
+                    char winnerResidue = peptide.BaseSequence[winner.Site - 2];
 
-                    rows.Add($"{runName},{activation},{sequence},{scanNumber},{targetSites},{decoySites.Count},{winnerIsDecoy},{winner.Probability:F4},{ratio:F4}");
+                    rows.Add($"{runName},{activation},{sequence},{scanNumber},{targetSites},{decoySites.Count},{winnerIsDecoy},{winner.Probability:F4},{ratio:F4},{winnerResidue},{bestTargetProbNoDecoys:F4}");
                 }
             }
 
