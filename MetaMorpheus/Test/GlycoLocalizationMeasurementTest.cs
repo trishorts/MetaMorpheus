@@ -538,6 +538,134 @@ namespace Test
         }
 
         /// <summary>
+        /// Phase C: a real false localization rate, rather than the per-arm rates of M8-M12.
+        /// <para>
+        /// All decoy positions compete at once, as they would in a search, and the question asked per
+        /// identification is the one an FLR actually asks: <b>does the top-scoring placement land on a site
+        /// that cannot carry the glycan?</b> Each such win is evidence that some proportion of target-site
+        /// wins are equally unfounded, scaled by how many target sites there were to hit relative to decoy
+        /// sites.
+        /// </para>
+        /// <para>
+        /// Estimator, following the decoy-amino-acid method: a decoy win on an identification offering
+        /// T target sites and D decoy sites implies T/D expected false target wins, so
+        /// <c>FLR = sum(T_i/D_i over decoy wins) / (target wins)</c>. Computed over the multi-site
+        /// population only, because single-candidate-site identifications localize by construction and
+        /// including them dilutes the rate (M6: they are about half the corpus).
+        /// </para>
+        /// </summary>
+        [Test]
+        [Explicit("Measurement harness. Requires the PXD017646 raw files locally.")]
+        public static void Measure_FalseLocalizationRate_AllDecoysAtOnce()
+        {
+            string dataDirectory = @"E:\CodeReview\localization\data\raw";
+            var runs = Directory.GetFiles(dataDirectory, "*StcEmix_35trig_*.raw")
+                .Select(raw =>
+                {
+                    string stem = Path.GetFileNameWithoutExtension(raw);
+                    int idx = stem.IndexOf("StcEmix_35trig_", StringComparison.Ordinal);
+                    return (Raw: raw, Table: Path.Combine(dataDirectory, stem.Substring(idx) + "_GlycoPSMs.txt"));
+                })
+                .Where(p => File.Exists(p.Table)).OrderBy(p => p.Raw).ToList();
+            if (runs.Count == 0) Assert.Ignore("No PXD017646 raw/glycoPSM pairs present locally.");
+
+            var commonParameters = new CommonParameters(dissociationType: DissociationType.EThcD, trimMsMsPeaks: false);
+            const double protonMass = 1.00727646677;
+            var rows = new List<string> { "Run,Activation,Peptide,Scan,TargetSites,DecoySites,WinnerIsDecoy,WinnerProb,TargetRatio" };
+
+            foreach (var run in runs)
+            {
+                string runName = Path.GetFileNameWithoutExtension(run.Raw).Replace("2019_09_16_StcEmix_35trig_", "");
+                string activation = System.Text.RegularExpressions.Regex.Replace(runName, "_rep\\d", "");
+
+                var file = new MyFileManager(true).LoadFile(run.Raw, commonParameters);
+                var scansByNumber = MetaMorpheusTask.GetMs2Scans(file, run.Raw, commonParameters)
+                    .GroupBy(p => p.OneBasedScanNumber).ToDictionary(g => g.Key, g => g.First());
+
+                var lines = File.ReadAllLines(run.Table);
+                var header = lines[0].Split('\t');
+                int iSeq = Array.IndexOf(header, "Sequence"), iScan = Array.IndexOf(header, "ScanNumber");
+                int iFrag = Array.IndexOf(header, "Fragmentation"), iCalcMH = Array.IndexOf(header, "calcMH");
+                int iPepMass = Array.IndexOf(header, "PepMassNoMod"), iSites = Array.IndexOf(header, "#GlycoSitesOnPep");
+
+                foreach (var line in lines.Skip(1).Where(l => !string.IsNullOrWhiteSpace(l)))
+                {
+                    var f = line.Split('\t');
+                    if (f.Length <= iSites) continue;
+                    if (!f[iFrag].Contains("ETD", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!int.TryParse(f[iSites].Trim(), out int byonicSites) || byonicSites < 2) continue;
+                    if (!int.TryParse(f[iScan].Trim(), out int scanNumber)) continue;
+                    if (!scansByNumber.TryGetValue(scanNumber, out var scan)) continue;
+                    if (!double.TryParse(f[iCalcMH].Trim(), out double calcMH)) continue;
+                    if (!double.TryParse(f[iPepMass].Trim(), out double pepMassNoMod)) continue;
+
+                    string sequence = f[iSeq].Trim();
+                    if (string.IsNullOrWhiteSpace(sequence) || !sequence.All(char.IsLetter)) continue;
+
+                    var glycanBox = OGlycanBoxes.FirstOrDefault(p => Math.Abs(p.Mass - (calcMH - protonMass - pepMassNoMod)) < 0.02);
+                    if (glycanBox == null) continue;
+
+                    var peptide = new Protein(sequence, "byonic")
+                        .Digest(new DigestionParams(minPeptideLength: 1), new List<Modification>(), new List<Modification>()).FirstOrDefault();
+                    if (peptide == null) continue;
+
+                    var products = new List<Product>();
+                    peptide.Fragment(DissociationType.ETD, FragmentationTerminus.Both, products);
+                    var childBoxes = GlycanBox.BuildChildOGlycanBoxes(glycanBox.NumberOfMods, glycanBox.ModIds).ToArray();
+                    string boxTargetMotif = GlycanBox.GlobalOGlycans[glycanBox.ModIds[0]].Target.ToString();
+
+                    var modPos = GlycoSpectralMatch.GetPossibleModSites(peptide, new string[] { "S", "T" });
+                    int targetSites = modPos.Count(p => p.Value == boxTargetMotif);
+                    if (targetSites < 2) continue;
+
+                    // Every alanine competes, all at once.
+                    var decoySites = GlycoSpectralMatch.AddDecoyModSites(modPos, peptide, new string[] { "A" }, boxTargetMotif);
+                    if (decoySites.Count == 0) continue;
+                    if (!GraphCheck(modPos, glycanBox)) continue;
+
+                    var graph = new LocalizationGraph(modPos, glycanBox, childBoxes, -1);
+                    LocalizationGraph.LocalizeOGlycan(graph, scan, commonParameters.ProductMassTolerance, products);
+                    if (graph.TotalScore < 2.0) continue;
+
+                    var routes = LocalizationGraph.GetAllPaths_CalP(graph, 0.1, products.Count);
+                    if (routes.Count == 0) continue;
+                    var pairs = routes.SelectMany(p => p.ModSitePairs).Distinct().ToList();
+                    LocalizationGraph.CalProbabilityForModSitePair(routes, pairs);
+
+                    var bySite = pairs.GroupBy(p => p.SiteIndex)
+                        .Select(g => new { Site = g.Key, Probability = g.Sum(p => p.Probability) })
+                        .OrderByDescending(x => x.Probability).ToList();
+                    if (bySite.Count == 0) continue;
+
+                    var winner = bySite[0];
+                    bool winnerIsDecoy = decoySites.Contains(winner.Site);
+                    double ratio = targetSites / (double)decoySites.Count;
+
+                    rows.Add($"{runName},{activation},{sequence},{scanNumber},{targetSites},{decoySites.Count},{winnerIsDecoy},{winner.Probability:F4},{ratio:F4}");
+                }
+            }
+
+            string csv = Path.Combine(TestContext.CurrentContext.TestDirectory, "flr_all_decoys.csv");
+            File.WriteAllLines(csv, rows);
+            TestContext.WriteLine($"Identifications scored with all decoys competing: {rows.Count - 1}");
+            TestContext.WriteLine("Wrote " + csv);
+
+            var parsed = rows.Skip(1).Select(r => r.Split(',')).ToList();
+            if (parsed.Count == 0) return;
+
+            TestContext.WriteLine("");
+            TestContext.WriteLine("Activation      n   DecoyWins   RawDecoyRate   RatioNormalisedFLR");
+            foreach (var group in parsed.GroupBy(x => x[1]).OrderBy(g => g.Key))
+            {
+                var decoyWins = group.Where(x => bool.Parse(x[6])).ToList();
+                int targetWins = group.Count() - decoyWins.Count;
+                double expectedFalseTargets = decoyWins.Sum(x => double.Parse(x[8]));
+                double flr = targetWins > 0 ? expectedFalseTargets / targetWins : double.NaN;
+                TestContext.WriteLine($"{group.Key,-12} {group.Count(),4}   {decoyWins.Count,9}   {decoyWins.Count / (double)group.Count(),12:P1}   {flr,18:P1}");
+            }
+        }
+
+        /// <summary>
         /// Mirrors GlycoSearchEngine.GraphCheck: the peptide's candidate-site motifs must cover what the box
         /// requires. LocalizationGraph.LocalizeOGlycan dereferences its terminal node unguarded (line ~140),
         /// so it throws NullReferenceException if this is not checked first. The engine always checks; any
