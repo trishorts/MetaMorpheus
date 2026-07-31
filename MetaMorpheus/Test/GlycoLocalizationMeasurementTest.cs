@@ -191,6 +191,88 @@ namespace Test
         }
 
         /// <summary>
+        /// Separates the two readings of M4. A decoy can take probability for two different reasons:
+        /// because the fragment evidence genuinely cannot separate it from a real site (signal), or because
+        /// inserting it between two ModPos entries re-partitions the fragment windows in GetLocalFragment
+        /// (artifact). Those were confounded in M4 because the decoy that took mass happened to be adjacent
+        /// to the real site.
+        /// <para>
+        /// This sweeps a single decoy across every non-candidate position of one peptide, one at a time, and
+        /// reports the decoy's probability against the number of matched backbone ions that actually separate
+        /// it from the real site. If probability tracks separating evidence, the effect is signal; if it
+        /// tracks mere insertion, it is artifact.
+        /// </para>
+        /// </summary>
+        [Test]
+        [Explicit("Measurement harness, not a correctness test. Run deliberately.")]
+        public static void Measure_DecoyProbability_VersusSeparatingEvidence()
+        {
+            var commonParameters = new CommonParameters(dissociationType: DissociationType.ETD, trimMsMsPeaks: false);
+            string spectraFile = Path.Combine(TestContext.CurrentContext.TestDirectory,
+                @"GlycoTestData\181217_Fusion_(LC2)_NewObj_Serum_deSA_Jacalin_HRM_4h_ETD_HCD_DDA_mz(400_1200)_21707.mgf");
+            var file = new MyFileManager(true).LoadFile(spectraFile, commonParameters);
+            var scan = MetaMorpheusTask.GetMs2Scans(file, spectraFile, commonParameters).First();
+
+            var protein = new Protein("AATVGSLAGQPLQER", "P16150");
+            var peptide = protein.Digest(new DigestionParams(), new List<Modification>(), new List<Modification>()).First();
+            var products = new List<Product>();
+            peptide.Fragment(DissociationType.ETD, FragmentationTerminus.Both, products);
+
+            var glycanBox = OGlycanBoxes[1];
+            var childBoxes = GlycanBox.BuildChildOGlycanBoxes(glycanBox.NumberOfMods, glycanBox.ModIds).ToArray();
+            string boxTargetMotif = GlycanBox.GlobalOGlycans[glycanBox.ModIds[0]].Target.ToString();
+
+            var targetsOnly = GlycoSpectralMatch.GetPossibleModSites(peptide, new string[] { "S", "T" });
+            // The site this box can actually reach, i.e. the one carrying the box's target motif.
+            int realSite = targetsOnly.First(p => p.Value == boxTargetMotif).Key;
+
+            // Matched backbone ions of the unmodified peptide. Used only to ask which backbone cleavages are
+            // observed at all; it is a proxy, since a fragment spanning the glycosite carries the glycan mass.
+            var matchedIons = MetaMorpheusEngine.MatchFragmentIons(scan, products, commonParameters);
+            var matchedResiduePositions = matchedIons
+                .Select(p => p.NeutralTheoreticalProduct.ResiduePosition)
+                .Distinct().OrderBy(p => p).ToList();
+            TestContext.WriteLine($"Peptide {peptide.BaseSequence}, box target {boxTargetMotif}, real site {realSite}");
+            TestContext.WriteLine($"Matched ion residue positions: {string.Join(",", matchedResiduePositions)}");
+            TestContext.WriteLine("");
+            TestContext.WriteLine("DecoyPos Residue Dist SeparatingIons  DecoyProb  RealSiteProb");
+
+            var rows = new List<string> { "DecoyPos,Residue,Distance,SeparatingIons,DecoyProb,RealSiteProb" };
+
+            for (int r = 0; r < peptide.BaseSequence.Length; r++)
+            {
+                int siteKey = r + 2;
+                if (targetsOnly.ContainsKey(siteKey))
+                {
+                    continue; // real candidate site, not a decoy position
+                }
+
+                var modPos = new SortedDictionary<int, string>(targetsOnly.ToDictionary(p => p.Key, p => p.Value));
+                modPos[siteKey] = boxTargetMotif;
+
+                var graph = new LocalizationGraph(modPos, glycanBox, childBoxes, -1);
+                LocalizationGraph.LocalizeOGlycan(graph, scan, commonParameters.ProductMassTolerance, products);
+                var routes = LocalizationGraph.GetAllPaths_CalP(graph, 0.1, products.Count);
+                var pairs = routes.SelectMany(p => p.ModSitePairs).Distinct().ToList();
+                LocalizationGraph.CalProbabilityForModSitePair(routes, pairs);
+                var bySite = pairs.GroupBy(p => p.SiteIndex).ToDictionary(g => g.Key, g => g.Sum(p => p.Probability));
+
+                bySite.TryGetValue(siteKey, out double decoyProbability);
+                bySite.TryGetValue(realSite, out double realProbability);
+
+                // A matched ion separates the decoy from the real site when its cleavage falls between them.
+                int low = Math.Min(siteKey, realSite);
+                int high = Math.Max(siteKey, realSite);
+                int separatingIons = matchedResiduePositions.Count(p => p >= low - 1 && p < high - 1);
+
+                TestContext.WriteLine($"{siteKey,8} {peptide.BaseSequence[r],7} {Math.Abs(siteKey - realSite),4} {separatingIons,14}  {decoyProbability,9:F4}  {realProbability,12:F4}");
+                rows.Add($"{siteKey},{peptide.BaseSequence[r]},{Math.Abs(siteKey - realSite)},{separatingIons},{decoyProbability:F4},{realProbability:F4}");
+            }
+
+            File.WriteAllLines(Path.Combine(TestContext.CurrentContext.TestDirectory, "decoy_bracketing_sweep.csv"), rows);
+        }
+
+        /// <summary>
         /// Runs a real O-glyco search and summarises the written results by localization level, recording how
         /// many rows carry a site-specific probability. This is the before/after evidence for A1: today
         /// GlycoSearchTask only computes probabilities for Level1 and Level2, so Level3 rows -- the ambiguous
