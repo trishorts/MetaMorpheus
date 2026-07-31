@@ -425,6 +425,119 @@ namespace Test
         }
 
         /// <summary>
+        /// How much of a real glycopeptide corpus each shipped O-glycan database can actually represent.
+        /// <para>
+        /// M8 dropped 45 of 114 multi-site identifications because Byonic's glycan composition had no
+        /// mass-matching box in the default database. That is a coverage bias, not a random sample, and it
+        /// would propagate straight into an FLR: whichever glycans the database cannot express are silently
+        /// excluded from the error estimate.
+        /// </para>
+        /// </summary>
+        [Test]
+        [Explicit("Measurement harness. Requires the PXD017646 glycoPSM table locally.")]
+        public static void Measure_GlycanDatabaseCoverage_AgainstRealCorpus()
+        {
+            string tablePath = Path.Combine(@"E:\CodeReview\localization\data\raw", "StcEmix_35trig_EThcD25_rep1_GlycoPSMs.txt");
+            if (!File.Exists(tablePath))
+            {
+                Assert.Ignore("PXD017646 glycoPSM table not present locally.");
+            }
+
+            var lines = File.ReadAllLines(tablePath);
+            var header = lines[0].Split('\t');
+            int iFrag = Array.IndexOf(header, "Fragmentation");
+            int iCalcMH = Array.IndexOf(header, "calcMH");
+            int iPepMass = Array.IndexOf(header, "PepMassNoMod");
+            int iSites = Array.IndexOf(header, "#GlycoSitesOnPep");
+            int iGlycans = Array.IndexOf(header, "Glycans");
+            const double protonMass = 1.00727646677;
+
+            // The multi-site ETD identifications an FLR would actually be computed over.
+            var corpus = new List<(double Mass, string Composition)>();
+            foreach (var line in lines.Skip(1).Where(l => !string.IsNullOrWhiteSpace(l)))
+            {
+                var f = line.Split('\t');
+                if (f.Length <= Math.Max(iSites, iGlycans)) continue;
+                if (!f[iFrag].Contains("ETD", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!int.TryParse(f[iSites].Trim(), out int sites) || sites < 2) continue;
+                if (!double.TryParse(f[iCalcMH].Trim(), out double calcMH)) continue;
+                if (!double.TryParse(f[iPepMass].Trim(), out double pepMass)) continue;
+                corpus.Add((calcMH - protonMass - pepMass, f[iGlycans].Trim()));
+            }
+            TestContext.WriteLine($"Multi-site ETD identifications in corpus: {corpus.Count}");
+            TestContext.WriteLine("");
+
+            var originalGlycans = GlycanBox.GlobalOGlycans;
+            var originalBoxes = GlycanBox.OGlycanBoxes;
+            var databaseNames = new[]
+            {
+                "OGlycan.gdb",
+                "OGlycan_withIsobaric.gdb",
+                "Olgycan Database 28 glycans.txt",
+                "Olgycan Database 32 glycans.txt",
+                "Olgycan Database 36 glycans with Mann.txt",
+            };
+
+            try
+            {
+                TestContext.WriteLine("Database                                    Glycans  Boxes   Covered  Coverage");
+                foreach (var name in databaseNames)
+                {
+                    string path = GlobalVariables.OGlycanDatabasePaths.FirstOrDefault(p => Path.GetFileName(p) == name);
+                    if (path == null)
+                    {
+                        TestContext.WriteLine($"{name,-42}  (not registered)");
+                        continue;
+                    }
+
+                    GlycanBox.GlobalOGlycans = GlycanDatabase.LoadGlycan(path, true, true).ToArray();
+                    var boxes = GlycanBox.BuildOGlycanBoxes(3).OrderBy(p => p.Mass).ToArray();
+                    var boxMasses = boxes.Select(p => p.Mass).OrderBy(m => m).ToArray();
+
+                    int covered = corpus.Count(entry => boxMasses.Any(m => Math.Abs(m - entry.Mass) < 0.02));
+                    TestContext.WriteLine($"{name,-42} {GlycanBox.GlobalOGlycans.Length,8} {boxes.Length,6} {covered,9} {covered / (double)corpus.Count,9:P1}");
+                }
+
+                // Is the limit the database size, or the number of glycans allowed per peptide?
+                TestContext.WriteLine("");
+                TestContext.WriteLine("Database                                    maxOGlycanNum  Boxes   Covered  Coverage");
+                foreach (var name in new[] { "OGlycan.gdb", "Olgycan Database 36 glycans with Mann.txt" })
+                {
+                    string path = GlobalVariables.OGlycanDatabasePaths.FirstOrDefault(p => Path.GetFileName(p) == name);
+                    if (path == null) continue;
+                    GlycanBox.GlobalOGlycans = GlycanDatabase.LoadGlycan(path, true, true).ToArray();
+
+                    foreach (int maxNum in new[] { 2, 3, 4 })
+                    {
+                        var boxes = GlycanBox.BuildOGlycanBoxes(maxNum).ToArray();
+                        var masses = boxes.Select(p => p.Mass).ToArray();
+                        int covered = corpus.Count(e => masses.Any(m => Math.Abs(m - e.Mass) < 0.02));
+                        TestContext.WriteLine($"{name,-42} {maxNum,14} {boxes.Length,6} {covered,9} {covered / (double)corpus.Count,9:P1}");
+                    }
+                }
+
+                // What the default database misses, by composition.
+                string defaultPath = GlobalVariables.OGlycanDatabasePaths.First(p => Path.GetFileName(p) == "OGlycan.gdb");
+                GlycanBox.GlobalOGlycans = GlycanDatabase.LoadGlycan(defaultPath, true, true).ToArray();
+                var defaultMasses = GlycanBox.BuildOGlycanBoxes(3).Select(p => p.Mass).ToArray();
+                var missing = corpus.Where(e => !defaultMasses.Any(m => Math.Abs(m - e.Mass) < 0.02))
+                    .GroupBy(e => e.Composition).OrderByDescending(g => g.Count()).ToList();
+
+                TestContext.WriteLine("");
+                TestContext.WriteLine($"Compositions the default database cannot express ({missing.Sum(g => g.Count())} identifications):");
+                foreach (var group in missing.Take(15))
+                {
+                    TestContext.WriteLine($"  {group.Count(),4}  {group.Key}");
+                }
+            }
+            finally
+            {
+                GlycanBox.GlobalOGlycans = originalGlycans;
+                GlycanBox.OGlycanBoxes = originalBoxes;
+            }
+        }
+
+        /// <summary>
         /// Mirrors GlycoSearchEngine.GraphCheck: the peptide's candidate-site motifs must cover what the box
         /// requires. LocalizationGraph.LocalizeOGlycan dereferences its terminal node unguarded (line ~140),
         /// so it throws NullReferenceException if this is not checked first. The engine always checks; any
