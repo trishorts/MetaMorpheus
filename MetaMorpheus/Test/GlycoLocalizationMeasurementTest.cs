@@ -693,6 +693,350 @@ namespace Test
         }
 
         /// <summary>
+        /// Scans every plausible decoy residue, one at a time, and reports how often each wins per site it
+        /// offers -- alongside how close its sites sit to genuine glycosites.
+        /// <para>
+        /// M14 showed alanine, leucine and glycine behave very differently as decoys (3.0%, 10.4%, 15.5% win
+        /// rate per site) and attributed the difference to positional correlation with real sites rather than
+        /// to chemistry. This tests that directly across the whole residue alphabet: if win rate tracks mean
+        /// distance to the nearest real site, the requirement on a decoy residue is positional, and the right
+        /// choice is measurable per dataset rather than inherited from the phospho literature.
+        /// </para>
+        /// </summary>
+        [Test]
+        [Explicit("Measurement harness. Requires the PXD017646 raw files locally.")]
+        public static void Measure_DecoyResidueScan()
+        {
+            string dataDirectory = @"E:\CodeReview\localization\data\raw";
+            var runs = Directory.GetFiles(dataDirectory, "*35trig_*.raw")
+                .Select(raw =>
+                {
+                    // Raw stems are <date>_<sample>_35trig_<method>[_repN]; tables drop the date.
+                    string stem = Path.GetFileNameWithoutExtension(raw);
+                    var m = System.Text.RegularExpressions.Regex.Match(stem, @"^\d{4}_\d{2}_\d{2}_(.+)$");
+                    string key = m.Success ? m.Groups[1].Value : stem;
+                    return (Raw: raw, Table: Path.Combine(dataDirectory, key + "_GlycoPSMs.txt"), Key: key);
+                })
+                .Where(p => File.Exists(p.Table)).OrderBy(p => p.Key).ToList();
+            if (runs.Count == 0) Assert.Ignore("No raw/glycoPSM pairs present locally.");
+            TestContext.WriteLine($"Runs: {runs.Count}");
+
+            // Everything that cannot carry an O-glycan. S and T are targets; Y is excluded because rare
+            // Y-linked O-glycans exist and it would not be a clean null.
+            string[] candidateResidues = { "A", "C", "D", "E", "F", "G", "H", "I", "K", "L", "M", "N", "P", "Q", "R", "V", "W" };
+
+            var commonParameters = new CommonParameters(dissociationType: DissociationType.EThcD, trimMsMsPeaks: false);
+            const double protonMass = 1.00727646677;
+
+            // "<sample>|<residue>" -> counts. Sample is tracked so the ranking can be tested for
+            // transferability: a decoy residue that behaves well only on mucins is not a general choice.
+            var sitesOffered = new Dictionary<string, int>();
+            var wins = new Dictionary<string, int>();
+            var distanceSum = new Dictionary<string, double>();
+            var identifications = new Dictionary<string, int>();
+            void Bump(Dictionary<string, int> d, string k, int by) { d.TryGetValue(k, out int v); d[k] = v + by; }
+
+            foreach (var run in runs)
+            {
+                Dictionary<int, Ms2ScanWithSpecificMass> scansByNumber;
+                try
+                {
+                    // A raw file still being downloaded is unreadable; skip it rather than abort the scan.
+                    var file = new MyFileManager(true).LoadFile(run.Raw, commonParameters);
+                    scansByNumber = MetaMorpheusTask.GetMs2Scans(file, run.Raw, commonParameters)
+                        .GroupBy(p => p.OneBasedScanNumber).ToDictionary(g => g.Key, g => g.First());
+                }
+                catch (Exception e)
+                {
+                    TestContext.WriteLine($"SKIPPED {Path.GetFileName(run.Raw)}: {e.Message}");
+                    continue;
+                }
+
+                var lines = File.ReadAllLines(run.Table);
+                var header = lines[0].Split('\t');
+                int iSeq = Array.IndexOf(header, "Sequence"), iScan = Array.IndexOf(header, "ScanNumber");
+                int iFrag = Array.IndexOf(header, "Fragmentation"), iCalcMH = Array.IndexOf(header, "calcMH");
+                int iPepMass = Array.IndexOf(header, "PepMassNoMod"), iSites = Array.IndexOf(header, "#GlycoSitesOnPep");
+                if (Math.Min(iSeq, Math.Min(iScan, Math.Min(iFrag, Math.Min(iCalcMH, Math.Min(iPepMass, iSites))))) < 0) continue;
+
+                foreach (var line in lines.Skip(1).Where(l => !string.IsNullOrWhiteSpace(l)))
+                {
+                    var f = line.Split('\t');
+                    if (f.Length <= iSites) continue;
+                    if (!f[iFrag].Contains("ETD", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!int.TryParse(f[iSites].Trim(), out int bs) || bs < 2) continue;
+                    if (!int.TryParse(f[iScan].Trim(), out int scanNumber)) continue;
+                    if (!scansByNumber.TryGetValue(scanNumber, out var scan)) continue;
+                    if (!double.TryParse(f[iCalcMH].Trim(), out double calcMH)) continue;
+                    if (!double.TryParse(f[iPepMass].Trim(), out double pepMassNoMod)) continue;
+
+                    string sequence = f[iSeq].Trim();
+                    if (string.IsNullOrWhiteSpace(sequence) || !sequence.All(char.IsLetter)) continue;
+
+                    var glycanBox = OGlycanBoxes.FirstOrDefault(p => Math.Abs(p.Mass - (calcMH - protonMass - pepMassNoMod)) < 0.02);
+                    if (glycanBox == null) continue;
+
+                    var peptide = new Protein(sequence, "byonic")
+                        .Digest(new DigestionParams(minPeptideLength: 1), new List<Modification>(), new List<Modification>()).FirstOrDefault();
+                    if (peptide == null) continue;
+
+                    var products = new List<Product>();
+                    peptide.Fragment(DissociationType.ETD, FragmentationTerminus.Both, products);
+                    var childBoxes = GlycanBox.BuildChildOGlycanBoxes(glycanBox.NumberOfMods, glycanBox.ModIds).ToArray();
+                    string boxTargetMotif = GlycanBox.GlobalOGlycans[glycanBox.ModIds[0]].Target.ToString();
+
+                    var targetsOnly = GlycoSpectralMatch.GetPossibleModSites(peptide, new string[] { "S", "T" });
+                    var targetKeys = targetsOnly.Where(p => p.Value == boxTargetMotif).Select(p => p.Key).ToList();
+                    if (targetKeys.Count < 2) continue;
+
+                    foreach (var residue in candidateResidues)
+                    {
+                        var modPos = GlycoSpectralMatch.GetPossibleModSites(peptide, new string[] { "S", "T" });
+                        var decoySites = GlycoSpectralMatch.AddDecoyModSites(modPos, peptide, new[] { residue }, boxTargetMotif);
+                        if (decoySites.Count == 0) continue;
+                        if (!GraphCheck(modPos, glycanBox)) continue;
+
+                        var graph = new LocalizationGraph(modPos, glycanBox, childBoxes, -1);
+                        LocalizationGraph.LocalizeOGlycan(graph, scan, commonParameters.ProductMassTolerance, products);
+                        if (graph.TotalScore < 2.0) continue;
+
+                        var routes = LocalizationGraph.GetAllPaths_CalP(graph, 0.1, products.Count);
+                        if (routes.Count == 0) continue;
+                        var pairs = routes.SelectMany(p => p.ModSitePairs).Distinct().ToList();
+                        LocalizationGraph.CalProbabilityForModSitePair(routes, pairs);
+                        var winner = pairs.GroupBy(p => p.SiteIndex)
+                            .Select(g => new { Site = g.Key, P = g.Sum(x => x.Probability) })
+                            .OrderByDescending(x => x.P).First();
+
+                        string sample = run.Key.Contains("StcEmix") ? "StcEmix"
+                            : run.Key.Contains("HEK293") ? "HEK293" : "GlycoPepMix";
+                        string key = sample + "|" + residue;
+
+                        Bump(identifications, key, 1);
+                        Bump(sitesOffered, key, decoySites.Count);
+                        if (decoySites.Contains(winner.Site)) Bump(wins, key, 1);
+                        // Chance expectation D/(T+D): win rate per SITE is confounded by how many sites a
+                        // residue contributes, so the comparable quantity is wins against chance.
+                        distanceSum.TryGetValue(key, out double dv);
+                        distanceSum[key] = dv + decoySites.Count / (double)(modPos.Count);
+                    }
+                }
+            }
+
+            var samples = new[] { "StcEmix", "GlycoPepMix", "HEK293" };
+            var csvRows = new List<string> { "Sample,Residue,Identifications,SitesOffered,Wins,WinRatePerSite,MeanDistanceToNearestRealSite" };
+
+            double? Rate(string sample, string residue)
+            {
+                string k = sample + "|" + residue;
+                if (!sitesOffered.TryGetValue(k, out int s) || s == 0) return null;
+                wins.TryGetValue(k, out int w);
+                return w / (double)s;
+            }
+
+            TestContext.WriteLine("");
+            TestContext.WriteLine("Observed decoy wins / chance expectation, by sample (idents in brackets).");
+            TestContext.WriteLine(">1 means the decoy wins MORE often than chance alone would give.");
+            TestContext.WriteLine("Residue        StcEmix            GlycoPepMix              HEK293");
+            foreach (var r in candidateResidues.OrderBy(r => { distanceSum.TryGetValue("StcEmix|" + r, out double c); wins.TryGetValue("StcEmix|" + r, out int w); return c > 0 ? w / c : 99; }))
+            {
+                var cells = samples.Select(s =>
+                {
+                    string k = s + "|" + r;
+                    if (!identifications.TryGetValue(k, out int id) || id == 0) return "        -      ";
+                    wins.TryGetValue(k, out int w);
+                    distanceSum.TryGetValue(k, out double chanceSum);
+                    double enrich = chanceSum > 0 ? w / chanceSum : double.NaN;
+                    return string.Format("{0,7:F2} ({1,4})", enrich, id);
+                });
+                TestContext.WriteLine($"{r,-7}  {string.Join("  ", cells)}");
+
+                foreach (var s in samples)
+                {
+                    string k = s + "|" + r;
+                    if (!sitesOffered.TryGetValue(k, out int n) || n == 0) continue;
+                    wins.TryGetValue(k, out int w);
+                    identifications.TryGetValue(k, out int id);
+                    distanceSum.TryGetValue(k, out double dsum);
+                    csvRows.Add($"{s},{r},{id},{n},{w},{w / (double)n:F4},{dsum / Math.Max(1, id):F3}");
+                }
+            }
+
+            File.WriteAllLines(Path.Combine(TestContext.CurrentContext.TestDirectory, "decoy_residue_scan.csv"), csvRows);
+        }
+
+        /// <summary>
+        /// Reports the acquisition structure of a raw file: MS2 count, dissociation types, and whether
+        /// precursors carry child scans. Needed before configuring a search on unfamiliar data -- O-Pair
+        /// consumes a collision/electron pair, and the localization scan must be the electron-based child.
+        /// </summary>
+        [Test]
+        [Explicit("Diagnostic. Point it at a local raw file.")]
+        public static void Measure_AcquisitionStructure()
+        {
+            string rawPath = @"E:\CodeReview\localization\data\raw\MSV000083070_170919_11.raw";
+            if (!File.Exists(rawPath)) Assert.Ignore("Raw file not present locally.");
+
+            var commonParameters = new CommonParameters(dissociationType: DissociationType.EThcD, trimMsMsPeaks: false);
+            var file = new MyFileManager(true).LoadFile(rawPath, commonParameters);
+            var scans = MetaMorpheusTask.GetMs2Scans(file, rawPath, commonParameters).ToList();
+
+            TestContext.WriteLine($"File: {Path.GetFileName(rawPath)}");
+            TestContext.WriteLine($"MS2 scans (precursor-grouped): {scans.Count}");
+            TestContext.WriteLine("");
+            TestContext.WriteLine("Parent dissociation types:");
+            foreach (var g in scans.GroupBy(s => s.TheScan.DissociationType?.ToString() ?? "(null)").OrderByDescending(g => g.Count()))
+            {
+                TestContext.WriteLine($"  {g.Key,-20} {g.Count(),7}");
+            }
+
+            TestContext.WriteLine("");
+            TestContext.WriteLine("Child-scan counts per precursor:");
+            foreach (var g in scans.GroupBy(s => s.ChildScans.Count).OrderBy(g => g.Key))
+            {
+                TestContext.WriteLine($"  {g.Key} child scan(s): {g.Count(),7}");
+            }
+
+            var withChildren = scans.Where(s => s.ChildScans.Count > 0).ToList();
+            if (withChildren.Count > 0)
+            {
+                TestContext.WriteLine("");
+                TestContext.WriteLine("Child dissociation types:");
+                foreach (var g in withChildren.SelectMany(s => s.ChildScans)
+                    .GroupBy(c => c.TheScan.DissociationType?.ToString() ?? "(null)").OrderByDescending(g => g.Count()))
+                {
+                    TestContext.WriteLine($"  {g.Key,-20} {g.Count(),7}");
+                }
+            }
+
+            TestContext.WriteLine("");
+            TestContext.WriteLine($"Precursor charge range: {scans.Min(s => s.PrecursorCharge)} - {scans.Max(s => s.PrecursorCharge)}");
+            TestContext.WriteLine($"Precursor mass range  : {scans.Min(s => s.PrecursorMass):F0} - {scans.Max(s => s.PrecursorMass):F0}");
+        }
+
+        /// <summary>
+        /// Repeats the decoy-residue scan on an independent O-glyco dataset (MSV000083070, human urine),
+        /// driven by a MetaMorpheus glyco search rather than a deposited third-party table.
+        /// <para>
+        /// This is the transferability test M15 could not run: PXD017646 contains only one O-glyco sample,
+        /// so the Q/I/F/A ranking there might be specific to StcE-digested mucins. Urine O-glycopeptides are
+        /// a different sample, a different lab and a different sequence composition.
+        /// </para>
+        /// <para>
+        /// Identifications come from MetaMorpheus itself here, which would be circular for an absolute FLR
+        /// but is sound for a residue <i>ranking</i>: every residue is compared on the identical
+        /// identification set, so any self-consistency bias applies equally to all of them and cannot
+        /// manufacture an ordering.
+        /// </para>
+        /// </summary>
+        [Test]
+        [Explicit("Measurement harness. Requires the MSV000083070 pilot search output.")]
+        public static void Measure_DecoyResidueScan_UrineIndependentDataset()
+        {
+            string rawPath = @"E:\CodeReview\localization\data\raw\MSV000083070_170919_11.raw";
+            string psmtsv = @"E:\CodeReview\localization\results\MSV000083070_pilot\Task1GlycoSearchTask\oglyco.psmtsv";
+            if (!File.Exists(rawPath) || !File.Exists(psmtsv)) Assert.Ignore("MSV000083070 pilot inputs not present.");
+
+            var commonParameters = new CommonParameters(dissociationType: DissociationType.EThcD, trimMsMsPeaks: false);
+            var file = new MyFileManager(true).LoadFile(rawPath, commonParameters);
+            var scansByNumber = MetaMorpheusTask.GetMs2Scans(file, rawPath, commonParameters)
+                .GroupBy(p => p.OneBasedScanNumber).ToDictionary(g => g.Key, g => g.First());
+
+            var lines = File.ReadAllLines(psmtsv);
+            var header = lines[0].Split('\t');
+            int iSeq = Array.IndexOf(header, "Base Sequence");
+            int iScan = Array.IndexOf(header, "Scan Number");
+            int iGlycanMass = Array.IndexOf(header, "GlycanMass");
+            int iQ = Array.IndexOf(header, "QValue");
+            int iDecoy = Array.IndexOf(header, "Decoy/Contaminant/Target");
+            Assert.That(Math.Min(iSeq, Math.Min(iScan, Math.Min(iGlycanMass, Math.Min(iQ, iDecoy)))), Is.GreaterThanOrEqualTo(0),
+                "Required oglyco.psmtsv columns not found.");
+
+            string[] candidateResidues = { "A", "C", "D", "E", "F", "G", "H", "I", "K", "L", "M", "N", "P", "Q", "R", "V", "W" };
+            var sitesOffered = candidateResidues.ToDictionary(r => r, r => 0);
+            var wins = candidateResidues.ToDictionary(r => r, r => 0);
+            var identifications = candidateResidues.ToDictionary(r => r, r => 0);
+            // Win rate per SITE is confounded by how many sites a residue offers: a residue contributing five
+            // decoy positions has each one diluted relative to a residue contributing one. The comparable
+            // quantity is the per-identification win rate against what chance alone would give,
+            // D/(T+D), summed per identification.
+            var chanceExpectation = candidateResidues.ToDictionary(r => r, r => 0.0);
+            int considered = 0, usable = 0;
+
+            foreach (var line in lines.Skip(1).Where(l => !string.IsNullOrWhiteSpace(l)))
+            {
+                var f = line.Split('\t');
+                if (f.Length <= Math.Max(iSeq, Math.Max(iScan, iGlycanMass))) continue;
+                if (f[iDecoy].Trim() != "T") continue;
+                if (!double.TryParse(f[iQ].Trim(), out double q) || q > 0.01) continue;
+                considered++;
+
+                string sequence = f[iSeq].Trim();
+                if (string.IsNullOrWhiteSpace(sequence) || sequence.Contains("|") || !sequence.All(char.IsLetter)) continue;
+                if (!int.TryParse(f[iScan].Trim(), out int scanNumber)) continue;
+                if (!scansByNumber.TryGetValue(scanNumber, out var scan)) continue;
+                if (!double.TryParse(f[iGlycanMass].Trim(), out double glycanMass)) continue;
+
+                var glycanBox = OGlycanBoxes.FirstOrDefault(p => Math.Abs(p.Mass - glycanMass) < 0.02);
+                if (glycanBox == null) continue;
+
+                var peptide = new Protein(sequence, "mm")
+                    .Digest(new DigestionParams(minPeptideLength: 1), new List<Modification>(), new List<Modification>()).FirstOrDefault();
+                if (peptide == null) continue;
+
+                var products = new List<Product>();
+                peptide.Fragment(DissociationType.ETD, FragmentationTerminus.Both, products);
+                var childBoxes = GlycanBox.BuildChildOGlycanBoxes(glycanBox.NumberOfMods, glycanBox.ModIds).ToArray();
+                string boxTargetMotif = GlycanBox.GlobalOGlycans[glycanBox.ModIds[0]].Target.ToString();
+
+                var targetsOnly = GlycoSpectralMatch.GetPossibleModSites(peptide, new string[] { "S", "T" });
+                if (targetsOnly.Count(p => p.Value == boxTargetMotif) < 2) continue;
+                usable++;
+
+                foreach (var residue in candidateResidues)
+                {
+                    var modPos = GlycoSpectralMatch.GetPossibleModSites(peptide, new string[] { "S", "T" });
+                    var decoySites = GlycoSpectralMatch.AddDecoyModSites(modPos, peptide, new[] { residue }, boxTargetMotif);
+                    if (decoySites.Count == 0) continue;
+                    if (!GraphCheck(modPos, glycanBox)) continue;
+
+                    var graph = new LocalizationGraph(modPos, glycanBox, childBoxes, -1);
+                    LocalizationGraph.LocalizeOGlycan(graph, scan, commonParameters.ProductMassTolerance, products);
+                    if (graph.TotalScore < 2.0) continue;
+
+                    var routes = LocalizationGraph.GetAllPaths_CalP(graph, 0.1, products.Count);
+                    if (routes.Count == 0) continue;
+                    var pairs = routes.SelectMany(p => p.ModSitePairs).Distinct().ToList();
+                    LocalizationGraph.CalProbabilityForModSitePair(routes, pairs);
+                    var winner = pairs.GroupBy(p => p.SiteIndex)
+                        .Select(g => new { Site = g.Key, P = g.Sum(x => x.Probability) })
+                        .OrderByDescending(x => x.P).First();
+
+                    identifications[residue]++;
+                    sitesOffered[residue] += decoySites.Count;
+                    if (decoySites.Contains(winner.Site)) wins[residue]++;
+                    int targetsHere = modPos.Count - decoySites.Count;
+                    chanceExpectation[residue] += decoySites.Count / (double)(targetsHere + decoySites.Count);
+                }
+            }
+
+            TestContext.WriteLine($"GSMs at 1% FDR considered: {considered}; usable (multi-site, box matched): {usable}");
+            TestContext.WriteLine("");
+            TestContext.WriteLine("Residue  Idents  Sites  Wins  Win%/ident  Chance%  Obs/Chance");
+            var rows = new List<string> { "Residue,Identifications,SitesOffered,Wins,WinRatePerIdent,ChanceRate,ObservedOverChance" };
+            foreach (var r in candidateResidues.Where(r => identifications[r] > 0)
+                .OrderBy(r => wins[r] / Math.Max(1e-9, chanceExpectation[r])))
+            {
+                double perIdent = wins[r] / (double)identifications[r];
+                double chance = chanceExpectation[r] / identifications[r];
+                double enrich = wins[r] / Math.Max(1e-9, chanceExpectation[r]);
+                TestContext.WriteLine($"{r,-7} {identifications[r],7} {sitesOffered[r],6} {wins[r],5} {perIdent,11:P1} {chance,8:P1} {enrich,11:F2}");
+                rows.Add($"{r},{identifications[r]},{sitesOffered[r]},{wins[r]},{perIdent:F4},{chance:F4},{enrich:F3}");
+            }
+            File.WriteAllLines(Path.Combine(TestContext.CurrentContext.TestDirectory, "decoy_residue_scan_urine.csv"), rows);
+        }
+
+        /// <summary>
         /// Mirrors GlycoSearchEngine.GraphCheck: the peptide's candidate-site motifs must cover what the box
         /// requires. LocalizationGraph.LocalizeOGlycan dereferences its terminal node unguarded (line ~140),
         /// so it throws NullReferenceException if this is not checked first. The engine always checks; any
