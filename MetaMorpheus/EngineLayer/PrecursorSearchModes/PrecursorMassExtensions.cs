@@ -107,7 +107,8 @@ namespace EngineLayer
         /// only the deconvolution parameters, not the acceptor's shift set.
         /// </para>
         /// </summary>
-        public static bool MatchesCandidateMass(this SpectralMatch psm, double candidateMonoisotopicMass, Tolerance tolerance, CommonParameters commonParameters)
+        public static bool MatchesCandidateMass(this SpectralMatch psm, double candidateMonoisotopicMass, Tolerance tolerance, CommonParameters commonParameters,
+            int maxApexOffsetNeutrons = MostAbundantMassDiffAcceptor.DefaultMaxApexOffsetNeutrons)
         {
             if (!UsesMostAbundantPeak(commonParameters) || psm.ScanPrecursorMostAbundantMass <= 0 || candidateMonoisotopicMass <= 0)
             {
@@ -117,7 +118,7 @@ namespace EngineLayer
             double apex = candidateMonoisotopicMass + ApexOffset(commonParameters, candidateMonoisotopicMass);
             double isotopeSpacing = IsotopeSpacing(commonParameters);
 
-            for (int k = -MostAbundantMassDiffAcceptor.DefaultMaxApexOffsetNeutrons; k <= MostAbundantMassDiffAcceptor.DefaultMaxApexOffsetNeutrons; k++)
+            for (int k = -maxApexOffsetNeutrons; k <= maxApexOffsetNeutrons; k++)
             {
                 if (tolerance.Within(psm.ScanPrecursorMostAbundantMass, apex + k * isotopeSpacing))
                 {

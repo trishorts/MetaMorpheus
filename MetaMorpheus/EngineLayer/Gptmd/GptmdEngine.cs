@@ -22,6 +22,26 @@ namespace EngineLayer.Gptmd
         //The ScoreTolerance property is used to differentiatie when a PTM candidate is added to a peptide. We check the score at each position and then add that mod where the score is highest.
         private readonly double ScoreTolerance = 0.1;
         private static readonly double QValueNotchThreshold = 0.05;
+
+        /// <summary>
+        /// Apex misprediction tolerated when G-PTM-D proposes a modification, in neutrons. Zero: a
+        /// modification is only proposed when the observed apex matches the SHIFTED candidate's predicted
+        /// apex directly.
+        /// <para>
+        /// Search uses <see cref="MostAbundantMassDiffAcceptor.DefaultMaxApexOffsetNeutrons"/> (2) because
+        /// there the apex notches REPLACE the missed-monoisotopic notches, so the window count falls. G-PTM-D
+        /// has no integer-neutron notches to replace, so the same tolerance instead multiplies every
+        /// modification's window five-fold and lets a small modification at k = +-2 outrank a larger one
+        /// sitting exactly on the apex (<see cref="MostAbundantDotMassDiffAcceptor.Accepts"/> is shift-major:
+        /// it exhausts all k for the smallest |shift| before trying the next shift). Measured on Jurkat
+        /// top-down data, that inflated the G-PTM-D database 2.3-fold and cost 198 proteoforms downstream.
+        /// Zero gives most-abundant G-PTM-D the same one-window-per-modification budget as the conventional
+        /// task, anchored apex-to-apex instead of monoisotopic-to-monoisotopic.
+        /// </para>
+        /// Has no effect on a monoisotopic run: <see cref="PrecursorMassExtensions.MatchesCandidateMass"/>
+        /// ignores it and compares monoisotopic-to-monoisotopic.
+        /// </summary>
+        private const int GptmdMaxApexOffsetNeutrons = 0;
         public Dictionary<string, HashSet<Tuple<int, Modification>>> ModDictionary { get; init; }
         private readonly List<IGptmdFilter> Filters;
 
@@ -258,12 +278,12 @@ namespace EngineLayer.Gptmd
             {
                 //TODO: not necessarily here. I think we're creating ambiguity. If we're going to add a gptmd mod to a peptide that already has that mod, then we need info
                 // to suggest that it is at a postion other than that in the database. could be presence of frag for unmodified or presence of frag with modified at alternative location.
-                if (psm.MatchesCandidateMass(peptideMass + (double)Mod.MonoisotopicMass, precursorTolerance, commonParameters))
+                if (psm.MatchesCandidateMass(peptideMass + (double)Mod.MonoisotopicMass, precursorTolerance, commonParameters, GptmdMaxApexOffsetNeutrons))
                     yield return Mod;
                 foreach (var modOnPsm in peptideWithSetModifications.AllModsOneIsNterminus.Values.Where(b => b.ValidModification == true))
                     if (modOnPsm.Target.Equals(Mod.Target))
                     {
-                        if (psm.MatchesCandidateMass(peptideMass + (double)Mod.MonoisotopicMass - (double)modOnPsm.MonoisotopicMass, precursorTolerance, commonParameters))
+                        if (psm.MatchesCandidateMass(peptideMass + (double)Mod.MonoisotopicMass - (double)modOnPsm.MonoisotopicMass, precursorTolerance, commonParameters, GptmdMaxApexOffsetNeutrons))
                             yield return Mod;
                     }
             }
@@ -273,7 +293,7 @@ namespace EngineLayer.Gptmd
                 var m1 = combo.Item1;
                 var m2 = combo.Item2;
                 var combined = m1 + m2;
-                if (psm.MatchesCandidateMass(peptideMass + combined, precursorTolerance, commonParameters))
+                if (psm.MatchesCandidateMass(peptideMass + combined, precursorTolerance, commonParameters, GptmdMaxApexOffsetNeutrons))
                 {
                     foreach (var mod in GetPossibleMods(psm, allMods, combos, precursorTolerance, peptideWithSetModifications, commonParameters, candidateMassOffset + m1))
                         yield return mod;
