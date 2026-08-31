@@ -1,4 +1,7 @@
 using EngineLayer;
+using Nett;
+using System.IO;
+using TaskLayer;
 using EngineLayer.GlycoSearch;
 using NUnit.Framework;
 using NUnit.Framework.Legacy;
@@ -81,6 +84,32 @@ namespace Test
                 "A decoy admitting BOTH the S- and T-targeted copies would be twice as competitive as "
                 + "any real site, inflating the false-localization rate in the direction that looks "
                 + "like a finding.");
+        }
+
+        /// <summary>
+        /// A parameter that does not survive TOML round-trip is the worst kind of bug here: the search
+        /// runs, finishes, and reports a perfectly normal-looking result with NO decoy sites in it and
+        /// no error anywhere. The measured false-localization rate would simply be zero.
+        /// </summary>
+        [Test]
+        public static void NewGlycoParametersSurviveTomlRoundTrip()
+        {
+            var task = new GlycoSearchTask();
+            task._glycoSearchParameters.DecoyGlycositeResidues = new[] { "A", "L" };
+            task._glycoSearchParameters.RetainedGsmsPerScan = 25;
+
+            string path = Path.Combine(TestContext.CurrentContext.TestDirectory,
+                                       "GlycoDecoyRoundTrip.toml");
+            Toml.WriteFile(task, path, MetaMorpheusTask.tomlConfig);
+            var loaded = Toml.ReadFile<GlycoSearchTask>(path, MetaMorpheusTask.tomlConfig);
+
+            Assert.That(loaded._glycoSearchParameters.RetainedGsmsPerScan, Is.EqualTo(25),
+                "RetainedGsmsPerScan did not survive the toml round-trip.");
+            Assert.That(loaded._glycoSearchParameters.DecoyGlycositeResidues, Is.EqualTo(new[] { "A", "L" }),
+                "DecoyGlycositeResidues did not survive the toml round-trip -- a search configured with "
+                + "decoy sites would silently run WITHOUT them and report a false-localization rate of zero.");
+
+            File.Delete(path);
         }
 
         [Test]
