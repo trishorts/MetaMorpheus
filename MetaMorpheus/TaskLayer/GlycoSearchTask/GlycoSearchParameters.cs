@@ -15,6 +15,7 @@ namespace TaskLayer
             DecoyType = DecoyType.Reverse;
             GlycoSearchTopNum = 50;
             RetainedGsmsPerScan = 25;
+            DecoyGlycositeResidues = new string[0];
             MaximumOGlycanAllowed = 4;
             DoParsimony = true;
             NoOneHitWonders = false;
@@ -52,6 +53,18 @@ namespace TaskLayer
         /// signal is concentrated in the top handful.
         /// </summary>
         public int RetainedGsmsPerScan { get; set; }
+
+        /// <summary>
+        /// Residues added as DECOY glycosites -- e.g. ["A"]. A localization that lands on one is wrong
+        /// by construction, which is the ground truth a false-localization rate needs.
+        ///
+        /// EMPTY BY DEFAULT: an ordinary search is completely unaffected.
+        ///
+        /// This is construction (b) of at least five candidates (design/PLAN_GLYCO_LOCALIZATION.md
+        /// section 1.0) and it is a PROBE, not a settled choice. The decoy-amino-acid family has known
+        /// unexplained behaviour -- see the localization project's M14/M15.
+        /// </summary>
+        public string[] DecoyGlycositeResidues { get; set; }
         public int MaximumOGlycanAllowed { get; set; }
 
         public bool DoParsimony { get; set; }

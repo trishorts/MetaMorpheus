@@ -20,6 +20,7 @@ namespace EngineLayer.GlycoSearch
         private GlycoSearchType GlycoSearchType;
         private readonly int TopN;              // DDA top Peak number.
         private readonly int _retainedGsmsPerScan; // GSMs kept per MS2 scan. Was a hardcoded 10.
+        private readonly string[] _decoyGlycositeResidues; // Known-wrong candidate sites. Empty = ordinary search.
         private readonly int _maxOGlycanNum;
         private readonly bool OxoniumIonFilter; // To filt Oxonium Ion before searching a spectrum as glycopeptides. If we filter spectrum, it must contain oxonium ions such as 204 (HexNAc). 
         private readonly string _oglycanDatabase;
@@ -35,24 +36,30 @@ namespace EngineLayer.GlycoSearch
         {
             get
             {
-                if (GlycoSearchType == GlycoSearchType.N_O_GlycanSearch)
-                {
-                    return new string[] { "S", "T", "Nxs", "Nxt" };
-                }
-                return new string[] { "S", "T" }; // motif for the OSearch
+                var motifs = GlycoSearchType == GlycoSearchType.N_O_GlycanSearch
+                    ? new List<string> { "S", "T", "Nxs", "Nxt" }
+                    : new List<string> { "S", "T" }; // motif for the OSearch
+
+                // Decoy glycosites: residues that cannot carry an O-glycan, added as candidate sites so
+                // a win on one is a known-wrong localization. Empty by default -- an ordinary search is
+                // unchanged.
+                motifs.AddRange(_decoyGlycositeResidues);
+                return motifs.ToArray();
             }
         }
 
         // The constructor for GlycoSearchEngine, we can load the parameter for the searhcing like mode, topN, maxOGlycanNum, oxoniumIonFilter, datsbase, etc.
         public GlycoSearchEngine(List<GlycoSpectralMatch>[] globalCsms, Ms2ScanWithSpecificMass[] listOfSortedms2Scans, List<PeptideWithSetModifications> peptideIndex,
             List<int>[] fragmentIndex, List<int>[] secondFragmentIndex, int currentPartition, CommonParameters commonParameters, List<(string fileName, CommonParameters fileSpecificParameters)> fileSpecificParameters,
-             string oglycanDatabase, string nglycanDatabase, GlycoSearchType glycoSearchType, int glycoSearchTopNum, int maxOGlycanNum, bool oxoniumIonFilter, List<string> nestedIds, int retainedGsmsPerScan = 25)
+             string oglycanDatabase, string nglycanDatabase, GlycoSearchType glycoSearchType, int glycoSearchTopNum, int maxOGlycanNum, bool oxoniumIonFilter, List<string> nestedIds, int retainedGsmsPerScan = 25, string[] decoyGlycositeResidues = null)
             : base(null, listOfSortedms2Scans, peptideIndex, fragmentIndex, currentPartition, commonParameters, fileSpecificParameters, new OpenSearchMode(), 0, nestedIds)
         {
             this.GlobalGsms = globalCsms;
             this.GlycoSearchType = glycoSearchType;
             this.TopN = glycoSearchTopNum;
             this._retainedGsmsPerScan = retainedGsmsPerScan;
+            this._decoyGlycositeResidues = decoyGlycositeResidues ?? new string[0];
+            LocalizationGraph.DecoyGlycositeMotifs = new HashSet<string>(this._decoyGlycositeResidues);
             this._maxOGlycanNum = maxOGlycanNum;
             this.OxoniumIonFilter = oxoniumIonFilter;
             this._oglycanDatabase = oglycanDatabase;

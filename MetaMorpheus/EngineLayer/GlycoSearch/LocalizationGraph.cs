@@ -525,6 +525,22 @@ namespace EngineLayer.GlycoSearch
         /// <param name="currentY"></param>
         /// <param name="modPos"></param>
         /// <returns></returns>
+        /// <summary>
+        /// Residues admitted as DECOY glycosites -- positions that cannot really carry an O-glycan,
+        /// used as known-wrong site assignments. Empty for an ordinary search, which then behaves
+        /// exactly as before.
+        ///
+        /// Static because GlycanBox.GlobalOGlycans already is, and MotifCheck is called in the inner
+        /// localization loop. Set it once, from the engine constructor.
+        /// </summary>
+        public static HashSet<string> DecoyGlycositeMotifs { get; set; } = new HashSet<string>();
+
+        /// <summary>
+        /// The half of the glycan set a decoy site is allowed to draw from. See MotifCheck for why
+        /// this exists; the specific letter is arbitrary, the restriction to ONE letter is not.
+        /// </summary>
+        public const string CanonicalDecoyTarget = "T";
+
         public static bool MotifCheck(GlycanBox modBox, int preY, int currentY, string motif)
         {
             var preModBoxId = modBox.ChildGlycanBoxes[preY].ModIds;
@@ -538,6 +554,22 @@ namespace EngineLayer.GlycoSearch
             }
             
             Modification modForthisNode = modDiff[0] >= 0?  GlycanBox.GlobalOGlycans[modDiff[0]] : GlycanBox.GlobalNGlycans[modDiff[0]];
+
+            if (DecoyGlycositeMotifs.Contains(motif))
+            {
+                // COMPETITION PARITY -- do not relax this to "return true".
+                //
+                // O-Pair loads every composition TWICE, once targeting S and once targeting T
+                // (GlycanDatabase.LoadGlycan). So a real S site and a real T site each admit exactly
+                // ONE instance of a given composition. Admitting any glycan at a decoy site would give
+                // the decoy BOTH copies -- twice the instances a real site gets -- making it
+                // artificially competitive and inflating the measured false-localization rate in the
+                // direction that looks like a finding.
+                //
+                // Restricting to one canonical target letter restores parity. The letter is arbitrary;
+                // the restriction to a single letter is what matters.
+                return modForthisNode.Target.ToString() == CanonicalDecoyTarget;
+            }
 
             return modForthisNode.Target.ToString() == motif;
         }
