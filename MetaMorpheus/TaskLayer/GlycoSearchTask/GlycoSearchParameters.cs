@@ -14,6 +14,7 @@ namespace TaskLayer
             OxoniumIonFilt = true;
             DecoyType = DecoyType.Reverse;
             GlycoSearchTopNum = 50;
+            RetainedGsmsPerScan = 25;
             MaximumOGlycanAllowed = 4;
             DoParsimony = true;
             NoOneHitWonders = false;
@@ -41,6 +42,16 @@ namespace TaskLayer
         public bool OxoniumIonFilt { get; set; }
         public DecoyType DecoyType { get; set; }
         public int GlycoSearchTopNum { get; set; }
+
+        /// <summary>
+        /// How many GlycoSpectralMatch objects to retain per MS2 scan. Was a hardcoded 10.
+        ///
+        /// 25, not 10, because in a combined target+decoy-glycosite search the two interleave roughly
+        /// half and half, so the 10th TARGET match sits around position 20 and a retention of 10 yields
+        /// about 5 targets. 25 gives ~10 targets plus headroom. Deeper buys little: the competition
+        /// signal is concentrated in the top handful.
+        /// </summary>
+        public int RetainedGsmsPerScan { get; set; }
         public int MaximumOGlycanAllowed { get; set; }
 
         public bool DoParsimony { get; set; }

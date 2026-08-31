@@ -19,6 +19,7 @@ namespace EngineLayer.GlycoSearch
 
         private GlycoSearchType GlycoSearchType;
         private readonly int TopN;              // DDA top Peak number.
+        private readonly int _retainedGsmsPerScan; // GSMs kept per MS2 scan. Was a hardcoded 10.
         private readonly int _maxOGlycanNum;
         private readonly bool OxoniumIonFilter; // To filt Oxonium Ion before searching a spectrum as glycopeptides. If we filter spectrum, it must contain oxonium ions such as 204 (HexNAc). 
         private readonly string _oglycanDatabase;
@@ -45,12 +46,13 @@ namespace EngineLayer.GlycoSearch
         // The constructor for GlycoSearchEngine, we can load the parameter for the searhcing like mode, topN, maxOGlycanNum, oxoniumIonFilter, datsbase, etc.
         public GlycoSearchEngine(List<GlycoSpectralMatch>[] globalCsms, Ms2ScanWithSpecificMass[] listOfSortedms2Scans, List<PeptideWithSetModifications> peptideIndex,
             List<int>[] fragmentIndex, List<int>[] secondFragmentIndex, int currentPartition, CommonParameters commonParameters, List<(string fileName, CommonParameters fileSpecificParameters)> fileSpecificParameters,
-             string oglycanDatabase, string nglycanDatabase, GlycoSearchType glycoSearchType, int glycoSearchTopNum, int maxOGlycanNum, bool oxoniumIonFilter, List<string> nestedIds)
+             string oglycanDatabase, string nglycanDatabase, GlycoSearchType glycoSearchType, int glycoSearchTopNum, int maxOGlycanNum, bool oxoniumIonFilter, List<string> nestedIds, int retainedGsmsPerScan = 25)
             : base(null, listOfSortedms2Scans, peptideIndex, fragmentIndex, currentPartition, commonParameters, fileSpecificParameters, new OpenSearchMode(), 0, nestedIds)
         {
             this.GlobalGsms = globalCsms;
             this.GlycoSearchType = glycoSearchType;
             this.TopN = glycoSearchTopNum;
+            this._retainedGsmsPerScan = retainedGsmsPerScan;
             this._maxOGlycanNum = maxOGlycanNum;
             this.OxoniumIonFilter = oxoniumIonFilter;
             this._oglycanDatabase = oglycanDatabase;
@@ -249,14 +251,14 @@ namespace EngineLayer.GlycoSearch
 
         private void Add2GlobalGsms(ref List<GlycoSpectralMatch> gsms, int scanIndex)
         {
-            //keep top 10 candidates.
+            //keep the top _retainedGsmsPerScan candidates (default 25; was a hardcoded 10).
             double preScore = 0;
             int gsmsCount = 1;
             string preString = "";
 
             foreach (var gsm in gsms.Where(p => p != null).OrderByDescending(p => p.Score).ThenBy(c => c.FullSequence))
             {
-                if (gsmsCount <= 10) 
+                if (gsmsCount <= _retainedGsmsPerScan) 
                 {
                     gsm.ResolveAllAmbiguities(); //Try to resolve any case that have the same sequence in the PSM.
 
