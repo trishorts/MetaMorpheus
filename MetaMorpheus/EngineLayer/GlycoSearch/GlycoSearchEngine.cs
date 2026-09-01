@@ -78,6 +78,7 @@ namespace EngineLayer.GlycoSearch
             if (glycoSearchType == GlycoSearchType.OGlycanSearch) //if we do the O-glycan search, we need to load the O-glycan database and generate the glycoBox.
             {
                 GlycanBox.GlobalOGlycans = GlycanDatabase.LoadGlycan(GlobalVariables.OGlycanDatabasePaths.Where(p => System.IO.Path.GetFileName(p) == _oglycanDatabase).First(), true, true).ToArray();
+                AddDecoyTargetedGlycans(); // construction (a) -- must precede box building
                 GlycanBox.OGlycanBoxes = GlycanBox.BuildOGlycanBoxes(_maxOGlycanNum, false).OrderBy(p => p.Mass).ToArray(); //generate glycan box for O-glycan search
                 GlycanBoxes = GlycanBox.OGlycanBoxes;
                 GlycoSpectralMatch.GlycanBoxes = GlycanBoxes;
@@ -359,6 +360,43 @@ namespace EngineLayer.GlycoSearch
                     modPos.Add(key, LocalizationGraph.PositionalDecoyMotif);
                 }
             }
+        }
+
+
+        /// <summary>
+        /// Construction (a). Adds one glycan instance per composition TARGETING the positional-decoy
+        /// motif, so a decoy site draws on its own matched set.
+        ///
+        /// Why this rather than a parity rule. O-Pair loads every composition twice, once targeting S
+        /// and once T, so a real site admits exactly ONE instance of a given composition. The earlier
+        /// approach let a decoy draw from one arbitrarily chosen half, and M17 measured what that cost:
+        /// flipping that physically meaningless letter from "T" to "S" moved per-site posteriors by
+        /// more than 0.05 in 16% of decoy sites and changed the WINNING site in 17% of GSMs. Giving
+        /// decoys their own targeted copy makes parity structural -- one instance per composition, the
+        /// same as a real site -- and deletes the arbitrary choice entirely.
+        ///
+        /// Cost, measured rather than assumed: boxes are combinations-with-repetition over
+        /// GlobalOGlycans, so N -> 1.5N takes the count from 2,924 to 9,138 at maxNum 3 on the shipped
+        /// 12-composition database -- 3.1x on a small base. This construction was deprioritised on an
+        /// unmeasured "combinatorial explosion" and should not have been.
+        ///
+        /// Only wired into the O-glycan search path; the N/O path is untouched.
+        /// </summary>
+        private void AddDecoyTargetedGlycans()
+        {
+            if (!_decoyGlycositesAdjacent || GlycanBox.GlobalOGlycans == null)
+            {
+                return; // ordinary search: the glycan set is untouched
+            }
+
+            // One source instance per composition -- take the "T" half, because the S and T copies of a
+            // composition differ only in Target and we want exactly one decoy instance, not two.
+            var decoys = GlycanBox.GlobalOGlycans
+                .Where(g => g.Target != null && g.Target.ToString() == "T")
+                .Select(g => new Glycan(g.Kind, LocalizationGraph.PositionalDecoyMotif, GlycanType.O_glycan))
+                .ToArray();
+
+            GlycanBox.GlobalOGlycans = GlycanBox.GlobalOGlycans.Concat(decoys).ToArray();
         }
 
         //For FindOGlycan, generate the gsms for O-glycan search

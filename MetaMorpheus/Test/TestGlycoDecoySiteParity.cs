@@ -4,6 +4,7 @@ using System.IO;
 using TaskLayer;
 using EngineLayer.GlycoSearch;
 using NUnit.Framework;
+using Omics.Modifications;
 using NUnit.Framework.Legacy;
 using System.Collections.Generic;
 using System.Linq;
@@ -113,38 +114,68 @@ namespace Test
             File.Delete(path);
         }
 
-        /// <summary>
-        /// Construction (f): the positional-decoy motif must be admitted on the SAME parity terms as a
-        /// residue-chosen decoy -- one canonical half, not both. If it were admitted freely it would
-        /// draw from twice the glycan instances a real site does and inflate the measured rate in the
-        /// direction that looks like a finding.
-        /// </summary>
         [Test]
-        public static void PositionalDecoyMotifObeysTheSameParityRule()
+        public static void PositionalDecoyMotifIsUsableAndCannotCollideWithAResidue()
         {
-            int onT = AdmittedAt("T");
-            int onS = AdmittedAt("S");
-            Assert.That(onT, Is.GreaterThan(0), "sanity: real T sites must admit something");
+            // Construction (a) builds REAL Glycan instances targeting this motif, and Glycan's
+            // constructor runs it through ModificationMotif.TryGetMotif -- which requires ^[A-Za-z]+$
+            // with exactly one upper case. A motif that fails here would silently produce glycans with
+            // a null Target.
+            Assert.That(ModificationMotif.TryGetMotif(LocalizationGraph.PositionalDecoyMotif, out _), Is.True,
+                "The positional-decoy motif must be a valid ModificationMotif.");
 
-            // The sentinel is NOT in DecoyGlycositeMotifs and must still be admitted, because it is
-            // recognised by identity rather than by membership of the residue set.
-            LocalizationGraph.DecoyGlycositeMotifs = new HashSet<string>();
-            int onSentinel = AdmittedAt(LocalizationGraph.PositionalDecoyMotif);
-
-            Assert.That(onSentinel, Is.EqualTo(onT),
-                "A positional decoy must admit exactly the canonical half, like a residue decoy.");
-            Assert.That(onSentinel, Is.LessThan(onS + onT),
-                "Admitting both halves would make the decoy twice as competitive as any real site.");
+            Assert.That(LocalizationGraph.PositionalDecoyMotif.Length, Is.GreaterThan(1),
+                "A single letter could collide with an amino-acid motif, silently turning every "
+                + "occurrence of that residue into a decoy site.");
         }
 
+        /// <summary>
+        /// Construction (a) is what replaced the canonical-letter parity rule. M17 measured that the
+        /// letter was not cosmetic: flipping it T -> S moved per-site posteriors by >0.05 in 16% of
+        /// decoy sites and changed the winning site in 17% of GSMs. Parity must now hold BY
+        /// CONSTRUCTION -- exactly one decoy instance per composition, matching the one instance a real
+        /// S or T site gets.
+        /// </summary>
         [Test]
-        public static void PositionalDecoyMotifIsNotARealResidue()
+        public static void DecoyTargetedGlycansGiveParityWithoutAnArbitraryLetter()
         {
-            // If the sentinel collided with a residue letter, every occurrence of that residue would
-            // silently become a decoy site.
-            Assert.That(LocalizationGraph.PositionalDecoyMotif.Length, Is.EqualTo(1));
-            Assert.That(char.IsLetter(LocalizationGraph.PositionalDecoyMotif[0]), Is.False,
-                "The positional-decoy marker must not be an amino-acid letter.");
+            var original = GlycanBox.GlobalOGlycans;
+            try
+            {
+                int onS = original.Count(g => g.Target != null && g.Target.ToString() == "S");
+                int onT = original.Count(g => g.Target != null && g.Target.ToString() == "T");
+                Assert.That(onS, Is.GreaterThan(0));
+                Assert.That(onT, Is.EqualTo(onS), "each composition is loaded once per real motif");
+
+                Assert.That(original.Count(g => g.Target != null
+                        && g.Target.ToString() == LocalizationGraph.PositionalDecoyMotif), Is.EqualTo(0),
+                    "without construction (a), nothing targets the decoy motif");
+
+                // Exactly what AddDecoyTargetedGlycans does.
+                var withDecoys = original
+                    .Concat(original.Where(g => g.Target != null && g.Target.ToString() == "T")
+                        .Select(g => new Glycan(g.Kind, LocalizationGraph.PositionalDecoyMotif, GlycanType.O_glycan)))
+                    .ToArray();
+
+                int onDecoy = withDecoys.Count(g => g.Target != null
+                    && g.Target.ToString() == LocalizationGraph.PositionalDecoyMotif);
+
+                Assert.That(onDecoy, Is.EqualTo(onT),
+                    "A decoy site must draw on exactly as many glycan instances as a real site.");
+                Assert.That(onDecoy, Is.LessThan(onS + onT),
+                    "Admitting both halves would make a decoy twice as competitive as any real site.");
+
+                // Masses must match too, or decoys compete at the wrong precursor masses entirely.
+                var tMasses = original.Where(g => g.Target.ToString() == "T").Select(g => g.Mass).OrderBy(m => m);
+                var dMasses = withDecoys.Where(g => g.Target.ToString() == LocalizationGraph.PositionalDecoyMotif)
+                                        .Select(g => g.Mass).OrderBy(m => m);
+                Assert.That(dMasses, Is.EqualTo(tMasses),
+                    "Decoy instances must carry the same masses as the compositions they mirror.");
+            }
+            finally
+            {
+                GlycanBox.GlobalOGlycans = original;
+            }
         }
 
         [Test]

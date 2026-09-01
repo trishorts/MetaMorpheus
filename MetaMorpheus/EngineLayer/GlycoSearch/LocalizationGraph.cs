@@ -553,7 +553,12 @@ namespace EngineLayer.GlycoSearch
         /// simply does not count it toward any box's motif requirement (which is correct: it satisfies
         /// nothing, it only competes).
         /// </summary>
-        public const string PositionalDecoyMotif = "*";
+        /// <summary>
+        /// Multi-letter so it cannot collide with a residue, and a VALID ModificationMotif
+        /// (^[A-Za-z]+$, exactly one upper case) so real Glycan instances can be built targeting it --
+        /// which is what construction (a) needs. Same shape as the existing "Nxs"/"Nxt" motifs.
+        /// </summary>
+        public const string PositionalDecoyMotif = "Xdecoy";
 
         public static bool MotifCheck(GlycanBox modBox, int preY, int currentY, string motif)
         {
@@ -569,7 +574,11 @@ namespace EngineLayer.GlycoSearch
             
             Modification modForthisNode = modDiff[0] >= 0?  GlycanBox.GlobalOGlycans[modDiff[0]] : GlycanBox.GlobalNGlycans[modDiff[0]];
 
-            if (motif == PositionalDecoyMotif || DecoyGlycositeMotifs.Contains(motif))
+            // NOTE no case for PositionalDecoyMotif. Construction (a) loads real glycan instances
+            // TARGETING that motif, so the ordinary comparison below admits them -- exactly one
+            // instance per composition, which is parity by construction rather than by an arbitrary
+            // canonical letter. M17 measured that the letter was moving 17% of winners.
+            if (DecoyGlycositeMotifs.Contains(motif))
             {
                 // COMPETITION PARITY -- do not relax this to "return true".
                 //
