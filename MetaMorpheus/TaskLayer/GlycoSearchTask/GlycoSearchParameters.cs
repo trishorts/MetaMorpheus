@@ -17,6 +17,7 @@ namespace TaskLayer
             RetainedGsmsPerScan = 25;
             DecoyGlycositeResidues = new string[0];
             DecoyGlycositesAdjacentToRealSites = false;
+            DecoyGlycositeCanonicalTarget = "T";
             MaximumOGlycanAllowed = 4;
             DoParsimony = true;
             NoOneHitWonders = false;
@@ -81,6 +82,13 @@ namespace TaskLayer
         /// hardest subset. Never quote it beside a residue-decoy rate as the same quantity.
         /// </summary>
         public bool DecoyGlycositesAdjacentToRealSites { get; set; }
+
+        /// <summary>
+        /// Which single glycan-target letter a decoy site may draw from. "T" or "S". The restriction to
+        /// one letter preserves competition parity; WHICH letter is arbitrary and is exposed so it can
+        /// be flipped as a control -- see design/MEASUREMENTS.md M16.
+        /// </summary>
+        public string DecoyGlycositeCanonicalTarget { get; set; }
         public int MaximumOGlycanAllowed { get; set; }
 
         public bool DoParsimony { get; set; }

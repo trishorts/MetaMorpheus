@@ -52,7 +52,7 @@ namespace EngineLayer.GlycoSearch
         // The constructor for GlycoSearchEngine, we can load the parameter for the searhcing like mode, topN, maxOGlycanNum, oxoniumIonFilter, datsbase, etc.
         public GlycoSearchEngine(List<GlycoSpectralMatch>[] globalCsms, Ms2ScanWithSpecificMass[] listOfSortedms2Scans, List<PeptideWithSetModifications> peptideIndex,
             List<int>[] fragmentIndex, List<int>[] secondFragmentIndex, int currentPartition, CommonParameters commonParameters, List<(string fileName, CommonParameters fileSpecificParameters)> fileSpecificParameters,
-             string oglycanDatabase, string nglycanDatabase, GlycoSearchType glycoSearchType, int glycoSearchTopNum, int maxOGlycanNum, bool oxoniumIonFilter, List<string> nestedIds, int retainedGsmsPerScan = 25, string[] decoyGlycositeResidues = null, bool decoyGlycositesAdjacent = false)
+             string oglycanDatabase, string nglycanDatabase, GlycoSearchType glycoSearchType, int glycoSearchTopNum, int maxOGlycanNum, bool oxoniumIonFilter, List<string> nestedIds, int retainedGsmsPerScan = 25, string[] decoyGlycositeResidues = null, bool decoyGlycositesAdjacent = false, string decoyGlycositeCanonicalTarget = null)
             : base(null, listOfSortedms2Scans, peptideIndex, fragmentIndex, currentPartition, commonParameters, fileSpecificParameters, new OpenSearchMode(), 0, nestedIds)
         {
             this.GlobalGsms = globalCsms;
@@ -62,6 +62,10 @@ namespace EngineLayer.GlycoSearch
             this._decoyGlycositeResidues = decoyGlycositeResidues ?? new string[0];
             LocalizationGraph.DecoyGlycositeMotifs = new HashSet<string>(this._decoyGlycositeResidues);
             this._decoyGlycositesAdjacent = decoyGlycositesAdjacent;
+            if (!string.IsNullOrWhiteSpace(decoyGlycositeCanonicalTarget))
+            {
+                LocalizationGraph.CanonicalDecoyTarget = decoyGlycositeCanonicalTarget.Trim();
+            }
             this._maxOGlycanNum = maxOGlycanNum;
             this.OxoniumIonFilter = oxoniumIonFilter;
             this._oglycanDatabase = oglycanDatabase;

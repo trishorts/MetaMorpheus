@@ -537,9 +537,15 @@ namespace EngineLayer.GlycoSearch
 
         /// <summary>
         /// The half of the glycan set a decoy site is allowed to draw from. See MotifCheck for why
-        /// this exists; the specific letter is arbitrary, the restriction to ONE letter is not.
+        /// this exists; the restriction to ONE letter is what preserves parity.
+        ///
+        /// SETTABLE because the choice of letter is a CONFOUND that has to be controlled, not assumed
+        /// away. If a winning route uses an S-targeted instance while decoys may only take T-targeted
+        /// ones, the decoy is blocked by construction rather than rejected by evidence -- and its near
+        /// zero probability would look like the localizer discriminating when it is really this rule.
+        /// Flipping the letter and re-running is the control (M16).
         /// </summary>
-        public const string CanonicalDecoyTarget = "T";
+        public static string CanonicalDecoyTarget { get; set; } = "T";
 
         /// <summary>
         /// Motif marker for a decoy site chosen by POSITION rather than by residue -- construction (f),

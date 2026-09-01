@@ -44,6 +44,7 @@ namespace Test
         {
             // Static, so it must not leak into another fixture.
             LocalizationGraph.DecoyGlycositeMotifs = new HashSet<string>();
+            LocalizationGraph.CanonicalDecoyTarget = "T";
         }
 
         /// <summary>Boxes holding exactly one glycan: the 0 -> 1 transition isolates a single glycan.</summary>
