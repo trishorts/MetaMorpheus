@@ -112,6 +112,40 @@ namespace Test
             File.Delete(path);
         }
 
+        /// <summary>
+        /// Construction (f): the positional-decoy motif must be admitted on the SAME parity terms as a
+        /// residue-chosen decoy -- one canonical half, not both. If it were admitted freely it would
+        /// draw from twice the glycan instances a real site does and inflate the measured rate in the
+        /// direction that looks like a finding.
+        /// </summary>
+        [Test]
+        public static void PositionalDecoyMotifObeysTheSameParityRule()
+        {
+            int onT = AdmittedAt("T");
+            int onS = AdmittedAt("S");
+            Assert.That(onT, Is.GreaterThan(0), "sanity: real T sites must admit something");
+
+            // The sentinel is NOT in DecoyGlycositeMotifs and must still be admitted, because it is
+            // recognised by identity rather than by membership of the residue set.
+            LocalizationGraph.DecoyGlycositeMotifs = new HashSet<string>();
+            int onSentinel = AdmittedAt(LocalizationGraph.PositionalDecoyMotif);
+
+            Assert.That(onSentinel, Is.EqualTo(onT),
+                "A positional decoy must admit exactly the canonical half, like a residue decoy.");
+            Assert.That(onSentinel, Is.LessThan(onS + onT),
+                "Admitting both halves would make the decoy twice as competitive as any real site.");
+        }
+
+        [Test]
+        public static void PositionalDecoyMotifIsNotARealResidue()
+        {
+            // If the sentinel collided with a residue letter, every occurrence of that residue would
+            // silently become a decoy site.
+            Assert.That(LocalizationGraph.PositionalDecoyMotif.Length, Is.EqualTo(1));
+            Assert.That(char.IsLetter(LocalizationGraph.PositionalDecoyMotif[0]), Is.False,
+                "The positional-decoy marker must not be an amino-acid letter.");
+        }
+
         [Test]
         public static void RealMotifsAreUnchangedWhileDecoysAreActive()
         {

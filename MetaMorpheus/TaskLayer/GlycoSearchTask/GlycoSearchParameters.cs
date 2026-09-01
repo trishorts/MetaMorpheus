@@ -16,6 +16,7 @@ namespace TaskLayer
             GlycoSearchTopNum = 50;
             RetainedGsmsPerScan = 25;
             DecoyGlycositeResidues = new string[0];
+            DecoyGlycositesAdjacentToRealSites = false;
             MaximumOGlycanAllowed = 4;
             DoParsimony = true;
             NoOneHitWonders = false;
@@ -65,6 +66,21 @@ namespace TaskLayer
         /// unexplained behaviour -- see the localization project's M14/M15.
         /// </summary>
         public string[] DecoyGlycositeResidues { get; set; }
+
+        /// <summary>
+        /// Construction (f): place decoy sites at positions IMMEDIATELY FLANKING a real candidate site,
+        /// whatever residue is there (S/T excluded, so the site stays wrong by construction).
+        ///
+        /// Why position rather than residue: M13 measured that residue-chosen decoys never reach
+        /// p >= 0.90 in any stratum, because a non-glycosylatable residue rarely sits where the
+        /// fragment ions fail to exclude it. Adjacency is the regime where the evidence genuinely
+        /// cannot separate two sites, and it is the only regime that can populate the high-confidence
+        /// bins a Phred-like score depends on.
+        ///
+        /// NOTE the rate this produces is CONSERVATIVE, not unbiased: it deliberately samples the
+        /// hardest subset. Never quote it beside a residue-decoy rate as the same quantity.
+        /// </summary>
+        public bool DecoyGlycositesAdjacentToRealSites { get; set; }
         public int MaximumOGlycanAllowed { get; set; }
 
         public bool DoParsimony { get; set; }

@@ -21,6 +21,7 @@ namespace EngineLayer.GlycoSearch
         private readonly int TopN;              // DDA top Peak number.
         private readonly int _retainedGsmsPerScan; // GSMs kept per MS2 scan. Was a hardcoded 10.
         private readonly string[] _decoyGlycositeResidues; // Known-wrong candidate sites. Empty = ordinary search.
+        private readonly bool _decoyGlycositesAdjacent;    // Construction (f): decoys flank real sites.
         private readonly int _maxOGlycanNum;
         private readonly bool OxoniumIonFilter; // To filt Oxonium Ion before searching a spectrum as glycopeptides. If we filter spectrum, it must contain oxonium ions such as 204 (HexNAc). 
         private readonly string _oglycanDatabase;
@@ -51,7 +52,7 @@ namespace EngineLayer.GlycoSearch
         // The constructor for GlycoSearchEngine, we can load the parameter for the searhcing like mode, topN, maxOGlycanNum, oxoniumIonFilter, datsbase, etc.
         public GlycoSearchEngine(List<GlycoSpectralMatch>[] globalCsms, Ms2ScanWithSpecificMass[] listOfSortedms2Scans, List<PeptideWithSetModifications> peptideIndex,
             List<int>[] fragmentIndex, List<int>[] secondFragmentIndex, int currentPartition, CommonParameters commonParameters, List<(string fileName, CommonParameters fileSpecificParameters)> fileSpecificParameters,
-             string oglycanDatabase, string nglycanDatabase, GlycoSearchType glycoSearchType, int glycoSearchTopNum, int maxOGlycanNum, bool oxoniumIonFilter, List<string> nestedIds, int retainedGsmsPerScan = 25, string[] decoyGlycositeResidues = null)
+             string oglycanDatabase, string nglycanDatabase, GlycoSearchType glycoSearchType, int glycoSearchTopNum, int maxOGlycanNum, bool oxoniumIonFilter, List<string> nestedIds, int retainedGsmsPerScan = 25, string[] decoyGlycositeResidues = null, bool decoyGlycositesAdjacent = false)
             : base(null, listOfSortedms2Scans, peptideIndex, fragmentIndex, currentPartition, commonParameters, fileSpecificParameters, new OpenSearchMode(), 0, nestedIds)
         {
             this.GlobalGsms = globalCsms;
@@ -60,6 +61,7 @@ namespace EngineLayer.GlycoSearch
             this._retainedGsmsPerScan = retainedGsmsPerScan;
             this._decoyGlycositeResidues = decoyGlycositeResidues ?? new string[0];
             LocalizationGraph.DecoyGlycositeMotifs = new HashSet<string>(this._decoyGlycositeResidues);
+            this._decoyGlycositesAdjacent = decoyGlycositesAdjacent;
             this._maxOGlycanNum = maxOGlycanNum;
             this.OxoniumIonFilter = oxoniumIonFilter;
             this._oglycanDatabase = oglycanDatabase;
@@ -307,6 +309,54 @@ namespace EngineLayer.GlycoSearch
             }
         }
 
+
+        /// <summary>
+        /// Construction (f). Adds a decoy candidate site at each position immediately flanking a real
+        /// one, whatever residue sits there.
+        ///
+        /// M13 is why this exists: residue-chosen decoys (every alanine, say) never reached p >= 0.90
+        /// in any stratum, because a non-glycosylatable residue rarely sits where the fragment ions
+        /// fail to exclude it. Adjacency IS that regime.
+        ///
+        /// S and T are skipped -- a real motif would not be wrong by construction. Positions already
+        /// holding a candidate site are skipped. The added positions carry
+        /// <see cref="LocalizationGraph.PositionalDecoyMotif"/> rather than their residue letter,
+        /// because the decoy is chosen by POSITION: labelling it "V" would turn every valine in the
+        /// run into a decoy, which is construction (b) with more residues, not this.
+        /// </summary>
+        private static void AddAdjacentDecoySites(SortedDictionary<int, string> modPos, PeptideWithSetModifications peptide)
+        {
+            // GetPossibleModSites keys a residue at 0-based index r as r + 2 (slot 1 is the N-terminus),
+            // so the residue for key k is BaseSequence[k - 2]. Bounds follow from that.
+            var realSites = modPos.Keys.ToList();
+            foreach (var site in realSites)
+            {
+                foreach (var delta in new[] { -1, 1 })
+                {
+                    int key = site + delta;
+                    int index = key - 2;
+                    if (index < 0 || index >= peptide.BaseSequence.Length)
+                    {
+                        continue;
+                    }
+                    if (modPos.ContainsKey(key))
+                    {
+                        continue; // already a candidate site
+                    }
+                    char residue = peptide.BaseSequence[index];
+                    if (residue == 'S' || residue == 'T')
+                    {
+                        continue; // a real motif is not wrong by construction
+                    }
+                    if (peptide.AllModsOneIsNterminus.ContainsKey(key))
+                    {
+                        continue; // occupied by an existing modification
+                    }
+                    modPos.Add(key, LocalizationGraph.PositionalDecoyMotif);
+                }
+            }
+        }
+
         //For FindOGlycan, generate the gsms for O-glycan search
         private GlycoSpectralMatch CreateGsm(Ms2ScanWithSpecificMass theScan, int scanIndex, int rank, PeptideWithSetModifications peptide, Route localization, double[] oxoniumIonIntensities, List<LocalizationGraph> localizationGraphs)
         {
@@ -449,6 +499,11 @@ namespace EngineLayer.GlycoSearch
             int iDLow = GlycoPeptides.BinarySearchGetIndex(GlycanBoxes.Select(p => p.Mass).ToArray(), possibleGlycanMassLow); // try to find the index that closet match to the "possibleGlycanMassLow" within the glycanBox
 
             SortedDictionary<int, string> modPos = GlycoSpectralMatch.GetPossibleModSites(theScanBestPeptide, Motifs); //list all of the possible glycoslation site/postition
+
+            if (_decoyGlycositesAdjacent)
+            {
+                AddAdjacentDecoySites(modPos, theScanBestPeptide);
+            }
 
             var localizationScan = theScan;
             var toleranceForLocalizationScan = CommonParameters.ProductMassTolerance;

@@ -541,6 +541,14 @@ namespace EngineLayer.GlycoSearch
         /// </summary>
         public const string CanonicalDecoyTarget = "T";
 
+        /// <summary>
+        /// Motif marker for a decoy site chosen by POSITION rather than by residue -- construction (f),
+        /// adjacency-targeted. Not a real residue, so it can never collide with one, and NodeCheck
+        /// simply does not count it toward any box's motif requirement (which is correct: it satisfies
+        /// nothing, it only competes).
+        /// </summary>
+        public const string PositionalDecoyMotif = "*";
+
         public static bool MotifCheck(GlycanBox modBox, int preY, int currentY, string motif)
         {
             var preModBoxId = modBox.ChildGlycanBoxes[preY].ModIds;
@@ -555,7 +563,7 @@ namespace EngineLayer.GlycoSearch
             
             Modification modForthisNode = modDiff[0] >= 0?  GlycanBox.GlobalOGlycans[modDiff[0]] : GlycanBox.GlobalNGlycans[modDiff[0]];
 
-            if (DecoyGlycositeMotifs.Contains(motif))
+            if (motif == PositionalDecoyMotif || DecoyGlycositeMotifs.Contains(motif))
             {
                 // COMPETITION PARITY -- do not relax this to "return true".
                 //
