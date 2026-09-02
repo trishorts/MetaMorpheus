@@ -22,6 +22,7 @@ namespace EngineLayer.GlycoSearch
         private readonly int _retainedGsmsPerScan; // GSMs kept per MS2 scan. Was a hardcoded 10.
         private readonly string[] _decoyGlycositeResidues; // Known-wrong candidate sites. Empty = ordinary search.
         private readonly bool _decoyGlycositesAdjacent;    // Construction (f): decoys flank real sites.
+        private readonly int _maxDecoyGlycositesPerPeptide; // 0 = uncapped. See M14/M17.
         private readonly int _maxOGlycanNum;
         private readonly bool OxoniumIonFilter; // To filt Oxonium Ion before searching a spectrum as glycopeptides. If we filter spectrum, it must contain oxonium ions such as 204 (HexNAc). 
         private readonly string _oglycanDatabase;
@@ -52,7 +53,7 @@ namespace EngineLayer.GlycoSearch
         // The constructor for GlycoSearchEngine, we can load the parameter for the searhcing like mode, topN, maxOGlycanNum, oxoniumIonFilter, datsbase, etc.
         public GlycoSearchEngine(List<GlycoSpectralMatch>[] globalCsms, Ms2ScanWithSpecificMass[] listOfSortedms2Scans, List<PeptideWithSetModifications> peptideIndex,
             List<int>[] fragmentIndex, List<int>[] secondFragmentIndex, int currentPartition, CommonParameters commonParameters, List<(string fileName, CommonParameters fileSpecificParameters)> fileSpecificParameters,
-             string oglycanDatabase, string nglycanDatabase, GlycoSearchType glycoSearchType, int glycoSearchTopNum, int maxOGlycanNum, bool oxoniumIonFilter, List<string> nestedIds, int retainedGsmsPerScan = 25, string[] decoyGlycositeResidues = null, bool decoyGlycositesAdjacent = false, string decoyGlycositeCanonicalTarget = null)
+             string oglycanDatabase, string nglycanDatabase, GlycoSearchType glycoSearchType, int glycoSearchTopNum, int maxOGlycanNum, bool oxoniumIonFilter, List<string> nestedIds, int retainedGsmsPerScan = 25, string[] decoyGlycositeResidues = null, bool decoyGlycositesAdjacent = false, string decoyGlycositeCanonicalTarget = null, int maxDecoyGlycositesPerPeptide = 0)
             : base(null, listOfSortedms2Scans, peptideIndex, fragmentIndex, currentPartition, commonParameters, fileSpecificParameters, new OpenSearchMode(), 0, nestedIds)
         {
             this.GlobalGsms = globalCsms;
@@ -62,6 +63,7 @@ namespace EngineLayer.GlycoSearch
             this._decoyGlycositeResidues = decoyGlycositeResidues ?? new string[0];
             LocalizationGraph.DecoyGlycositeMotifs = new HashSet<string>(this._decoyGlycositeResidues);
             this._decoyGlycositesAdjacent = decoyGlycositesAdjacent;
+            this._maxDecoyGlycositesPerPeptide = maxDecoyGlycositesPerPeptide;
             if (!string.IsNullOrWhiteSpace(decoyGlycositeCanonicalTarget))
             {
                 LocalizationGraph.CanonicalDecoyTarget = decoyGlycositeCanonicalTarget.Trim();
@@ -329,11 +331,12 @@ namespace EngineLayer.GlycoSearch
         /// because the decoy is chosen by POSITION: labelling it "V" would turn every valine in the
         /// run into a decoy, which is construction (b) with more residues, not this.
         /// </summary>
-        private static void AddAdjacentDecoySites(SortedDictionary<int, string> modPos, PeptideWithSetModifications peptide)
+        private static void AddAdjacentDecoySites(SortedDictionary<int, string> modPos, PeptideWithSetModifications peptide, int maxDecoys)
         {
             // GetPossibleModSites keys a residue at 0-based index r as r + 2 (slot 1 is the N-terminus),
             // so the residue for key k is BaseSequence[k - 2]. Bounds follow from that.
             var realSites = modPos.Keys.ToList();
+            var candidates = new List<int>();
             foreach (var site in realSites)
             {
                 foreach (var delta in new[] { -1, 1 })
@@ -357,8 +360,27 @@ namespace EngineLayer.GlycoSearch
                     {
                         continue; // occupied by an existing modification
                     }
-                    modPos.Add(key, LocalizationGraph.PositionalDecoyMotif);
+                    candidates.Add(key);
                 }
+            }
+
+            // Cap the number added. Deterministic -- keyed on the peptide sequence, so the same peptide
+            // always yields the same decoy sites and a rerun is reproducible. Evenly spread across the
+            // candidates rather than taking the first few, which would bias decoys toward the N-terminus.
+            if (maxDecoys > 0 && candidates.Count > maxDecoys)
+            {
+                var seed = peptide.BaseSequence.GetHashCode() & 0x7fffffff;
+                var picked = new List<int>();
+                for (int i = 0; i < maxDecoys; i++)
+                {
+                    picked.Add(candidates[(seed + (i * candidates.Count / maxDecoys)) % candidates.Count]);
+                }
+                candidates = picked.Distinct().ToList();
+            }
+
+            foreach (var key in candidates)
+            {
+                modPos[key] = LocalizationGraph.PositionalDecoyMotif;
             }
         }
 
@@ -544,7 +566,7 @@ namespace EngineLayer.GlycoSearch
 
             if (_decoyGlycositesAdjacent)
             {
-                AddAdjacentDecoySites(modPos, theScanBestPeptide);
+                AddAdjacentDecoySites(modPos, theScanBestPeptide, _maxDecoyGlycositesPerPeptide);
             }
 
             var localizationScan = theScan;

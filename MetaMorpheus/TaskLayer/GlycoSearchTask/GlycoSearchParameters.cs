@@ -18,6 +18,7 @@ namespace TaskLayer
             DecoyGlycositeResidues = new string[0];
             DecoyGlycositesAdjacentToRealSites = false;
             DecoyGlycositeCanonicalTarget = "T";
+            MaxDecoyGlycositesPerPeptide = 0;
             MaximumOGlycanAllowed = 4;
             DoParsimony = true;
             NoOneHitWonders = false;
@@ -89,6 +90,22 @@ namespace TaskLayer
         /// be flipped as a control -- see design/MEASUREMENTS.md M16.
         /// </summary>
         public string DecoyGlycositeCanonicalTarget { get; set; }
+
+        /// <summary>
+        /// Cap on decoy sites added per peptide. 0 = uncapped (every flanking position).
+        ///
+        /// WHY THIS IS A VALIDITY REQUIREMENT, not tidiness. The FLR estimator scales a decoy's
+        /// probability mass by that peptide's target:decoy site ratio, which assumes decoy and
+        /// wrong-target sites are EXCHANGEABLE. Uncapped adjacency put decoy sites at ~50% of all
+        /// candidate sites (M14: 55%, M16: 42%, first construction-(a) run: 48.9%), and at that
+        /// density the estimator overflows -- it reported 234 wrong sites among 121 target sites and
+        /// clipped the answer. Half the localization graph being decoy is not a perturbation of the
+        /// graph, it is a rewrite of it.
+        ///
+        /// Capping keeps the adjacency that makes decoys informative while leaving the graph close to
+        /// what a real search builds.
+        /// </summary>
+        public int MaxDecoyGlycositesPerPeptide { get; set; }
         public int MaximumOGlycanAllowed { get; set; }
 
         public bool DoParsimony { get; set; }
