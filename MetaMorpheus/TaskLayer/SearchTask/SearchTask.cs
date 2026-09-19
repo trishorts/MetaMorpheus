@@ -667,6 +667,14 @@ namespace TaskLayer
                 Warn("SDRF output on a labelled search: comment[label] is not filled in yet, because " +
                      "the SDRF is written one row per file, not one row per channel. Every other column " +
                      "will be written.");
+
+            // Warned, not refused: the accession is still written as supplied. A typo here breaks the
+            // one join that ties this reanalysis back to its dataset, so it is worth naming now.
+            string accession = SearchParameters.ProteomeXchangeAccession?.Trim();
+            if (!string.IsNullOrEmpty(accession)
+                && !System.Text.RegularExpressions.Regex.IsMatch(accession, @"^PXD\d{6}$"))
+                Warn("SDRF output is on, but the ProteomeXchange accession '" + accession + "' does not " +
+                     "look like one (PXD followed by six digits). It will be written as given.");
         }
 
 

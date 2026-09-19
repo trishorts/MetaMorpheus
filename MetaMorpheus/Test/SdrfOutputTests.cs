@@ -9,6 +9,7 @@ using EngineLayer.DatabaseLoading;
 using EngineLayer.DIA;
 using MassSpectrometry;
 using MzLibUtil;
+using Nett;
 using NUnit.Framework;
 using Omics;
 using Omics.Modifications;
@@ -441,6 +442,114 @@ namespace Test
             }
 
             Assert.That(warnings.Any(w => w.Contains("comment[label]")), Is.True, string.Join(" | ", warnings));
+
+            Directory.Delete(folder, true);
+        }
+
+        #endregion
+
+        #region The dataset this search re-analyses
+
+        /// <summary>
+        /// A reanalysis names the dataset it searched. The accession is the join key for pooling, and
+        /// no spectra file carries it, so it has to come from the task.
+        /// </summary>
+        [Test]
+        public static void TheProteomeXchangeAccessionIsWrittenWhenSupplied()
+        {
+            string folder = SetUpIsolatedRun(nameof(TheProteomeXchangeAccessionIsWrittenWhenSupplied),
+                out string spectraPath, out DbForTask database);
+
+            var task = BuildSearchTask(writeSdrf: true);
+            task.SearchParameters.ProteomeXchangeAccession = " PXD012345 ";
+            string output = Path.Combine(folder, "TaskOutput");
+            Directory.CreateDirectory(output);
+
+            task.RunTask(output, new List<DbForTask> { database }, new List<string> { spectraPath }, "sdrf-pxd");
+
+            var document = new SdrfDocument(Path.Combine(output, SdrfFileName));
+            document.LoadResults();
+
+            Assert.That(document.Results.Single()["comment[proteomexchange accession number]"],
+                Is.EqualTo("PXD012345"), "Written trimmed, into the spec's own column.");
+
+            Directory.Delete(folder, true);
+        }
+
+        /// <summary>
+        /// Data that was never deposited has no accession, and the column is left out rather than
+        /// filled with a reserved word that would read as "deposited, accession unknown".
+        /// </summary>
+        [Test]
+        public static void NoAccessionColumnIsWrittenWhenNoneWasSupplied()
+        {
+            string output = RunSearchWritingSdrf(nameof(NoAccessionColumnIsWrittenWhenNoneWasSupplied),
+                out string folder, out _);
+
+            var document = new SdrfDocument(Path.Combine(output, SdrfFileName));
+            document.LoadResults();
+
+            Assert.That(document.Header, Does.Not.Contain("comment[proteomexchange accession number]"));
+
+            Directory.Delete(folder, true);
+        }
+
+        /// <summary>
+        /// A pipeline sets the accession in the task file, so it has to survive a TOML round trip.
+        /// </summary>
+        [Test]
+        public static void TheAccessionSurvivesTheTaskFile()
+        {
+            string folder = Path.Combine(TestContext.CurrentContext.TestDirectory, "SdrfOutput_AccessionToml");
+            Directory.CreateDirectory(folder);
+            string tomlPath = Path.Combine(folder, "SearchTask.toml");
+
+            var task = BuildSearchTask(writeSdrf: true);
+            task.SearchParameters.ProteomeXchangeAccession = "PXD012345";
+            Toml.WriteFile(task, tomlPath, MetaMorpheusTask.tomlConfig);
+
+            var reread = Toml.ReadFile<SearchTask>(tomlPath, MetaMorpheusTask.tomlConfig);
+            Assert.That(reread.SearchParameters.ProteomeXchangeAccession, Is.EqualTo("PXD012345"));
+
+            Directory.Delete(folder, true);
+        }
+
+        /// <summary>
+        /// A malformed accession is named before the run. It is not refused: the user's value is
+        /// still written, because a warning costs nothing and a refusal would cost the whole file.
+        /// </summary>
+        [TestCase("PXD12345", true)]
+        [TestCase("MSV000012345", true)]
+        [TestCase("PXD012345", false)]
+        [TestCase(null, false)]
+        public static void AMalformedAccessionIsWarnedAboutBeforeTheRun(string accession, bool warned)
+        {
+            string folder = SetUpIsolatedRun(nameof(AMalformedAccessionIsWarnedAboutBeforeTheRun) + warned + accession,
+                out string spectraPath, out _);
+            ExperimentalDesign.WriteExperimentalDesignToFile(
+                new List<SpectraFileInfo> { new(spectraPath, "condition", 0, 0, 0) });
+
+            var task = new SearchTask
+            {
+                SearchParameters = new SearchParameters { WriteSdrf = true, ProteomeXchangeAccession = accession }
+            };
+
+            var warnings = new List<string>();
+            EventHandler<StringEventArgs> handler = (o, e) => warnings.Add(e.S);
+            MetaMorpheusTask.WarnHandler += handler;
+            try
+            {
+                typeof(SearchTask)
+                    .GetMethod("WarnAboutSdrfGaps", BindingFlags.NonPublic | BindingFlags.Instance)!
+                    .Invoke(task, new object[] { new List<string> { spectraPath } });
+            }
+            finally
+            {
+                MetaMorpheusTask.WarnHandler -= handler;
+            }
+
+            Assert.That(warnings.Any(w => w.Contains("ProteomeXchange accession")), Is.EqualTo(warned),
+                string.Join(" | ", warnings));
 
             Directory.Delete(folder, true);
         }
