@@ -78,7 +78,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
 
         var matches = AssignQValues(best.Values.ToList());
         Status("Done.");
-        return new DiaLibrarySearchResults(this, matches);
+        return new DiaLibrarySearchResults(this, matches, DiaPeptideFdr.Assign(matches));
     }
 
     private List<DiaPrecursorMatch> SearchWindow((double Minimum, double Maximum) window, MsDataScan[] scans, PpmTolerance tolerance)
@@ -218,10 +218,16 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     }
 }
 
-/// <summary>The precursors a <see cref="DiaLibrarySearchEngine"/> scored, targets with their q-values.</summary>
-public class DiaLibrarySearchResults(DiaLibrarySearchEngine engine, List<DiaPrecursorMatch> matches) : MetaMorpheusEngineResults(engine)
+/// <summary>
+/// The precursors a <see cref="DiaLibrarySearchEngine"/> scored, targets with their q-values, and the peptides they
+/// collapse to, with peptide-level q-values from <see cref="DiaPeptideFdr"/>.
+/// </summary>
+public class DiaLibrarySearchResults(DiaLibrarySearchEngine engine, List<DiaPrecursorMatch> matches, List<DiaPeptideMatch> peptides)
+    : MetaMorpheusEngineResults(engine)
 {
     public List<DiaPrecursorMatch> Matches { get; init; } = matches;
+
+    public List<DiaPeptideMatch> Peptides { get; init; } = peptides;
 
     public int TargetCount => Matches.Count(m => !m.IsDecoy);
 
@@ -234,6 +240,7 @@ public class DiaLibrarySearchResults(DiaLibrarySearchEngine engine, List<DiaPrec
         sb.AppendLine($"Target precursors: {TargetCount}");
         sb.AppendLine($"Decoy precursors: {DecoyCount}");
         sb.AppendLine($"Target precursors with q-value <= 0.01: {Matches.Count(m => !m.IsDecoy && m.QValue <= 0.01)}");
+        sb.AppendLine($"Target peptides with q-value <= 0.01: {Peptides.Count(p => !p.IsDecoy && p.QValue <= 0.01)}");
         return sb.ToString();
     }
 }

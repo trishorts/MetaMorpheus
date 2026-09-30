@@ -128,6 +128,21 @@ public class DiaLibrarySearchEngineTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new DiaLibrarySearchParameters(PrecursorSampleStride: 0));
     }
 
+    /// <summary>The search reports peptides as well as precursors, one per full sequence, with peptide-level q-values.</summary>
+    [Test]
+    public void PeptidesAreReportedWithTheirOwnQValues()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
+
+        var results = Search(run);
+
+        Assert.That(results.Peptides.Select(p => (p.FullSequence, p.IsDecoy)).Distinct().Count(), Is.EqualTo(results.Peptides.Count));
+        Assert.That(results.Peptides, Is.EquivalentTo(DiaPeptideFdr.Assign(results.Matches)));
+        int found = results.Peptides.Count(p => !p.IsDecoy && p.QValue <= 0.01 && run.PlantedSequences.Contains(p.FullSequence));
+        Assert.That(found, Is.GreaterThanOrEqualTo((int)Math.Ceiling(0.9 * run.PlantedSequences.Count)));
+        Assert.That(results.ToString(), Does.Contain("Target peptides with q-value <= 0.01:"));
+    }
+
     [Test]
     public void TargetQValuesNeverDecreaseAsScoreFalls()
     {
