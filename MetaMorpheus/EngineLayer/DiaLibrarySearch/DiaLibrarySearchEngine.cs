@@ -159,6 +159,12 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         double tightPpm = TightToleranceFraction * _parameters.FragmentTolerancePpm;
         var tightCore = coreIndices.Select(i => traces[i].Select((v, k) => ppm[i][k] <= tightPpm ? v : 0).ToArray()).ToList();
         double[] summed = Enumerable.Range(0, reachable.Length).Select(k => traces.Sum(trace => trace[k])).ToArray();
+        // Every scan's apex score, to judge how far a candidate stands out from the rest of its window (PECAN, OpenSWATH)
+        double[] apexScores = FragmentCoElution.ApexScores(traces, libraryIntensities, _parameters.ApexHalfWidthScans);
+        double[] scored = apexScores.Where(v => v > 0).ToArray();
+        double scoreMean = scored.Length > 0 ? scored.Average() : 0;
+        double scoreSd = scored.Length > 1 ? Math.Sqrt(scored.Sum(v => (v - scoreMean) * (v - scoreMean)) / (scored.Length - 1)) : 0;
+        double windowSignal = summed.Sum();
         foreach (int apex in FragmentCoElution.FindApexes(traces, libraryIntensities, _parameters.ApexHalfWidthScans, _parameters.MaxApexCandidates))
         {
             double[] apexIntensities = traces.Select(trace => trace[apex]).ToArray();
@@ -211,6 +217,38 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             }
 
             var (peakStart, peakEnd) = FragmentCoElution.PeakBounds(summed, apex);
+
+            // Median-profile co-elution (EncyclopeDIA, AlphaDIA): each core trace normalised to sum 1 over the window,
+            // the per-scan median as a reference that no single fragment can hijack
+            double medianCoElution = 0, goodFragments = 0, veryGoodFragment = 0, gaussianFit = 0;
+            if (to > from)
+            {
+                double[] median = MedianProfile(core, from, to, reachable.Length);
+                double[] toMedian = FragmentCoElution.CorrelationsTo(core, median, from, to);
+                medianCoElution = toMedian.Average();
+                goodFragments = toMedian.Count(r => r >= 0.75);
+                veryGoodFragment = toMedian.Any(r => r >= 0.9) ? 1 : 0;
+                double sigma = Math.Max(1, (to - from) / 4.0);
+                double[] gaussian = Enumerable.Range(0, reachable.Length).Select(s => Math.Exp(-0.5 * Math.Pow((s - apex) / sigma, 2))).ToArray();
+                gaussianFit = FragmentCoElution.CorrelationsTo([median], gaussian, from, to)[0];
+            }
+
+            // Library agreement on peak areas rather than one apex scan (OpenSWATH, Skyline): cosine of square-root areas,
+            // Pearson of areas, and Manhattan distance of sum-normalised areas
+            double[] areas = traces.Select(trace => Area(trace, peakStart, peakEnd)).ToArray();
+            double areaSqrtCosine = SpectralSimilarity.CosineOfAlignedVectors(areas.Select(Math.Sqrt).ToArray(), libraryIntensities.Select(Math.Sqrt).ToArray());
+            double areaPearson = areas.Any(a => a > 0) ? Math.Max(0, FragmentCoElution.CorrelationsTo([areas], libraryIntensities, 0, areas.Length - 1)[0]) : 0;
+            double areaSum = areas.Sum(), librarySum = libraryIntensities.Sum();
+            double areaManhattan = areaSum > 0 ? areas.Select((a, f) => Math.Abs(a / areaSum - libraryIntensities[f] / librarySum)).Sum() : 2;
+
+            // Uniqueness: this apex against the best competing scan outside its co-elution window, its z-score among the
+            // window's scans, and the share of the window's fragment signal inside its peak
+            double apexScore = apexScores[apex];
+            double competitor = Enumerable.Range(0, apexScores.Length).Where(s => Math.Abs(s - apex) > _parameters.ApexHalfWidthScans)
+                .Select(s => apexScores[s]).DefaultIfEmpty(0).Max();
+            double apexScoreDelta = apexScore > 0 ? Math.Clamp((apexScore - competitor) / apexScore, -1, 1) : 0;
+            double apexScoreZ = scoreSd > 0 ? (apexScore - scoreMean) / scoreSd : 0;
+            double peakSignalFraction = windowSignal > 0 ? Enumerable.Range(peakStart, peakEnd - peakStart + 1).Sum(s => summed[s]) / windowSignal : 0;
             var apexRt = new RtMinutes(scans[reachable[apex]].RetentionTime);
             var apexIrt = _irtMap.ToIrt(apexRt);
 
@@ -227,6 +265,16 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 tightCoElution,
                 remainingCoElution,
                 windowCosine,
+                medianCoElution,
+                goodFragments,
+                veryGoodFragment,
+                gaussianFit,
+                areaSqrtCosine,
+                areaPearson,
+                areaManhattan,
+                apexScoreDelta,
+                apexScoreZ,
+                peakSignalFraction,
             ];
 
             yield return new DiaPrecursorMatch(
@@ -243,20 +291,48 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         }
     }
 
+    /// <summary>Per-scan median of the traces, each normalised to sum 1 over [from, to]; zero outside the range.</summary>
+    private static double[] MedianProfile(IReadOnlyList<double[]> traces, int from, int to, int length)
+    {
+        var median = new double[length];
+        var sums = traces.Select(t => Enumerable.Range(from, to - from + 1).Sum(s => t[s])).ToArray();
+        var values = new double[traces.Count];
+        for (int s = from; s <= to; s++)
+        {
+            for (int f = 0; f < traces.Count; f++)
+                values[f] = sums[f] > 0 ? traces[f][s] / sums[f] : 0;
+            var sorted = values.Order().ToArray();
+            median[s] = sorted.Length % 2 == 1 ? sorted[sorted.Length / 2] : 0.5 * (sorted[sorted.Length / 2 - 1] + sorted[sorted.Length / 2]);
+        }
+        return median;
+    }
+
+    /// <summary>Trapezoid area of the trace over [start, end], less the baseline at its lower end point.</summary>
+    private static double Area(double[] trace, int start, int end)
+    {
+        double area = 0;
+        for (int s = start; s < end; s++)
+            area += 0.5 * (trace[s] + trace[s + 1]);
+        double baseline = Math.Min(trace[start], trace[end]) * (end - start);
+        return Math.Max(0, area - baseline);
+    }
+
     /// <summary>
     /// Combines each match's features into one score with mzLib's semi-supervised <see cref="TargetDecoyRescorer"/>, with folds
     /// grouped by sequence so that no match is scored by a model trained on it. Each precursor then keeps its best-scoring
     /// candidate, and (D+1)/T q-values are assigned among targets.
     /// If rescoring cannot run (for example too few matches), the pre-rescoring score stands.
     /// </summary>
-    private static List<DiaPrecursorMatch> AssignQValues(List<DiaPrecursorMatch> matches)
+    private List<DiaPrecursorMatch> AssignQValues(List<DiaPrecursorMatch> matches)
     {
         if (matches.Count > 0)
         {
             var rescored = TargetDecoyRescorer.Score(
                 matches.Select(m => m.Features).ToList(),
                 matches.Select(m => m.IsDecoy).ToList(),
-                matches.Select(m => m.FullSequence).ToList());
+                matches.Select(m => m.FullSequence).ToList(),
+                positiveQValue: _parameters.ClassifierTrainingQValue,
+                candidateGroups: matches.Select(m => m.PrecursorIndex).ToList());
             if (rescored.Scores.All(double.IsFinite))
                 matches = matches.Select((m, i) => m with { Score = rescored.Scores[i] }).ToList();
         }

@@ -48,5 +48,15 @@ public sealed record DiaPrecursorMatch(
         "TightCoElution",       // co-elution counting only peaks within 0.45 x the fragment tolerance
         "RemainingCoElution",   // correlation of the non-core fragments with the profile
         "WindowCosine",         // library cosine across the peak, weighted by the profile squared
+        "MedianCoElution",      // core fragments' correlation with their per-scan median profile
+        "GoodFragments",        // core fragments with r >= 0.75 to the median profile
+        "VeryGoodFragment",     // 1 when any core fragment has r >= 0.9
+        "GaussianFit",          // median profile's correlation with a Gaussian at the apex
+        "AreaSqrtCosine",       // cosine of square-root peak areas with square-root library intensities
+        "AreaPearson",          // Pearson of peak areas with library intensities
+        "AreaManhattan",        // Manhattan distance of sum-normalised areas and library intensities
+        "ApexScoreDelta",       // (this apex's score - best competing scan outside its window) / this score
+        "ApexScoreZ",           // z-score of this apex's score among the window's scored scans
+        "PeakSignalFraction",   // share of the window's summed fragment signal inside this peak
     ];
 }
