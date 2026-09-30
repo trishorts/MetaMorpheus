@@ -9,6 +9,7 @@ using MassSpectrometry.MzSpectra;
 using MzLibUtil;
 using Omics.SpectralMatch.MslSpectralLibrary;
 using Readers.SpectralLibrary;
+using StatisticalModels;
 
 namespace EngineLayer.DiaLibrarySearch;
 
@@ -146,9 +147,35 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         double[] apexIntensities = traces.Select(trace => trace[apex]).ToArray();
         double coElution = FragmentCoElution.Score(traces,
             Math.Max(0, apex - _parameters.ApexHalfWidthScans), Math.Min(reachable.Length - 1, apex + _parameters.ApexHalfWidthScans));
-        double score = SpectralSimilarity.CosineOfAlignedVectors(apexIntensities, libraryIntensities) * coElution;
+        double cosine = SpectralSimilarity.CosineOfAlignedVectors(apexIntensities, libraryIntensities);
 
+        // Mass accuracy of the fragments seen at the apex
+        var apexSpectrum = scans[reachable[apex]].MassSpectrum;
+        var ppmErrors = new List<double>();
+        for (int f = 0; f < fragments.Count; f++)
+        {
+            if (apexIntensities[f] <= 0)
+                continue;
+            double observed = apexSpectrum.XArray[apexSpectrum.GetClosestPeakIndex(fragments[f].Mz)];
+            ppmErrors.Add(Math.Abs(observed - fragments[f].Mz) / fragments[f].Mz * 1e6);
+        }
+
+        double[] summed = Enumerable.Range(0, reachable.Length).Select(k => traces.Sum(trace => trace[k])).ToArray();
+        var (peakStart, peakEnd) = FragmentCoElution.PeakBounds(summed, apex);
         var apexRt = new RtMinutes(scans[reachable[apex]].RetentionTime);
+        var apexIrt = _irtMap.ToIrt(apexRt);
+
+        double[] features =
+        [
+            cosine,
+            coElution,
+            (double)ppmErrors.Count / fragments.Count,
+            ppmErrors.Count > 0 ? ppmErrors.Average() : _parameters.FragmentTolerancePpm,
+            Math.Abs(apexIrt.Value - candidate.Irt),
+            Math.Log10(1 + apexIntensities.Sum()),
+            peakEnd - peakStart + 1,
+        ];
+
         return new DiaPrecursorMatch(
             candidate.PrecursorIdx,
             entry.FullSequence,
@@ -157,12 +184,28 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             candidate.IsDecoy != 0,
             new Irt(candidate.Irt),
             apexRt,
-            _irtMap.ToIrt(apexRt),
-            score);
+            apexIrt,
+            cosine * coElution,
+            features);
     }
 
+    /// <summary>
+    /// Combines each match's features into one score with mzLib's semi-supervised <see cref="TargetDecoyRescorer"/>, with folds
+    /// grouped by sequence so that no match is scored by a model trained on it. Then assigns (D+1)/T q-values among targets.
+    /// If rescoring cannot run (for example too few matches), the pre-rescoring score stands.
+    /// </summary>
     private static List<DiaPrecursorMatch> AssignQValues(List<DiaPrecursorMatch> matches)
     {
+        if (matches.Count > 0)
+        {
+            var rescored = TargetDecoyRescorer.Score(
+                matches.Select(m => m.Features).ToList(),
+                matches.Select(m => m.IsDecoy).ToList(),
+                matches.Select(m => m.FullSequence).ToList());
+            if (rescored.Scores.All(double.IsFinite))
+                matches = matches.Select((m, i) => m with { Score = rescored.Scores[i] }).ToList();
+        }
+
         var targets = matches.Where(m => !m.IsDecoy).ToList();
         var decoyScores = matches.Where(m => m.IsDecoy).Select(m => m.Score).ToList();
         double[] qValues = DeconvolutionQValueCalculator.AssignQValues(targets.Select(m => m.Score).ToList(), decoyScores);
