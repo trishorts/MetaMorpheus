@@ -39,8 +39,5 @@ public sealed record DiaPrecursorMatch(
         "AbsoluteDeltaIrt",     // |apex iRT − library iRT| under this run's calibration
         "LogApexIntensity",     // log10(1 + summed fragment intensity at the apex)
         "PeakWidthScans",       // width of the summed fragment peak around the apex
-        "Ms1Correlation",       // precursor MS1 trace vs summed fragment trace around the apex (0 without MS1)
-        "Ms1AbsolutePpmError",  // precursor m/z error in the MS1 scan nearest the apex (the tolerance when absent)
-        "LogMs1ApexIntensity",  // log10(1 + precursor MS1 intensity nearest the apex)
     ];
 }

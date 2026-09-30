@@ -128,48 +128,6 @@ public class DiaLibrarySearchEngineTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new DiaLibrarySearchParameters(PrecursorSampleStride: 0));
     }
 
-    /// <summary>
-    /// A precursor seen in MS1, rising and falling with its fragments, is real evidence. Fragments whose precursor never
-    /// appears in MS1 look like interference. The MS1 features must tell the two apart.
-    /// </summary>
-    [Test]
-    public void Ms1FeaturesRewardAPrecursorThatCoElutesInMs1()
-    {
-        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy, plantMs1: entry => SyntheticDiaRun.Bucket(entry, 2) == 0);
-
-        var targets = Search(run).Matches.Where(m => !m.IsDecoy).ToList();
-
-        int correlation = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1Correlation");
-        int intensity = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "LogMs1ApexIntensity");
-        int ppm = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1AbsolutePpmError");
-        Assert.That(new[] { correlation, intensity, ppm }, Has.None.EqualTo(-1), "the MS1 features are named");
-        var seen = targets.Where(m => SyntheticDiaRun.Bucket(m.FullSequence, 2) == 0).ToList();
-        var unseen = targets.Where(m => SyntheticDiaRun.Bucket(m.FullSequence, 2) != 0).ToList();
-        Assert.That(seen.Count, Is.GreaterThan(50));
-        Assert.That(unseen.Count, Is.GreaterThan(50));
-
-        double Median(IEnumerable<double> values) { var s = values.Order().ToArray(); return s[s.Length / 2]; }
-        Assert.That(Median(seen.Select(m => m.Features[correlation])), Is.GreaterThan(0.9));
-        Assert.That(Median(unseen.Select(m => m.Features[correlation])), Is.LessThan(0.3));
-        Assert.That(Median(seen.Select(m => m.Features[intensity])), Is.GreaterThan(Median(unseen.Select(m => m.Features[intensity])) + 1));
-        Assert.That(Median(seen.Select(m => m.Features[ppm])), Is.LessThan(1), "planted at the exact precursor m/z");
-    }
-
-    /// <summary>A run without MS1 scans is still searched; the MS1 features take their no-evidence values.</summary>
-    [Test]
-    public void ARunWithoutMs1IsStillSearched()
-    {
-        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0, withMs1: false);
-
-        var results = Search(run);
-
-        int correlation = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1Correlation");
-        Assert.That(results.Matches.All(m => m.Features.All(double.IsFinite)));
-        Assert.That(results.Matches.All(m => m.Features[correlation] == 0));
-        var found = results.Matches.Where(m => !m.IsDecoy && m.QValue <= 0.01).Select(m => m.FullSequence).ToHashSet();
-        Assert.That(found.Count(run.PlantedSequences.Contains), Is.GreaterThanOrEqualTo((int)Math.Ceiling(0.9 * run.PlantedSequences.Count)));
-    }
-
     [Test]
     public void TargetQValuesNeverDecreaseAsScoreFalls()
     {
