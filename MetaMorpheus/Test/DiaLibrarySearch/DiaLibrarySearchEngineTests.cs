@@ -105,6 +105,29 @@ public class DiaLibrarySearchEngineTests
         Assert.That(e!.Message, Does.Contain("decoy"));
     }
 
+    /// <summary>
+    /// A sampled search, as calibration's first pass uses, scores only precursors whose library index is a multiple of the
+    /// stride. It samples targets and decoys alike, so the target-decoy competition stays fair.
+    /// </summary>
+    [Test]
+    public void ASampledSearchScoresOnlyEveryStrideThPrecursor()
+    {
+        // Decoys elute too: an entry with no signal at all is never scored, and the test needs both classes
+        var run = SyntheticDiaRun.Build(200, entry => SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+
+        var full = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(), new CommonParameters(), [], []).Run();
+        var sampled = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(PrecursorSampleStride: 3), new CommonParameters(), [], []).Run();
+
+        Assert.That(sampled.Matches.All(m => m.PrecursorIndex % 3 == 0));
+        Assert.That(sampled.TargetCount, Is.EqualTo(full.Matches.Count(m => !m.IsDecoy && m.PrecursorIndex % 3 == 0)));
+        Assert.That(sampled.DecoyCount, Is.EqualTo(full.Matches.Count(m => m.IsDecoy && m.PrecursorIndex % 3 == 0)));
+        Assert.That(sampled.DecoyCount, Is.GreaterThan(0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DiaLibrarySearchParameters(PrecursorSampleStride: 0));
+    }
+
     [Test]
     public void TargetQValuesNeverDecreaseAsScoreFalls()
     {

@@ -97,6 +97,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
 
         foreach (var candidate in candidates)
         {
+            if (candidate.PrecursorIdx % _parameters.PrecursorSampleStride != 0)
+                continue;
             var entry = _library.GetEntry(candidate.PrecursorIdx);
             if (entry is null || entry.MatchedFragmentIons.Count == 0)
                 continue;

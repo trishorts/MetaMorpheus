@@ -67,6 +67,19 @@ public class DiaIrtSelfCalibrationTests
         Assert.That(found, Is.GreaterThanOrEqualTo((int)Math.Ceiling(0.9 * run.PlantedSequences.Count)));
     }
 
+    /// <summary>
+    /// The first pass needs only enough targets to yield its anchors. A large library is sampled down to about
+    /// <see cref="DiaIrtSelfCalibration.FirstPassTargetCount"/> targets; a small one is searched whole.
+    /// </summary>
+    [TestCase(300, 1)]
+    [TestCase(10_000, 1)]
+    [TestCase(10_001, 2)]
+    [TestCase(38_987, 4)]
+    public void TheFirstPassSamplesALargeLibrary(int targets, int stride)
+    {
+        Assert.That(DiaIrtSelfCalibration.FirstPassStride(targets), Is.EqualTo(stride));
+    }
+
     /// <summary>With nothing to find there is nothing to calibrate on, and that is an error, not a guess.</summary>
     [Test]
     public void ARunWithNothingToFindCannotBeCalibrated()

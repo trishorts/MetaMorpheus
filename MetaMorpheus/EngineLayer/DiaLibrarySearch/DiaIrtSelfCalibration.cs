@@ -29,6 +29,15 @@ public static class DiaIrtSelfCalibration
     /// <summary>The first pass's iRT half-window, as a fraction of the library's central iRT range.</summary>
     public const double FirstPassWindowFraction = 0.25;
 
+    /// <summary>
+    /// Targets the first pass aims to search. It finds several times <see cref="MaximumAnchors"/> at 1% from these, so a
+    /// larger library is sampled down to about this size.
+    /// </summary>
+    public const int FirstPassTargetCount = 10_000;
+
+    /// <summary>The first pass's <see cref="DiaLibrarySearchParameters.PrecursorSampleStride"/> for a library of this many targets.</summary>
+    public static int FirstPassStride(int targetCount) => Math.Max(1, (int)Math.Ceiling((double)targetCount / FirstPassTargetCount));
+
     /// <exception cref="MetaMorpheusException">
     /// The run has no DIA MS2 scans, the library holds no targets, or too few confident first-pass identifications to
     /// calibrate on.
@@ -55,7 +64,11 @@ public static class DiaIrtSelfCalibration
         var provisional = IrtCalibration.Line((new RtMinutes(ms2Rts.Min()), new Irt(lowIrt)), (new RtMinutes(ms2Rts.Max()), new Irt(highIrt)));
 
         var firstPass = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(scans, library, provisional,
-            parameters with { IrtHalfWindow = FirstPassWindowFraction * (highIrt - lowIrt) }, commonParameters, [], []).Run();
+            parameters with
+            {
+                IrtHalfWindow = FirstPassWindowFraction * (highIrt - lowIrt),
+                PrecursorSampleStride = FirstPassStride(targetIrts.Length),
+            }, commonParameters, [], []).Run();
 
         var anchors = firstPass.Matches
             .Where(m => !m.IsDecoy && m.QValue <= AnchorQValue)
