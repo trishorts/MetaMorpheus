@@ -14,8 +14,12 @@ namespace EngineLayer.DiaLibrarySearch;
 /// Score only precursors whose library index is a multiple of this; 1 scores them all. Targets and decoys are sampled
 /// alike, so a sampled search's q-values stay fair. Calibration's first pass uses it to spend less time.
 /// </param>
+/// <param name="MaxApexCandidates">
+/// Candidate peaks scored per precursor. The classifier's score picks among them, so a precursor whose true peak scores
+/// second to interference on the apex score can still be found.
+/// </param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
-    int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1)
+    int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 1)
 {
     private readonly int _precursorSampleStride = Positive(PrecursorSampleStride);
 

@@ -35,6 +35,12 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     private readonly IrtCalibrationModel _irtMap;
     private readonly DiaLibrarySearchParameters _parameters;
 
+    /// <summary>The most intense library fragments that define the elution profile.</summary>
+    private const int CoreFragmentCount = 6;
+
+    /// <summary>Tight co-elution counts only peaks within this fraction of the fragment tolerance (DIA-NN uses 0.45).</summary>
+    private const double TightToleranceFraction = 0.45;
+
     /// <param name="scans">The run's scans. Only MS2 scans with an isolation range are searched.</param>
     /// <param name="library">A loaded library holding targets and decoys. The engine does not dispose it.</param>
     /// <param name="irtMap">This run's calibration from minutes to library iRT (mzLib <see cref="IrtCalibrationModel"/>).</param>
@@ -64,19 +70,17 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             .OrderBy(window => window.Key.Minimum)
             .ToList();
 
-        var best = new Dictionary<int, DiaPrecursorMatch>();
+        var rows = new List<DiaPrecursorMatch>();
         for (int w = 0; w < windows.Count; w++)
         {
             if (GlobalVariables.StopLoops)
                 break;
             var scans = windows[w].OrderBy(scan => scan.RetentionTime).ToArray();
-            foreach (var match in SearchWindow(windows[w].Key, scans, tolerance))
-                if (!best.TryGetValue(match.PrecursorIndex, out var existing) || match.Score > existing.Score)
-                    best[match.PrecursorIndex] = match;
+            rows.AddRange(SearchWindow(windows[w].Key, scans, tolerance));
             ReportProgress(new ProgressEventArgs((int)(100.0 * (w + 1) / windows.Count), "Searching DIA windows...", NestedIds));
         }
 
-        var matches = AssignQValues(best.Values.ToList());
+        var matches = AssignQValues(rows);
         Status("Done.");
         return new DiaLibrarySearchResults(this, matches, DiaPeptideFdr.Assign(matches));
     }
@@ -102,9 +106,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             var entry = _library.GetEntry(candidate.PrecursorIdx);
             if (entry is null || entry.MatchedFragmentIons.Count == 0)
                 continue;
-            var match = ScoreCandidate(candidate, entry, scans, scanIrts, tolerance);
-            if (match is not null)
-                matches.Add(match);
+            matches.AddRange(ScoreCandidates(candidate, entry, scans, scanIrts, tolerance));
         }
         return matches;
     }
@@ -112,9 +114,11 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     /// <summary>
     /// Reads the entry's most intense fragments across the scans within reach of its library iRT, then scores the peak
     /// group with mzLib's <see cref="FragmentCoElution"/>: the apex is where the fragments co-elute in library
-    /// proportions, and the score is the apex cosine times the co-elution around it.
+    /// proportions, and the score is the apex cosine times the co-elution around it. Up to
+    /// <see cref="DiaLibrarySearchParameters.MaxApexCandidates"/> candidate apexes are scored, each as its own match; the
+    /// classifier's score decides among them (<see cref="AssignQValues"/>).
     /// </summary>
-    private DiaPrecursorMatch? ScoreCandidate(MslPrecursorIndexEntry candidate, MslLibraryEntry entry, MsDataScan[] scans,
+    private IEnumerable<DiaPrecursorMatch> ScoreCandidates(MslPrecursorIndexEntry candidate, MslLibraryEntry entry, MsDataScan[] scans,
         double[] scanIrts, PpmTolerance tolerance)
     {
         var allIntensities = entry.MatchedFragmentIons.Select(f => (double)f.Intensity).ToArray();
@@ -126,9 +130,10 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             .Where(s => Math.Abs(scanIrts[s] - candidate.Irt) <= _parameters.IrtHalfWindow)
             .ToArray();
         if (reachable.Length == 0)
-            return null;
+            yield break;
 
         var traces = fragments.Select(_ => new double[reachable.Length]).ToArray();
+        var ppm = fragments.Select(_ => new double[reachable.Length]).ToArray();
         for (int k = 0; k < reachable.Length; k++)
         {
             var spectrum = scans[reachable[k]].MassSpectrum;
@@ -138,62 +143,110 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             {
                 int i = spectrum.GetClosestPeakIndex(fragments[f].Mz);
                 if (tolerance.Within(spectrum.XArray[i], fragments[f].Mz))
+                {
                     traces[f][k] = spectrum.YArray[i];
+                    ppm[f][k] = Math.Abs(spectrum.XArray[i] - fragments[f].Mz) / fragments[f].Mz * 1e6;
+                }
             }
         }
 
-        int apex = FragmentCoElution.FindApex(traces, libraryIntensities, _parameters.ApexHalfWidthScans);
-        if (apex < 0)
-            return null;
-
-        double[] apexIntensities = traces.Select(trace => trace[apex]).ToArray();
-        double coElution = FragmentCoElution.Score(traces,
-            Math.Max(0, apex - _parameters.ApexHalfWidthScans), Math.Min(reachable.Length - 1, apex + _parameters.ApexHalfWidthScans));
-        double cosine = SpectralSimilarity.CosineOfAlignedVectors(apexIntensities, libraryIntensities);
-
-        // Mass accuracy of the fragments seen at the apex
-        var apexSpectrum = scans[reachable[apex]].MassSpectrum;
-        var ppmErrors = new List<double>();
-        for (int f = 0; f < fragments.Count; f++)
-        {
-            if (apexIntensities[f] <= 0)
-                continue;
-            double observed = apexSpectrum.XArray[apexSpectrum.GetClosestPeakIndex(fragments[f].Mz)];
-            ppmErrors.Add(Math.Abs(observed - fragments[f].Mz) / fragments[f].Mz * 1e6);
-        }
-
+        // The core: the most intense library fragments, in library rank; the rest enter as their own feature
+        int[] coreIndices = FragmentCoElution.TopIndices(libraryIntensities, CoreFragmentCount)
+            .OrderByDescending(i => libraryIntensities[i]).ThenBy(i => i).ToArray();
+        var core = coreIndices.Select(i => traces[i]).ToList();
+        var rest = Enumerable.Range(0, fragments.Count).Except(coreIndices).Select(i => traces[i]).ToList();
+        // The core again, counting only peaks within a tight fraction of the tolerance
+        double tightPpm = TightToleranceFraction * _parameters.FragmentTolerancePpm;
+        var tightCore = coreIndices.Select(i => traces[i].Select((v, k) => ppm[i][k] <= tightPpm ? v : 0).ToArray()).ToList();
         double[] summed = Enumerable.Range(0, reachable.Length).Select(k => traces.Sum(trace => trace[k])).ToArray();
-        var (peakStart, peakEnd) = FragmentCoElution.PeakBounds(summed, apex);
-        var apexRt = new RtMinutes(scans[reachable[apex]].RetentionTime);
-        var apexIrt = _irtMap.ToIrt(apexRt);
+        foreach (int apex in FragmentCoElution.FindApexes(traces, libraryIntensities, _parameters.ApexHalfWidthScans, _parameters.MaxApexCandidates))
+        {
+            double[] apexIntensities = traces.Select(trace => trace[apex]).ToArray();
+            // Co-elution against the best of the six most intense library fragments, smoothed: one reliable profile rather
+            // than an average that an interfered fragment drags along (DIA-NN's approach, Demichev et al. 2020)
+            int from = Math.Max(0, apex - _parameters.ApexHalfWidthScans);
+            int to = Math.Min(reachable.Length - 1, apex + _parameters.ApexHalfWidthScans);
+            double coElution = 0, tightCoElution = 0, remainingCoElution = 0;
+            var fragmentCorrelations = new double[CoreFragmentCount];
+            double[]? reference = null;
+            if (to > from)
+            {
+                reference = FragmentCoElution.Smooth(core[FragmentCoElution.BestFragment(core, from, to)]);
+                double[] correlations = FragmentCoElution.CorrelationsTo(core, reference, from, to);
+                coElution = correlations.Average();
+                Array.Copy(correlations, fragmentCorrelations, correlations.Length);
+                if (rest.Count > 0)
+                    remainingCoElution = FragmentCoElution.CorrelationsTo(rest, reference, from, to).Average();
+                var tightReference = FragmentCoElution.Smooth(tightCore[FragmentCoElution.BestFragment(tightCore, from, to)]);
+                tightCoElution = FragmentCoElution.CorrelationsTo(tightCore, tightReference, from, to).Average();
+            }
+            double cosine = SpectralSimilarity.CosineOfAlignedVectors(apexIntensities, libraryIntensities);
 
-        double[] features =
-        [
-            cosine,
-            coElution,
-            (double)ppmErrors.Count / fragments.Count,
-            ppmErrors.Count > 0 ? ppmErrors.Average() : _parameters.FragmentTolerancePpm,
-            Math.Abs(apexIrt.Value - candidate.Irt),
-            Math.Log10(1 + apexIntensities.Sum()),
-            peakEnd - peakStart + 1,
-        ];
+            // Library similarity across the peak, each scan weighted by the profile squared
+            double windowCosine = cosine;
+            if (reference is not null)
+            {
+                double weighted = 0, weights = 0;
+                for (int s = from; s <= to; s++)
+                {
+                    double weight = reference[s] * reference[s];
+                    if (weight <= 0)
+                        continue;
+                    weighted += weight * SpectralSimilarity.CosineOfAlignedVectors(traces.Select(trace => trace[s]).ToArray(), libraryIntensities);
+                    weights += weight;
+                }
+                if (weights > 0)
+                    windowCosine = weighted / weights;
+            }
 
-        return new DiaPrecursorMatch(
-            candidate.PrecursorIdx,
-            entry.FullSequence,
-            candidate.Charge,
-            candidate.PrecursorMz,
-            candidate.IsDecoy != 0,
-            new Irt(candidate.Irt),
-            apexRt,
-            apexIrt,
-            cosine * coElution,
-            features);
+            // Mass accuracy of the fragments seen at the apex
+            var apexSpectrum = scans[reachable[apex]].MassSpectrum;
+            var ppmErrors = new List<double>();
+            for (int f = 0; f < fragments.Count; f++)
+            {
+                if (apexIntensities[f] <= 0)
+                    continue;
+                double observed = apexSpectrum.XArray[apexSpectrum.GetClosestPeakIndex(fragments[f].Mz)];
+                ppmErrors.Add(Math.Abs(observed - fragments[f].Mz) / fragments[f].Mz * 1e6);
+            }
+
+            var (peakStart, peakEnd) = FragmentCoElution.PeakBounds(summed, apex);
+            var apexRt = new RtMinutes(scans[reachable[apex]].RetentionTime);
+            var apexIrt = _irtMap.ToIrt(apexRt);
+
+            double[] features =
+            [
+                cosine,
+                coElution,
+                (double)ppmErrors.Count / fragments.Count,
+                ppmErrors.Count > 0 ? ppmErrors.Average() : _parameters.FragmentTolerancePpm,
+                Math.Abs(apexIrt.Value - candidate.Irt),
+                Math.Log10(1 + apexIntensities.Sum()),
+                peakEnd - peakStart + 1,
+                .. fragmentCorrelations,
+                tightCoElution,
+                remainingCoElution,
+                windowCosine,
+            ];
+
+            yield return new DiaPrecursorMatch(
+                candidate.PrecursorIdx,
+                entry.FullSequence,
+                candidate.Charge,
+                candidate.PrecursorMz,
+                candidate.IsDecoy != 0,
+                new Irt(candidate.Irt),
+                apexRt,
+                apexIrt,
+                cosine * coElution,
+                features);
+        }
     }
 
     /// <summary>
     /// Combines each match's features into one score with mzLib's semi-supervised <see cref="TargetDecoyRescorer"/>, with folds
-    /// grouped by sequence so that no match is scored by a model trained on it. Then assigns (D+1)/T q-values among targets.
+    /// grouped by sequence so that no match is scored by a model trained on it. Each precursor then keeps its best-scoring
+    /// candidate, and (D+1)/T q-values are assigned among targets.
     /// If rescoring cannot run (for example too few matches), the pre-rescoring score stands.
     /// </summary>
     private static List<DiaPrecursorMatch> AssignQValues(List<DiaPrecursorMatch> matches)
@@ -207,6 +260,9 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             if (rescored.Scores.All(double.IsFinite))
                 matches = matches.Select((m, i) => m with { Score = rescored.Scores[i] }).ToList();
         }
+
+        // One match per precursor: its best-scoring candidate apex, across windows
+        matches = matches.GroupBy(m => m.PrecursorIndex).Select(g => g.OrderByDescending(m => m.Score).ThenBy(m => m.ApexRt.Value).First()).ToList();
 
         var targets = matches.Where(m => !m.IsDecoy).ToList();
         var decoyScores = matches.Where(m => m.IsDecoy).Select(m => m.Score).ToList();

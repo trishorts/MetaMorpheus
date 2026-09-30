@@ -39,5 +39,14 @@ public sealed record DiaPrecursorMatch(
         "AbsoluteDeltaIrt",     // |apex iRT − library iRT| under this run's calibration
         "LogApexIntensity",     // log10(1 + summed fragment intensity at the apex)
         "PeakWidthScans",       // width of the summed fragment peak around the apex
+        "FragmentCorrelation1", // each core fragment's correlation with the best-fragment profile, by library rank
+        "FragmentCorrelation2",
+        "FragmentCorrelation3",
+        "FragmentCorrelation4",
+        "FragmentCorrelation5",
+        "FragmentCorrelation6",
+        "TightCoElution",       // co-elution counting only peaks within 0.45 x the fragment tolerance
+        "RemainingCoElution",   // correlation of the non-core fragments with the profile
+        "WindowCosine",         // library cosine across the peak, weighted by the profile squared
     ];
 }

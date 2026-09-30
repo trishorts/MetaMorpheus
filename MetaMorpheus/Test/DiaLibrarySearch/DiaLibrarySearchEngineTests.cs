@@ -143,6 +143,29 @@ public class DiaLibrarySearchEngineTests
         Assert.That(results.ToString(), Does.Contain("Target peptides with q-value <= 0.01:"));
     }
 
+    /// <summary>
+    /// Co-elution is measured against the smoothed best of the six most intense library fragments. A planted precursor's
+    /// fragments share one elution profile, so its co-elution is near 1. A candidate seeing only noise has none.
+    /// </summary>
+    [Test]
+    public void CoElutionMeasuresAgreementWithTheBestFragment()
+    {
+        // Dense noise, so candidates that were never planted still match fragments by chance and get scored
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000);
+
+        var matches = Search(run).Matches;
+
+        int coElution = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "CoElution");
+        double Median(IEnumerable<double> values) { var s = values.Order().ToArray(); return s[s.Length / 2]; }
+        var planted = matches.Where(m => run.PlantedSequences.Contains(m.FullSequence)).Select(m => m.Features[coElution]).ToList();
+        var noise = matches.Where(m => !run.PlantedSequences.Contains(m.FullSequence)).Select(m => m.Features[coElution]).ToList();
+        Assert.That(planted, Has.Count.GreaterThan(50));
+        Assert.That(noise, Has.Count.GreaterThan(50), "the fixture must score chance matches");
+        Assert.That(Median(planted), Is.GreaterThan(0.9));
+        Assert.That(Median(noise), Is.LessThan(0.5));
+        Assert.That(matches.All(m => m.Features[coElution] is >= 0 and <= 1));
+    }
+
     [Test]
     public void TargetQValuesNeverDecreaseAsScoreFalls()
     {
