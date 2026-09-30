@@ -17,10 +17,11 @@ namespace Test.DiaLibrarySearch;
 /// with a known answer.
 /// <para>
 /// Every target has a reversed-sequence decoy with the same precursor m/z and iRT but different fragment m/z, as a
-/// real reversed decoy would have. The run holds only MS2 scans: one per isolation window per cycle. The chosen
+/// real reversed decoy would have. Each cycle is one MS1 scan followed by one MS2 scan per isolation window. The chosen
 /// ("planted") precursors elute as Gaussians centred on <see cref="TrueRtMinutes"/> of their library iRT. That map is
 /// deliberately nonlinear, so a search that treats iRT as minutes looks in the wrong place. Every scan also carries
-/// seeded random noise peaks.
+/// seeded random noise peaks. A planted precursor also elutes in MS1 at its precursor m/z unless the build says otherwise,
+/// so a test can plant fragments whose precursor never appears, as interference would.
 /// </para>
 /// </summary>
 [ExcludeFromCodeCoverage]
@@ -47,7 +48,10 @@ internal sealed class SyntheticDiaRun
     public static double TrueRtMinutes(double irt) => 0.5 + 0.045 * (irt + 20) + 0.00016 * (irt + 20) * (irt + 20);
 
     /// <summary>A stable bucket for choosing a fraction of entries. string.GetHashCode is randomized per process.</summary>
-    public static int Bucket(MslLibraryEntry entry, int buckets) => entry.FullSequence.Sum(c => c) % buckets;
+    public static int Bucket(MslLibraryEntry entry, int buckets) => Bucket(entry.FullSequence, buckets);
+
+    /// <inheritdoc cref="Bucket(MslLibraryEntry, int)"/>
+    public static int Bucket(string fullSequence, int buckets) => fullSequence.Sum(c => c) % buckets;
 
     private SyntheticDiaRun(List<MslLibraryEntry> library, MsDataScan[] scans, IReadOnlySet<string> planted)
     {
@@ -59,10 +63,13 @@ internal sealed class SyntheticDiaRun
     /// <param name="targetCount">Number of target precursors in the library. Each also gets one decoy.</param>
     /// <param name="plant">Chooses which library entries elute in the run, by full sequence.</param>
     /// <param name="withDecoys">False builds a library with no decoys at all.</param>
+    /// <param name="plantMs1">Which planted entries also elute in MS1; by default all of them.</param>
+    /// <param name="withMs1">False builds a run of MS2 scans only.</param>
     public static SyntheticDiaRun Build(int targetCount, Func<MslLibraryEntry, bool> plant, bool withDecoys = true,
-        int seed = 42, double noisePeaksPerScan = 60)
+        int seed = 42, double noisePeaksPerScan = 60, Func<MslLibraryEntry, bool>? plantMs1 = null, bool withMs1 = true)
     {
         var random = new Random(seed);
+        var ms1Random = new Random(seed + 1); // MS1 draws its own noise, so adding MS1 leaves every MS2 scan unchanged
         var library = new List<MslLibraryEntry>();
         const string residues = "ACDEFGHILMNPQSTVWY";
 
@@ -83,8 +90,27 @@ internal sealed class SyntheticDiaRun
         var planted = library.Where(plant).ToList();
         var scans = new List<MsDataScan>();
         int scanNumber = 1;
+        var inMs1 = planted.Where(plantMs1 ?? (_ => true)).ToList();
         for (double rt = 0; rt < RunMinutes; rt += CycleMinutes)
         {
+            if (withMs1)
+            {
+                var peaks = new List<(double Mz, double Intensity)>();
+                for (int n = 0; n < 4 * noisePeaksPerScan; n++)
+                    peaks.Add((FirstWindowLowMz + ms1Random.NextDouble() * WindowCount * WindowWidth, 50 + ms1Random.NextDouble() * 950));
+                foreach (var entry in inMs1)
+                {
+                    double elution = 3e5 * Math.Exp(-0.5 * Math.Pow((rt - TrueRtMinutes(entry.RetentionTime)) / ElutionSigmaMinutes, 2));
+                    if (elution >= 1)
+                        peaks.Add((entry.PrecursorMz, elution));
+                }
+                var ordered = peaks.OrderBy(p => p.Mz).ToArray();
+                var spectrum = new MzSpectrum(ordered.Select(p => p.Mz).ToArray(), ordered.Select(p => p.Intensity).ToArray(), false);
+                scans.Add(new MsDataScan(spectrum, scanNumber, 1, true, Polarity.Positive, rt, new MzRange(FirstWindowLowMz, FirstWindowLowMz + WindowCount * WindowWidth),
+                    "synthetic", MZAnalyzerType.Orbitrap, spectrum.SumOfAllY, 10, null, $"scan={scanNumber}"));
+                scanNumber++;
+            }
+
             for (int w = 0; w < WindowCount; w++)
             {
                 double low = FirstWindowLowMz + w * WindowWidth;

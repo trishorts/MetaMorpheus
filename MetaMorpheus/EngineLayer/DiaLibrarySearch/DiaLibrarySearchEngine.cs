@@ -5,6 +5,8 @@ using System.Linq;
 using System.Text;
 using MassSpectrometry;
 using Chromatography.RetentionTimeCalibration;
+using FlashLFQ;
+using MathNet.Numerics.Statistics;
 using MassSpectrometry.MzSpectra;
 using MzLibUtil;
 using Omics.SpectralMatch.MslSpectralLibrary;
@@ -35,6 +37,10 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     private readonly IrtCalibrationModel _irtMap;
     private readonly DiaLibrarySearchParameters _parameters;
 
+    // The run's MS1 peaks, indexed once with FlashLFQ's indexer; null when the run has no MS1 scans
+    private PeakIndexingEngine? _ms1Index;
+    private double[] _ms1Rts = [];
+
     /// <param name="scans">The run's scans. Only MS2 scans with an isolation range are searched.</param>
     /// <param name="library">A loaded library holding targets and decoys. The engine does not dispose it.</param>
     /// <param name="irtMap">This run's calibration from minutes to library iRT (mzLib <see cref="IrtCalibrationModel"/>).</param>
@@ -57,6 +63,9 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 "Search a library that includes decoy precursors.");
 
         Status("Running DIA library search...");
+        var ms1Scans = _scans.Where(scan => scan.MsnOrder == 1).OrderBy(scan => scan.RetentionTime).ToArray();
+        _ms1Index = ms1Scans.Length > 0 ? PeakIndexingEngine.InitializeIndexingEngine(ms1Scans) : null;
+        _ms1Rts = ms1Scans.Select(scan => scan.RetentionTime).ToArray();
         var tolerance = new PpmTolerance(_parameters.FragmentTolerancePpm);
         var windows = _scans
             .Where(scan => scan.MsnOrder == 2 && scan.IsolationRange is not null)
@@ -164,6 +173,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
 
         double[] summed = Enumerable.Range(0, reachable.Length).Select(k => traces.Sum(trace => trace[k])).ToArray();
         var (peakStart, peakEnd) = FragmentCoElution.PeakBounds(summed, apex);
+        var (ms1Correlation, ms1PpmError, ms1ApexIntensity) = Ms1Evidence(candidate.PrecursorMz, scans, reachable, summed, apex);
+
         var apexRt = new RtMinutes(scans[reachable[apex]].RetentionTime);
         var apexIrt = _irtMap.ToIrt(apexRt);
 
@@ -176,6 +187,9 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             Math.Abs(apexIrt.Value - candidate.Irt),
             Math.Log10(1 + apexIntensities.Sum()),
             peakEnd - peakStart + 1,
+            ms1Correlation,
+            ms1PpmError,
+            Math.Log10(1 + ms1ApexIntensity),
         ];
 
         return new DiaPrecursorMatch(
@@ -189,6 +203,49 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             apexIrt,
             cosine * coElution,
             features);
+    }
+
+    /// <summary>
+    /// The precursor's own evidence in MS1: its monoisotopic peak in the MS1 scan nearest each reachable MS2 scan. The
+    /// correlation is Pearson's between that trace and the summed fragment trace around the apex (0 when either is flat or
+    /// the run has no MS1). The ppm error and intensity are taken at the apex, and a missing peak counts as the full
+    /// precursor tolerance and zero intensity.
+    /// </summary>
+    private (double Correlation, double AbsolutePpmError, double ApexIntensity) Ms1Evidence(double precursorMz, MsDataScan[] scans,
+        int[] reachable, double[] summedFragments, int apex)
+    {
+        double tolerancePpm = CommonParameters.PrecursorMassTolerance.Value;
+        if (_ms1Index is null)
+            return (0, tolerancePpm, 0);
+
+        var trace = new double[reachable.Length];
+        IIndexedPeak? apexPeak = null;
+        for (int k = 0; k < reachable.Length; k++)
+        {
+            var peak = _ms1Index.GetIndexedPeak(precursorMz, NearestMs1(scans[reachable[k]].RetentionTime), CommonParameters.PrecursorMassTolerance);
+            trace[k] = peak?.Intensity ?? 0;
+            if (k == apex)
+                apexPeak = peak;
+        }
+
+        int from = Math.Max(0, apex - _parameters.ApexHalfWidthScans);
+        int length = Math.Min(reachable.Length - 1, apex + _parameters.ApexHalfWidthScans) - from + 1;
+        double correlation = length < 3 ? 0 : Correlation.Pearson(trace.Skip(from).Take(length), summedFragments.Skip(from).Take(length));
+        double ppm = apexPeak is null ? tolerancePpm : Math.Abs(apexPeak.M - precursorMz) / precursorMz * 1e6;
+        return (double.IsFinite(correlation) ? correlation : 0, ppm, apexPeak?.Intensity ?? 0);
+    }
+
+    private int NearestMs1(double retentionTime)
+    {
+        int i = Array.BinarySearch(_ms1Rts, retentionTime);
+        if (i >= 0)
+            return i;
+        i = ~i;
+        if (i == 0)
+            return 0;
+        if (i == _ms1Rts.Length)
+            return _ms1Rts.Length - 1;
+        return retentionTime - _ms1Rts[i - 1] <= _ms1Rts[i] - retentionTime ? i - 1 : i;
     }
 
     /// <summary>

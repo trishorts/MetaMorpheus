@@ -34,13 +34,16 @@ public class SyntheticDiaRunTests
     }
 
     [Test]
-    public void EveryScanIsolatesOneWindowOfTheScheme()
+    public void EveryMs2ScanIsolatesOneWindowOfTheScheme()
     {
         var run = SyntheticDiaRun.Build(5, _ => false);
 
-        var windows = run.Scans.Select(s => (s.IsolationRange.Minimum, s.IsolationRange.Maximum)).Distinct().ToList();
+        var ms2 = run.Scans.Where(s => s.MsnOrder == 2).ToList();
+        var windows = ms2.Select(s => (s.IsolationRange.Minimum, s.IsolationRange.Maximum)).Distinct().ToList();
         Assert.That(windows.Count, Is.EqualTo(SyntheticDiaRun.WindowCount));
-        Assert.That(run.Scans.All(s => s.MsnOrder == 2));
+        Assert.That(run.Scans.Count(s => s.MsnOrder == 1) * SyntheticDiaRun.WindowCount, Is.EqualTo(ms2.Count), "one MS1 per cycle");
+        Assert.That(run.Scans.All(s => s.MsnOrder is 1 or 2));
+        Assert.That(SyntheticDiaRun.Build(5, _ => false, withMs1: false).Scans.All(s => s.MsnOrder == 2));
         Assert.That(windows.Min(w => w.Minimum), Is.EqualTo(SyntheticDiaRun.FirstWindowLowMz).Within(1e-9));
     }
 
@@ -54,7 +57,7 @@ public class SyntheticDiaRunTests
         var tolerance = new PpmTolerance(5);
 
         var apexScan = run.Scans
-            .Where(s => s.IsolationRange.Contains(entry.PrecursorMz))
+            .Where(s => s.MsnOrder == 2 && s.IsolationRange.Contains(entry.PrecursorMz))
             .OrderBy(s => Math.Abs(s.RetentionTime - apexRt))
             .First();
         double Intensity(float mz)
@@ -69,7 +72,7 @@ public class SyntheticDiaRunTests
         for (int f = 1; f < observed.Length; f++)
             Assert.That(observed[f] / observed[0], Is.EqualTo(expected[f] / expected[0]).Within(0.02), $"fragment {f} ratio");
 
-        var otherWindow = run.Scans.First(s => !s.IsolationRange.Contains(entry.PrecursorMz)
+        var otherWindow = run.Scans.First(s => s.MsnOrder == 2 && !s.IsolationRange.Contains(entry.PrecursorMz)
             && Math.Abs(s.RetentionTime - apexScan.RetentionTime) < 1e-9);
         // With noise off, a window isolating nothing planted is empty (GetClosestPeakIndex does not guard that)
         var other = otherWindow.MassSpectrum;
