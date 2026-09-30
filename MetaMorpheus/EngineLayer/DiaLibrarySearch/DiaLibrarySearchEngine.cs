@@ -105,32 +105,49 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         return matches;
     }
 
+    /// <summary>
+    /// Reads the entry's most intense fragments across the scans within reach of its library iRT, then scores the peak
+    /// group with mzLib's <see cref="FragmentCoElution"/>: the apex is where the fragments co-elute in library
+    /// proportions, and the score is the apex cosine times the co-elution around it.
+    /// </summary>
     private DiaPrecursorMatch? ScoreCandidate(MslPrecursorIndexEntry candidate, MslLibraryEntry entry, MsDataScan[] scans,
         double[] scanIrts, PpmTolerance tolerance)
     {
-        double[] libraryIntensities = entry.MatchedFragmentIons.Select(f => (double)f.Intensity).ToArray();
-        double[]? apexIntensities = null;
-        double apexSum = 0;
-        int apex = -1;
+        var allIntensities = entry.MatchedFragmentIons.Select(f => (double)f.Intensity).ToArray();
+        var fragments = FragmentCoElution.TopIndices(allIntensities, _parameters.TopFragmentCount)
+            .Select(i => entry.MatchedFragmentIons[i]).ToList();
+        double[] libraryIntensities = fragments.Select(f => (double)f.Intensity).ToArray();
 
-        for (int s = 0; s < scans.Length; s++)
+        var reachable = Enumerable.Range(0, scans.Length)
+            .Where(s => Math.Abs(scanIrts[s] - candidate.Irt) <= _parameters.IrtHalfWindow)
+            .ToArray();
+        if (reachable.Length == 0)
+            return null;
+
+        var traces = fragments.Select(_ => new double[reachable.Length]).ToArray();
+        for (int k = 0; k < reachable.Length; k++)
         {
-            if (Math.Abs(scanIrts[s] - candidate.Irt) > _parameters.IrtHalfWindow)
+            var spectrum = scans[reachable[k]].MassSpectrum;
+            if (spectrum.Size == 0)
                 continue;
-            double[] observed = FragmentIntensities(scans[s].MassSpectrum, entry.MatchedFragmentIons, tolerance);
-            double sum = observed.Sum();
-            if (sum > apexSum)
+            for (int f = 0; f < fragments.Count; f++)
             {
-                apexSum = sum;
-                apexIntensities = observed;
-                apex = s;
+                int i = spectrum.GetClosestPeakIndex(fragments[f].Mz);
+                if (tolerance.Within(spectrum.XArray[i], fragments[f].Mz))
+                    traces[f][k] = spectrum.YArray[i];
             }
         }
 
-        if (apexIntensities is null)
+        int apex = FragmentCoElution.FindApex(traces, libraryIntensities, _parameters.ApexHalfWidthScans);
+        if (apex < 0)
             return null;
 
-        var apexRt = new RtMinutes(scans[apex].RetentionTime);
+        double[] apexIntensities = traces.Select(trace => trace[apex]).ToArray();
+        double coElution = FragmentCoElution.Score(traces,
+            Math.Max(0, apex - _parameters.ApexHalfWidthScans), Math.Min(reachable.Length - 1, apex + _parameters.ApexHalfWidthScans));
+        double score = SpectralSimilarity.CosineOfAlignedVectors(apexIntensities, libraryIntensities) * coElution;
+
+        var apexRt = new RtMinutes(scans[reachable[apex]].RetentionTime);
         return new DiaPrecursorMatch(
             candidate.PrecursorIdx,
             entry.FullSequence,
@@ -140,22 +157,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             new Irt(candidate.Irt),
             apexRt,
             _irtMap.ToIrt(apexRt),
-            SpectralSimilarity.CosineOfAlignedVectors(apexIntensities, libraryIntensities));
-    }
-
-    /// <summary>The intensity of the closest peak to each fragment, or 0 when none is within tolerance.</summary>
-    private static double[] FragmentIntensities(MzSpectrum spectrum, List<MslFragmentIon> fragments, PpmTolerance tolerance)
-    {
-        var intensities = new double[fragments.Count];
-        if (spectrum.Size == 0)
-            return intensities;
-        for (int f = 0; f < fragments.Count; f++)
-        {
-            int i = spectrum.GetClosestPeakIndex(fragments[f].Mz);
-            if (tolerance.Within(spectrum.XArray[i], fragments[f].Mz))
-                intensities[f] = spectrum.YArray[i];
-        }
-        return intensities;
+            score);
     }
 
     private static List<DiaPrecursorMatch> AssignQValues(List<DiaPrecursorMatch> matches)
