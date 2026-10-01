@@ -32,9 +32,11 @@ public sealed record DiaProteinInferenceResult(List<ProteinGroup> ProteinGroups,
 public static class DiaProteinInference
 {
     /// <summary>Every peptide the proteins yield under these digestion parameters, keyed by full sequence.</summary>
+    /// <param name="only">If given, index only these full sequences (a whole proteome yields millions).</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public static Dictionary<string, List<PeptideWithSetModifications>> IndexPeptides(IEnumerable<Protein> proteins,
-        CommonParameters commonParameters, List<Modification> fixedModifications, List<Modification> variableModifications)
+        CommonParameters commonParameters, List<Modification> fixedModifications, List<Modification> variableModifications,
+        IReadOnlySet<string>? only = null)
     {
         ArgumentNullException.ThrowIfNull(proteins);
         ArgumentNullException.ThrowIfNull(commonParameters);
@@ -46,6 +48,10 @@ public static class DiaProteinInference
         {
             foreach (var peptide in protein.Digest(commonParameters.DigestionParams, fixedModifications, variableModifications).Cast<PeptideWithSetModifications>())
             {
+                if (only is not null && !only.Contains(peptide.FullSequence))
+                {
+                    continue;
+                }
                 if (!index.TryGetValue(peptide.FullSequence, out var list))
                 {
                     index[peptide.FullSequence] = list = [];
@@ -82,7 +88,10 @@ public static class DiaProteinInference
             throw new ArgumentException("DIA protein inference filters on q-value; the DIA search computes no PEP, so a PEP q-value threshold is not supported.", nameof(commonParameters));
         }
 
-        var index = IndexPeptides(proteins, commonParameters!, fixedModifications, variableModifications);
+        var needed = peptides
+            .Select(p => p.IsDecoy && targetSequenceOfDecoy is not null ? targetSequenceOfDecoy(p.FullSequence) : p.FullSequence)
+            .OfType<string>().ToHashSet();
+        var index = IndexPeptides(proteins, commonParameters!, fixedModifications, variableModifications, needed);
         var decoys = targetSequenceOfDecoy is null ? null : new InheritedDecoys(targetSequenceOfDecoy);
         var matches = BuildSpectralMatches(peptides, index, decoys, commonParameters!, fullFilePath, out int unmapped);
 

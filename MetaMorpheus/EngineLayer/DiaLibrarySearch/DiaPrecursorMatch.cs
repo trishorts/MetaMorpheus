@@ -16,6 +16,10 @@ namespace EngineLayer.DiaLibrarySearch;
 /// <param name="QValue">
 /// Target-decoy q-value among targets; NaN for a decoy, which competes but is not itself reported.
 /// </param>
+/// <param name="Quantity">
+/// The fragments' summed peak areas (trapezoid over the peak, less each trace's baseline): the precursor's amount for
+/// quantification. NaN when not measured.
+/// </param>
 public sealed record DiaPrecursorMatch(
     int PrecursorIndex,
     string FullSequence,
