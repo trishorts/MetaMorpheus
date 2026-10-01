@@ -28,7 +28,7 @@ public static class DiaInterferenceRemoval
     /// <param name="explainedFragments">How many of the checked fragments a better match must explain.</param>
     /// <returns>The matches that are not explained by a better one, in their input order.</returns>
     public static List<DiaPrecursorMatch> Remove(IReadOnlyList<DiaPrecursorMatch> matches, Func<int, float[]> fragmentMzsByIntensity,
-        Func<double, int> windowOf, double rtToleranceMinutes, double tolerancePpm, int explainedFragments)
+        Func<double, int> windowOf, double rtToleranceMinutes, double tolerancePpm, int explainedFragments, Action<string>? report = null)
     {
         ArgumentNullException.ThrowIfNull(matches);
         ArgumentNullException.ThrowIfNull(fragmentMzsByIntensity);
@@ -37,12 +37,16 @@ public static class DiaInterferenceRemoval
             return [];
 
         double[] q = TargetDecoyQValues.Compute(matches.Select(m => m.Score).ToArray(), matches.Select(m => m.IsDecoy).ToArray());
-        double floor = matches.Where((m, i) => !m.IsDecoy && q[i] <= ProvisionalQValue).Select(m => m.Score).DefaultIfEmpty(double.PositiveInfinity).Min();
+        double floor = matches.Where((m, i) => q[i] <= ProvisionalQValue).Select(m => m.Score).DefaultIfEmpty(double.PositiveInfinity).Min();
 
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        long neighbours = 0;
+        int considered = 0;
         var removed = new HashSet<int>();
         var kept = new Dictionary<int, List<(double Rt, float[] Mzs)>>();
-        foreach (var match in matches.Where(m => m.Score >= floor).OrderByDescending(m => m.Score).ThenBy(m => m.PrecursorIndex))
+        foreach (var match in matches.Where((m, i) => q[i] <= ProvisionalQValue).OrderByDescending(m => m.Score).ThenBy(m => m.PrecursorIndex))
         {
+            considered++;
             int window = windowOf(match.PrecursorMz);
             float[] own = fragmentMzsByIntensity(match.PrecursorIndex);
             float[] checkedMzs = own.Take(CheckedFragments).ToArray();
@@ -55,6 +59,7 @@ public static class DiaInterferenceRemoval
                 {
                     if (Math.Abs(rt - match.ApexRt.Value) > rtToleranceMinutes)
                         continue;
+                    neighbours++;
                     int count = checkedMzs.Count(mz => mzs.Any(other => Math.Abs(other - mz) <= mz * tolerancePpm * 1e-6));
                     if (count >= explainedFragments)
                     {
@@ -72,6 +77,8 @@ public static class DiaInterferenceRemoval
                 kept[window] = list = [];
             list.Add((match.ApexRt.Value, own));
         }
+        report?.Invoke($"interference removal: {considered} of {matches.Count} matches above the floor {floor:G4}; RT tolerance {rtToleranceMinutes:F4} min; " +
+            $"{neighbours} co-eluting pairs checked; {removed.Count} removed ({matches.Count(m => m.IsDecoy && removed.Contains(m.PrecursorIndex))} decoys)  [{clock.Elapsed:mm\\:ss}]");
         return matches.Where(m => !removed.Contains(m.PrecursorIndex)).ToList();
     }
 }

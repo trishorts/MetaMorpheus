@@ -509,7 +509,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             float[] FragmentMzs(int index) => _library.GetEntry(index)?.MatchedFragmentIons.OrderByDescending(f => f.Intensity)
                 .Take(_parameters.TopFragmentCount).Select(f => f.Mz).ToArray() ?? [];
             matches = DiaInterferenceRemoval.Remove(matches, FragmentMzs, WindowOf, (_parameters.ApexHalfWidthScans + 1) * cycleMinutes,
-                _parameters.FragmentTolerancePpm, _parameters.InterferenceExplainedFragments);
+                _parameters.FragmentTolerancePpm, _parameters.InterferenceExplainedFragments, Status);
         }
 
         var targets = matches.Where(m => !m.IsDecoy).ToList();
