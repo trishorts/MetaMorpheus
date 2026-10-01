@@ -560,7 +560,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             float[] FragmentMzs(int index) => _library.GetEntry(index)?.MatchedFragmentIons.OrderByDescending(f => f.Intensity)
                 .Take(_parameters.TopFragmentCount).Select(f => f.Mz).ToArray() ?? [];
             var kept = DiaInterferenceRemoval.Remove(matches, FragmentMzs, WindowOf, (_parameters.ApexHalfWidthScans + 1) * cycleMinutes,
-                _parameters.FragmentTolerancePpm, _parameters.InterferenceExplainedFragments, Status);
+                _parameters.FragmentTolerancePpm, _parameters.InterferenceExplainedFragments, Status, _parameters.InterferenceSameMzOnly);
             var keptIndices = kept.Select(m => m.PrecursorIndex).ToHashSet();
             removed = matches.Where(m => !keptIndices.Contains(m.PrecursorIndex)).ToList();
             matches = kept;

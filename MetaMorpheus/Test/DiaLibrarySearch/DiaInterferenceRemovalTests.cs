@@ -108,6 +108,28 @@ public class DiaInterferenceRemovalTests
         Assert.That(kept, Has.Count.EqualTo(matches.Count));
     }
 
+    private static List<DiaPrecursorMatch> RemoveSameMzOnly(List<DiaPrecursorMatch> matches, Dictionary<int, float[]> fragments) =>
+        DiaInterferenceRemoval.Remove(matches,
+            index => fragments.TryGetValue(index, out var mzs) ? mzs : Enumerable.Range(0, 6).Select(i => 2000f + index * 7 + i).ToArray(),
+            mz => (int)((mz - 400) / 25), RtTolerance, Ppm, Explained, sameMzOnly: true);
+
+    /// <summary>
+    /// DIA-NN removes a precursor only when the better one has its m/z, or has it as the +1 isotope (the lower one is then
+    /// the better one's isotope peak). On the whole-proteome library our looser rule removed 239 of DIA-NN's identifications,
+    /// 42% of which AlphaDIA also finds. With sameMzOnly, a different co-eluting precursor never removes another.
+    /// </summary>
+    [TestCase(500.0, false, TestName = "Same precursor m/z is removed")]
+    [TestCase(500.0 + 1.0033548 / 2, false, TestName = "On the better precursor's +1 isotope is removed")]
+    [TestCase(510.0, true, TestName = "A different m/z in the same window is kept")]
+    public void WithSameMzOnlyADifferentPrecursorNeverRemovesAnother(double mz, bool survives)
+    {
+        var matches = Background().Append(Match(0, 5, mz: 500)).Append(Match(1, 4.9, mz: mz)).ToList();
+
+        var kept = RemoveSameMzOnly(matches, new() { [0] = Base, [1] = Sharing(6) });
+
+        Assert.That(kept.Any(m => m.PrecursorIndex == 1), Is.EqualTo(survives));
+    }
+
     [Test]
     public void ArgumentsAreChecked()
     {

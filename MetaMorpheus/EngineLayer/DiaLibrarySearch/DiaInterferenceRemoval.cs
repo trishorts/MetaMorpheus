@@ -26,9 +26,13 @@ public static class DiaInterferenceRemoval
     /// <param name="windowOf">The index of the isolation window a precursor m/z falls in.</param>
     /// <param name="rtToleranceMinutes">How far apart two apexes may be and still co-elute.</param>
     /// <param name="explainedFragments">How many of the checked fragments a better match must explain.</param>
+    /// <param name="sameMzOnly">
+    /// As DIA-NN: only a better match with the same precursor m/z, or with it as its +1 isotope, can explain another.
+    /// </param>
     /// <returns>The matches that are not explained by a better one, in their input order.</returns>
     public static List<DiaPrecursorMatch> Remove(IReadOnlyList<DiaPrecursorMatch> matches, Func<int, float[]> fragmentMzsByIntensity,
-        Func<double, int> windowOf, double rtToleranceMinutes, double tolerancePpm, int explainedFragments, Action<string>? report = null)
+        Func<double, int> windowOf, double rtToleranceMinutes, double tolerancePpm, int explainedFragments, Action<string>? report = null,
+        bool sameMzOnly = false)
     {
         ArgumentNullException.ThrowIfNull(matches);
         ArgumentNullException.ThrowIfNull(fragmentMzsByIntensity);
@@ -43,7 +47,7 @@ public static class DiaInterferenceRemoval
         long neighbours = 0;
         int considered = 0;
         var removed = new HashSet<int>();
-        var kept = new Dictionary<int, List<(double Rt, float[] Mzs)>>();
+        var kept = new Dictionary<int, List<(double Rt, float[] Mzs, double PrecursorMz, int Charge)>>();
         foreach (var match in matches.Where((m, i) => q[i] <= ProvisionalQValue).OrderByDescending(m => m.Score).ThenBy(m => m.PrecursorIndex))
         {
             considered++;
@@ -55,9 +59,11 @@ public static class DiaInterferenceRemoval
             {
                 if (!kept.TryGetValue(w, out var better))
                     continue;
-                foreach (var (rt, mzs) in better)
+                foreach (var (rt, mzs, betterMz, betterCharge) in better)
                 {
                     if (Math.Abs(rt - match.ApexRt.Value) > rtToleranceMinutes)
+                        continue;
+                    if (sameMzOnly && !SameOrIsotope(match.PrecursorMz, betterMz, betterCharge, tolerancePpm))
                         continue;
                     neighbours++;
                     int count = checkedMzs.Count(mz => mzs.Any(other => Math.Abs(other - mz) <= mz * tolerancePpm * 1e-6));
@@ -75,10 +81,15 @@ public static class DiaInterferenceRemoval
             }
             if (!kept.TryGetValue(window, out var list))
                 kept[window] = list = [];
-            list.Add((match.ApexRt.Value, own));
+            list.Add((match.ApexRt.Value, own, match.PrecursorMz, match.Charge));
         }
         report?.Invoke($"interference removal: {considered} of {matches.Count} matches above the floor {floor:G4}; RT tolerance {rtToleranceMinutes:F4} min; " +
             $"{neighbours} co-eluting pairs checked; {removed.Count} removed ({matches.Count(m => m.IsDecoy && removed.Contains(m.PrecursorIndex))} decoys)  [{clock.Elapsed:mm\\:ss}]");
         return matches.Where(m => !removed.Contains(m.PrecursorIndex)).ToList();
     }
+
+    /// <summary>The weaker precursor's m/z is the better one's, or the better one's +1 isotope.</summary>
+    private static bool SameOrIsotope(double mz, double betterMz, int betterCharge, double tolerancePpm) =>
+        Math.Abs(mz - betterMz) <= mz * tolerancePpm * 1e-6
+        || Math.Abs(mz - (betterMz + 1.0033548 / Math.Max(1, betterCharge))) <= mz * tolerancePpm * 1e-6;
 }
