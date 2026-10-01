@@ -95,6 +95,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                     work.Add((scans, scanIrts, candidate));
         }
 
+        var stage = System.Diagnostics.Stopwatch.StartNew();
+        Status($"timing: {work.Count} (window, candidate) work items listed");
         var scored = new List<DiaPrecursorMatch>[work.Count];
         int completed = 0;
         System.Threading.Tasks.Parallel.For(0, work.Count,
@@ -116,13 +118,16 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                     ReportProgress(new ProgressEventArgs((int)(100.0 * done / work.Count), "Searching DIA candidates...", NestedIds));
             });
         var rows = scored.Where(list => list is not null).SelectMany(list => list).ToList();
+        Status($"timing: extraction and features for {rows.Count} candidate peaks  [{stage.Elapsed:mm\\:ss\\.f}]");
 
         var windowBounds = windows.Select(w => (Low: w.Key.Minimum, High: w.Key.Maximum)).ToArray();
         double cycleMinutes = windows.Select(w => w.Select(s => s.RetentionTime).Order().ToArray())
             .Where(rts => rts.Length > 1).Select(rts => rts[rts.Length / 2] - rts[rts.Length / 2 - 1]).DefaultIfEmpty(0).Average();
         var matches = AssignQValues(rows, windowBounds, cycleMinutes);
+        var peptides = DiaPeptideFdr.Assign(matches);
+        Status($"timing: search done  [{stage.Elapsed:mm\\:ss\\.f}]");
         Status("Done.");
-        return new DiaLibrarySearchResults(this, matches, DiaPeptideFdr.Assign(matches));
+        return new DiaLibrarySearchResults(this, matches, peptides);
     }
 
     /// <summary>
@@ -481,6 +486,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     /// </summary>
     private List<DiaPrecursorMatch> AssignQValues(List<DiaPrecursorMatch> matches, (double Low, double High)[] windowBounds, double cycleMinutes)
     {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         if (matches.Count > 0)
         {
             var rescored = TargetDecoyRescorer.Score(
@@ -489,10 +495,12 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 matches.Select(m => m.FullSequence).ToList(),
                 positiveQValue: _parameters.ClassifierTrainingQValue,
                 model: _parameters.ClassifierModel,
+                maxNetworkTrainingRows: _parameters.MaxNetworkTrainingRows,
                 candidateGroups: matches.Select(m => m.PrecursorIndex).ToList());
             if (rescored.Scores.All(double.IsFinite))
                 matches = matches.Select((m, i) => m with { Score = rescored.Scores[i] }).ToList();
         }
+        Status($"timing: classifier ({_parameters.ClassifierModel}) trained and scored {matches.Count} rows  [{clock.Elapsed:mm\\:ss\\.f}]");
 
         // One match per precursor: its best-scoring candidate apex, across windows
         matches = matches.GroupBy(m => m.PrecursorIndex).Select(g => g.OrderByDescending(m => m.Score).ThenBy(m => m.ApexRt.Value).First()).ToList();

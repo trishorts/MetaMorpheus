@@ -26,11 +26,17 @@ namespace EngineLayer.DiaLibrarySearch;
 /// Interference removal (<see cref="DiaInterferenceRemoval"/>): a match is dropped when a better, co-eluting match explains
 /// at least this many of its six most intense library fragments. 0 turns removal off.
 /// </param>
+/// <param name="MaxNetworkTrainingRows">
+/// When set, the classifier's network trains on a random subsample of at most this many rows per fold (every row is still
+/// scored). Null trains on all. Default 250,000, about DIA-NN's training size: on the whole-proteome library it took the
+/// classifier from 10:10 to 7:03 and changed precursors at 1% from 23,200 to 23,721; smaller libraries never reach it.
+/// </param>
 /// <param name="ClassifierModel">The model the rescorer fits in each fold: a linear discriminant, or a small neural-network ensemble (DIA-NN's approach).</param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
     int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 1, double ClassifierTrainingQValue = 0.01,
     StatisticalModels.RescoreModel ClassifierModel = StatisticalModels.RescoreModel.NeuralNetworkEnsemble,
-    int InterferenceExplainedFragments = 4)
+    int InterferenceExplainedFragments = 4,
+    int? MaxNetworkTrainingRows = 250_000)
 {
     private readonly int _precursorSampleStride = Positive(PrecursorSampleStride);
 

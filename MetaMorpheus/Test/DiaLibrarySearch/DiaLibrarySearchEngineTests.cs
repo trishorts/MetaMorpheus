@@ -166,6 +166,29 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// The classifier's network can train on a random subsample of each fold (mzLib's maxNetworkTrainingRows): on a
+    /// whole-proteome library, training on every row was two thirds of the search. A cap above the row count changes
+    /// nothing; a small one reaches the rescorer.
+    /// </summary>
+    [Test]
+    public void TheNetworkTrainingCapReachesTheClassifier()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000);
+        string path = run.WriteLibrary(_directory);
+        List<DiaPrecursorMatch> SearchWith(int? cap)
+        {
+            using var library = MslLibrary.Load(path);
+            return ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+                new DiaLibrarySearchParameters(MaxNetworkTrainingRows: cap), new CommonParameters(), [], []).Run()).Matches;
+        }
+
+        var all = SearchWith(null);
+
+        Assert.That(SearchWith(10_000_000).Select(m => m.Score), Is.EqualTo(all.Select(m => m.Score)));
+        Assert.That(SearchWith(50).Select(m => m.Score), Is.Not.EqualTo(all.Select(m => m.Score)));
+    }
+
+    /// <summary>
     /// Peptide length is a feature: a chance match is harder to make with more residues (more fragments, more of them at
     /// sparse high m/z), and on the whole-proteome library the decoys scoring like real identifications were shorter
     /// (median 9 residues against 11). A reversed decoy has exactly its target's length, so the feature cannot reveal the
