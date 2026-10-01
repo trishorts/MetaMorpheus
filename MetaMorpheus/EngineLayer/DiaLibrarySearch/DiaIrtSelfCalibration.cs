@@ -26,6 +26,12 @@ public static class DiaIrtSelfCalibration
     /// <summary>Anchors must pass this target-decoy q-value.</summary>
     public const double AnchorQValue = 0.01;
 
+    /// <summary>
+    /// A first pass with fewer anchors than this samples twice as many precursors and searches again, until it has them
+    /// or has searched the whole library. A sparse library (a whole proteome, of which a run holds a few percent) needs this.
+    /// </summary>
+    public const int DesiredAnchors = 500;
+
     /// <summary>The first pass's iRT half-window, as a fraction of the library's central iRT range.</summary>
     public const double FirstPassWindowFraction = 0.25;
 
@@ -36,14 +42,15 @@ public static class DiaIrtSelfCalibration
     public const int FirstPassTargetCount = 10_000;
 
     /// <summary>The first pass's <see cref="DiaLibrarySearchParameters.PrecursorSampleStride"/> for a library of this many targets.</summary>
-    public static int FirstPassStride(int targetCount) => Math.Max(1, (int)Math.Ceiling((double)targetCount / FirstPassTargetCount));
+    public static int FirstPassStride(int targetCount, int firstPassTargetCount = FirstPassTargetCount) =>
+        Math.Max(1, (int)Math.Ceiling((double)targetCount / firstPassTargetCount));
 
     /// <exception cref="MetaMorpheusException">
     /// The run has no DIA MS2 scans, the library holds no targets, or too few confident first-pass identifications to
     /// calibrate on.
     /// </exception>
     public static DiaIrtCalibration Calibrate(MsDataScan[] scans, MslLibrary library, DiaLibrarySearchParameters parameters,
-        CommonParameters commonParameters, IrtCalibrationOptions? options = null)
+        CommonParameters commonParameters, IrtCalibrationOptions? options = null, int firstPassTargetCount = FirstPassTargetCount)
     {
         ArgumentNullException.ThrowIfNull(scans);
         ArgumentNullException.ThrowIfNull(library);
@@ -63,19 +70,30 @@ public static class DiaIrtSelfCalibration
         double highIrt = targetIrts[(int)(0.98 * (targetIrts.Length - 1))];
         var provisional = IrtCalibration.Line((new RtMinutes(ms2Rts.Min()), new Irt(lowIrt)), (new RtMinutes(ms2Rts.Max()), new Irt(highIrt)));
 
-        var firstPass = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(scans, library, provisional,
-            parameters with
-            {
-                IrtHalfWindow = FirstPassWindowFraction * (highIrt - lowIrt),
-                PrecursorSampleStride = FirstPassStride(targetIrts.Length),
-            }, commonParameters, [], []).Run();
+        int stride = FirstPassStride(targetIrts.Length, firstPassTargetCount);
+        while (true)
+        {
+            var firstPass = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(scans, library, provisional,
+                parameters with
+                {
+                    IrtHalfWindow = FirstPassWindowFraction * (highIrt - lowIrt),
+                    PrecursorSampleStride = stride,
+                }, commonParameters, [], []).Run();
 
-        var anchors = firstPass.Matches
-            .Where(m => !m.IsDecoy && m.QValue <= AnchorQValue)
-            .OrderByDescending(m => m.Score)
-            .Take(MaximumAnchors)
-            .Select(m => (m.ApexRt, m.LibraryIrt))
-            .ToList();
+            var anchors = firstPass.Matches
+                .Where(m => !m.IsDecoy && m.QValue <= AnchorQValue)
+                .OrderByDescending(m => m.Score)
+                .Take(MaximumAnchors)
+                .Select(m => (m.ApexRt, m.LibraryIrt))
+                .ToList();
+            if (anchors.Count >= DesiredAnchors || stride == 1)
+                return Fit(anchors, options);
+            stride = Math.Max(1, stride / 2);
+        }
+    }
+
+    private static DiaIrtCalibration Fit(System.Collections.Generic.List<(RtMinutes ApexRt, Irt LibraryIrt)> anchors, IrtCalibrationOptions options)
+    {
         if (anchors.Count < options.MinimumAnchors)
             throw new MetaMorpheusException($"Could not calibrate retention time: the first pass found only {anchors.Count} confident " +
                 $"identifications, and at least {options.MinimumAnchors} are needed.");

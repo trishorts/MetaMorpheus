@@ -80,6 +80,26 @@ public class DiaIrtSelfCalibrationTests
         Assert.That(DiaIrtSelfCalibration.FirstPassStride(targets), Is.EqualTo(stride));
     }
 
+    /// <summary>
+    /// A whole-proteome library is sparse: few of its precursors are in any run. A sample then holds too few for any to
+    /// reach 1% q, since (D+1)/T needs a hundred targets before the first decoy. The first pass samples twice as many
+    /// precursors until it finds enough anchors, up to the whole library.
+    /// </summary>
+    [Test]
+    public void ASparseLibraryIsSampledMoreUntilTheFirstPassFindsAnchors()
+    {
+        // 3000 targets of which about 5% elute: a 500-target sample holds about 25
+        var run = SyntheticDiaRun.Build(3000, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 20) == 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+
+        var calibration = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new CommonParameters(),
+            firstPassTargetCount: 500);
+
+        Assert.That(calibration.AnchorCount, Is.GreaterThanOrEqualTo(100));
+        for (double irt = -10; irt <= 110; irt += 20)
+            Assert.That(calibration.Model.ToIrt(new RtMinutes(SyntheticDiaRun.TrueRtMinutes(irt))).Value, Is.EqualTo(irt).Within(2.0), $"at library iRT {irt}");
+    }
+
     /// <summary>With nothing to find there is nothing to calibrate on, and that is an error, not a guess.</summary>
     [Test]
     public void ARunWithNothingToFindCannotBeCalibrated()
