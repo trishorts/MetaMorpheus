@@ -80,7 +80,14 @@ public static class DiaMassCalibration
         var file = new GenericMsDataFile(scans, new SourceFile("no nativeID format", "mzML format", null, null, null));
         var engine = new CalibrationEngine(file, datapoints, commonParameters, [], []);
         engine.Run();
-        return new DiaMassCalibrationResult(engine.CalibratedDataFile.GetAllScansList().ToArray(), ms1Points.Count, ms2Points.Count,
+        // Keep only the engine's corrected spectra. It also shifts each MS2 scan's isolation and selected-ion m/z, which for
+        // DDA are measured precursor m/z; in DIA they are the instrument's fixed window, and shifting them per scan would
+        // split every window into one-scan windows (MetaMorpheus does not calibrate DIA)
+        var corrected = engine.CalibratedDataFile.GetAllScansList();
+        var calibrated = new MsDataScan[scans.Length];
+        for (int i = 0; i < scans.Length; i++)
+            calibrated[i] = WithSpectrum(scans[i], corrected[i].MassSpectrum);
+        return new DiaMassCalibrationResult(calibrated, ms1Points.Count, ms2Points.Count,
             Median(ms1Points.Select(p => p.RelativeMzError * 1e6)), Median(ms2Points.Select(p => p.RelativeMzError * 1e6)));
     }
 
@@ -94,6 +101,13 @@ public static class DiaMassCalibration
         return new LabeledDataPoint(scan.MassSpectrum.XArray[i], scan.OneBasedScanNumber, Math.Log10(Math.Max(1, scan.TotalIonCurrent)),
             Math.Log10(Math.Max(1e-3, scan.InjectionTime ?? 1)), Math.Log10(Math.Max(1, intensity)), mz, null);
     }
+
+    /// <summary>The scan as recorded, with a different spectrum.</summary>
+    private static MsDataScan WithSpectrum(MsDataScan scan, MzSpectrum spectrum) => new(
+        spectrum, scan.OneBasedScanNumber, scan.MsnOrder, scan.IsCentroid, scan.Polarity, scan.RetentionTime, scan.ScanWindowRange,
+        scan.ScanFilter, scan.MzAnalyzer, scan.TotalIonCurrent, scan.InjectionTime, scan.NoiseData, scan.NativeId, scan.SelectedIonMZ,
+        scan.SelectedIonChargeStateGuess, scan.SelectedIonIntensity, scan.IsolationMz, scan.IsolationWidth, scan.DissociationType,
+        scan.OneBasedPrecursorScanNumber, scan.SelectedIonMonoisotopicGuessMz);
 
     private static MsDataScan Nearest(MsDataScan[] sorted, Func<MsDataScan, double> key, double value) =>
         sorted[NearestIndex(sorted.Select(key).ToArray(), value)];

@@ -74,6 +74,37 @@ public class DiaMassCalibrationTests
         Assert.That(calibration.Scans, Has.Length.EqualTo(run.Scans.Length));
     }
 
+    /// <summary>
+    /// MetaMorpheus does not calibrate DIA, and its CalibrationEngine shows why: it also shifts each MS2 scan's isolation m/z
+    /// by that scan's own correction, which for DDA is a measured precursor m/z. In DIA it is the instrument's fixed window,
+    /// and shifting it per scan splits every window into one-scan windows, so nothing can be extracted. Only the spectra may
+    /// change: the window, precursor fields and everything else stay as recorded, and the calibrated run still searches.
+    /// </summary>
+    [Test]
+    public void CalibrationKeepsEveryIsolationWindowAndTheRunStillSearches()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0, withMs1: true, ppmOffset: 8);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        var rt = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new CommonParameters());
+        var results = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, rt.Model,
+            new DiaLibrarySearchParameters(IrtHalfWindow: rt.IrtHalfWindow), new CommonParameters(), [], []).Run();
+
+        var calibrated = DiaMassCalibration.Calibrate(run.Scans, results.Matches, library, new CommonParameters()).Scans;
+
+        for (int i = 0; i < run.Scans.Length; i++)
+        {
+            Assert.That(calibrated[i].IsolationMz, Is.EqualTo(run.Scans[i].IsolationMz), $"scan {i} isolation m/z");
+            Assert.That(calibrated[i].IsolationWidth, Is.EqualTo(run.Scans[i].IsolationWidth));
+            Assert.That(calibrated[i].SelectedIonMZ, Is.EqualTo(run.Scans[i].SelectedIonMZ));
+            Assert.That(calibrated[i].RetentionTime, Is.EqualTo(run.Scans[i].RetentionTime));
+            Assert.That(calibrated[i].OneBasedScanNumber, Is.EqualTo(run.Scans[i].OneBasedScanNumber));
+        }
+        var again = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(calibrated, library, rt.Model,
+            new DiaLibrarySearchParameters(IrtHalfWindow: rt.IrtHalfWindow), new CommonParameters(), [], []).Run();
+        int found = again.Matches.Count(m => !m.IsDecoy && m.QValue <= 0.01 && run.PlantedSequences.Contains(m.FullSequence));
+        Assert.That(found, Is.GreaterThanOrEqualTo((int)Math.Ceiling(0.9 * run.PlantedSequences.Count)));
+    }
+
     /// <summary>With no confident identifications there is nothing to calibrate on: the scans come back unchanged.</summary>
     [Test]
     public void WithoutIdentificationsTheScansAreReturnedUnchanged()
