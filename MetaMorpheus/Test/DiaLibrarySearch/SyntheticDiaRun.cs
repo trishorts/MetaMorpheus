@@ -63,8 +63,10 @@ internal sealed class SyntheticDiaRun
     /// <param name="plant">Chooses which library entries elute in the run, by full sequence.</param>
     /// <param name="withDecoys">False builds a library with no decoys at all.</param>
     /// <param name="abundance">Multiplies a planted entry's elution peak; null leaves every peak at the same height.</param>
+    /// <param name="withMs1">Adds an MS1 scan at the start of each cycle: noise, and each planted precursor's M0-M3 isotopes
+    /// (Poisson, lambda = neutral mass / 1800, about averagine) on the same elution profile.</param>
     public static SyntheticDiaRun Build(int targetCount, Func<MslLibraryEntry, bool> plant, bool withDecoys = true,
-        int seed = 42, double noisePeaksPerScan = 60, Func<MslLibraryEntry, double>? abundance = null)
+        int seed = 42, double noisePeaksPerScan = 60, Func<MslLibraryEntry, double>? abundance = null, bool withMs1 = false)
     {
         var random = new Random(seed);
         var library = new List<MslLibraryEntry>();
@@ -89,6 +91,27 @@ internal sealed class SyntheticDiaRun
         int scanNumber = 1;
         for (double rt = 0; rt < RunMinutes; rt += CycleMinutes)
         {
+            if (withMs1)
+            {
+                var ms1Peaks = new List<(double Mz, double Intensity)>();
+                for (int n = 0; n < 200; n++)
+                    ms1Peaks.Add((FirstWindowLowMz + random.NextDouble() * WindowCount * WindowWidth, 50 + random.NextDouble() * 950));
+                foreach (var entry in planted)
+                {
+                    double elution = 1e6 * (abundance?.Invoke(entry) ?? 1) * Math.Exp(-0.5 * Math.Pow((rt - TrueRtMinutes(entry.RetentionTime)) / ElutionSigmaMinutes, 2));
+                    if (elution < 1)
+                        continue;
+                    double lambda = (entry.PrecursorMz - 1.007276) * entry.ChargeState / 1800;
+                    double p = Math.Exp(-lambda);
+                    for (int k = 0; k <= 3; k++, p *= lambda / k)
+                        ms1Peaks.Add((entry.PrecursorMz + k * 1.0033548 / entry.ChargeState, elution * p));
+                }
+                var ms1Ordered = ms1Peaks.OrderBy(p => p.Mz).ToArray();
+                var ms1Spectrum = new MzSpectrum(ms1Ordered.Select(p => p.Mz).ToArray(), ms1Ordered.Select(p => p.Intensity).ToArray(), false);
+                scans.Add(new MsDataScan(ms1Spectrum, scanNumber, 1, true, Polarity.Positive, rt, new MzRange(FirstWindowLowMz, FirstWindowLowMz + WindowCount * WindowWidth),
+                    "synthetic", MZAnalyzerType.Orbitrap, ms1Spectrum.SumOfAllY, 10, null, $"scan={scanNumber}"));
+                scanNumber++;
+            }
             for (int w = 0; w < WindowCount; w++)
             {
                 double low = FirstWindowLowMz + w * WindowWidth;

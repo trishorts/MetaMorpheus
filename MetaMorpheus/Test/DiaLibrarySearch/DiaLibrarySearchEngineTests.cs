@@ -166,6 +166,38 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// MS1 evidence that does not lean on the fragments. On the whole-proteome library, a fifth of DIA-NN's identifications we
+    /// miss show a clean MS1 peak inside DIA-NN's bounds while their fragments are faint, and our only MS1 features were
+    /// correlations to the fragment profile. At the apex's MS1 scan: the M0-M3 envelope against the expected isotope pattern,
+    /// the M0 mass error, and how much of the window's MS1 trace maximum the apex holds. A decoy has its target's precursor,
+    /// so none of these can reveal the label.
+    /// </summary>
+    [Test]
+    public void Ms1EnvelopeMassErrorAndApexShareSeparatePlantedPrecursorsFromChance()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
+
+        var matches = Search(run).Matches;
+
+        int envelope = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1EnvelopeCosine");
+        int ppm = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1MassErrorPpm");
+        int share = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1ApexShare");
+        Assert.That(new[] { envelope, ppm, share }, Is.All.GreaterThanOrEqualTo(0));
+        double Median(IEnumerable<double> values) { var s = values.Order().ToArray(); return s[s.Length / 2]; }
+        var planted = matches.Where(m => run.PlantedSequences.Contains(m.FullSequence)).ToList();
+        var chance = matches.Where(m => !run.PlantedSequences.Contains(m.FullSequence)).ToList();
+        Assert.That(planted, Has.Count.GreaterThan(50));
+        Assert.That(chance, Has.Count.GreaterThan(50));
+        Assert.That(Median(planted.Select(m => m.Features[envelope])), Is.GreaterThan(0.95));
+        Assert.That(Median(chance.Select(m => m.Features[envelope])), Is.LessThan(0.5));
+        Assert.That(Median(planted.Select(m => m.Features[ppm])), Is.LessThan(1), "the planted M0 is at the library m/z");
+        Assert.That(Median(chance.Select(m => m.Features[ppm])), Is.EqualTo(20).Within(1e-9), "no M0 found counts as the full tolerance");
+        Assert.That(Median(planted.Select(m => m.Features[share])), Is.GreaterThan(0.8));
+        Assert.That(matches.Select(m => m.Features[envelope]), Is.All.InRange(0.0, 1.0 + 1e-12));
+        Assert.That(matches.Select(m => m.Features[share]), Is.All.InRange(0.0, 1.0));
+    }
+
+    /// <summary>
     /// Interference removal drops matches from the reported list, but the results keep them, so a miss can be told
     /// apart from a precursor never scored. Reported and removed together are every precursor a search without removal
     /// reports.

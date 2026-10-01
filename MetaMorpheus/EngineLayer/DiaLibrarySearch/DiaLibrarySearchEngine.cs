@@ -358,6 +358,29 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1IsotopeCorrelation = FragmentCoElution.CorrelationsTo([ms1Isotope], reference, from, to)[0];
             }
 
+            // MS1 evidence that stands without the fragments, at the MS1 scan nearest the apex: the M0-M3 envelope against the
+            // expected isotope pattern, the M0 mass error, and the apex's share of the window's MS1 trace maximum. On the
+            // whole-proteome library a fifth of DIA-NN's identifications we missed had a clean MS1 peak and faint fragments.
+            double ms1EnvelopeCosine = 0, ms1MassErrorPpm = Ms1Tolerance.Value, ms1ApexShare = 0;
+            if (_ms1Index is not null && ms1Mono is not null)
+            {
+                int ms1Scan = NearestMs1(scans[reachable[apex]].RetentionTime);
+                int z = Math.Max(1, (int)candidate.Charge);
+                double[] expected = ExpectedIsotopes((candidate.PrecursorMz - 1.007276) * z, 4);
+                var observed = new double[4];
+                for (int k = 0; k < 4; k++)
+                {
+                    var peak = _ms1Index.GetIndexedPeak(candidate.PrecursorMz + k * 1.0033548 / z, ms1Scan, Ms1Tolerance);
+                    observed[k] = peak?.Intensity ?? 0;
+                    if (k == 0 && peak is not null)
+                        ms1MassErrorPpm = Math.Abs(peak.M - candidate.PrecursorMz) / candidate.PrecursorMz * 1e6;
+                }
+                ms1EnvelopeCosine = observed.Any(v => v > 0) ? SpectralSimilarity.CosineOfAlignedVectors(observed, expected) : 0;
+                double windowMax = ms1Mono.Max();
+                double atApex = ms1Mono.Skip(Math.Max(0, apex - 1)).Take(3).Max();
+                ms1ApexShare = windowMax > 0 ? atApex / windowMax : 0;
+            }
+
             // Uniqueness: this apex against the best competing scan outside its co-elution window, its z-score among the
             // window's scans, and the share of the window's fragment signal inside its peak
             double apexScore = apexScores[apex];
@@ -410,6 +433,9 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 surprisalFraction,
                 specificityWeightedCoElution,
                 entry.BaseSequence.Length,
+                ms1EnvelopeCosine,
+                ms1MassErrorPpm,
+                ms1ApexShare,
             ];
 
             yield return new DiaPrecursorMatch(
@@ -437,6 +463,20 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             if (sorted[mid] < x) lo = mid + 1; else hi = mid;
         }
         return lo;
+    }
+
+    /// <summary>
+    /// Expected relative intensities of the first <paramref name="count"/> isotopes of a peptide of this neutral mass: a
+    /// Poisson with lambda = mass / 1800, close to averagine over tryptic peptide masses.
+    /// </summary>
+    internal static double[] ExpectedIsotopes(double neutralMass, int count)
+    {
+        double lambda = neutralMass / 1800;
+        var p = new double[count];
+        p[0] = Math.Exp(-lambda);
+        for (int k = 1; k < count; k++)
+            p[k] = p[k - 1] * lambda / k;
+        return p;
     }
 
     private int NearestMs1(double retentionTime)

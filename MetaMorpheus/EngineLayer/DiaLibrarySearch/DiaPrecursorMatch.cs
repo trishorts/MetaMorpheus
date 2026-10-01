@@ -81,5 +81,8 @@ public sealed record DiaPrecursorMatch(
         "SurprisalFraction",    // matched surprisal over the total possible
         "SpecificityWeightedCoElution", // profile correlations weighted by each fragment's surprisal
         "PeptideLength",        // residues: a chance match is harder with more of them; a reversed decoy keeps its target's
+        "Ms1EnvelopeCosine",    // M0-M3 at the apex's MS1 scan against the expected isotope pattern
+        "Ms1MassErrorPpm",      // |M0 - library precursor m/z| in ppm; the full tolerance when no M0 is found
+        "Ms1ApexShare",         // MS1 M0 at the apex (+-1 scan) over its maximum in the window: is the apex on an MS1 peak
     ];
 }
