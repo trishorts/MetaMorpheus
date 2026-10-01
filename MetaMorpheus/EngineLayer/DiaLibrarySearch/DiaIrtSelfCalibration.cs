@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Chromatography.RetentionTimeCalibration;
 using MassSpectrometry;
@@ -90,6 +91,28 @@ public static class DiaIrtSelfCalibration
                 return Fit(anchors, options);
             stride = Math.Max(1, stride / 2);
         }
+    }
+
+    /// <summary>The most confident main-search targets a <see cref="Refine"/> fit uses.</summary>
+    public const int MaximumRefinementAnchors = 20_000;
+
+    /// <summary>
+    /// The second pass, as DIA-NN refits after its first search: the run's RT->iRT map refitted on the main search's targets at
+    /// <see cref="AnchorQValue"/> (the best <see cref="MaximumRefinementAnchors"/> by score), many more than the first pass's.
+    /// Decoys and targets above the cutoff never take part.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="matches"/> is null.</exception>
+    /// <exception cref="MetaMorpheusException">Too few confident targets to fit.</exception>
+    public static DiaIrtCalibration Refine(IReadOnlyList<DiaPrecursorMatch> matches, IrtCalibrationOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(matches);
+        var anchors = matches
+            .Where(m => !m.IsDecoy && m.QValue <= AnchorQValue)
+            .OrderByDescending(m => m.Score).ThenBy(m => m.PrecursorIndex)
+            .Take(MaximumRefinementAnchors)
+            .Select(m => (m.ApexRt, m.LibraryIrt))
+            .ToList();
+        return Fit(anchors, options ?? new IrtCalibrationOptions());
     }
 
     private static DiaIrtCalibration Fit(System.Collections.Generic.List<(RtMinutes ApexRt, Irt LibraryIrt)> anchors, IrtCalibrationOptions options)

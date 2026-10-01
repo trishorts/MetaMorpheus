@@ -65,8 +65,9 @@ internal sealed class SyntheticDiaRun
     /// <param name="abundance">Multiplies a planted entry's elution peak; null leaves every peak at the same height.</param>
     /// <param name="withMs1">Adds an MS1 scan at the start of each cycle: noise, and each planted precursor's M0-M3 isotopes
     /// (Poisson, lambda = neutral mass / 1800, about averagine) on the same elution profile.</param>
+    /// <param name="ppmOffset">Shifts every recorded m/z by this many ppm, as a miscalibrated instrument would.</param>
     public static SyntheticDiaRun Build(int targetCount, Func<MslLibraryEntry, bool> plant, bool withDecoys = true,
-        int seed = 42, double noisePeaksPerScan = 60, Func<MslLibraryEntry, double>? abundance = null, bool withMs1 = false)
+        int seed = 42, double noisePeaksPerScan = 60, Func<MslLibraryEntry, double>? abundance = null, bool withMs1 = false, double ppmOffset = 0)
     {
         var random = new Random(seed);
         var library = new List<MslLibraryEntry>();
@@ -107,7 +108,7 @@ internal sealed class SyntheticDiaRun
                         ms1Peaks.Add((entry.PrecursorMz + k * 1.0033548 / entry.ChargeState, elution * p));
                 }
                 var ms1Ordered = ms1Peaks.OrderBy(p => p.Mz).ToArray();
-                var ms1Spectrum = new MzSpectrum(ms1Ordered.Select(p => p.Mz).ToArray(), ms1Ordered.Select(p => p.Intensity).ToArray(), false);
+                var ms1Spectrum = new MzSpectrum(ms1Ordered.Select(p => p.Mz * (1 + ppmOffset * 1e-6)).ToArray(), ms1Ordered.Select(p => p.Intensity).ToArray(), false);
                 scans.Add(new MsDataScan(ms1Spectrum, scanNumber, 1, true, Polarity.Positive, rt, new MzRange(FirstWindowLowMz, FirstWindowLowMz + WindowCount * WindowWidth),
                     "synthetic", MZAnalyzerType.Orbitrap, ms1Spectrum.SumOfAllY, 10, null, $"scan={scanNumber}"));
                 scanNumber++;
@@ -129,7 +130,7 @@ internal sealed class SyntheticDiaRun
                 }
 
                 var ordered = peaks.OrderBy(p => p.Mz).ToArray();
-                var spectrum = new MzSpectrum(ordered.Select(p => p.Mz).ToArray(), ordered.Select(p => p.Intensity).ToArray(), false);
+                var spectrum = new MzSpectrum(ordered.Select(p => p.Mz * (1 + ppmOffset * 1e-6)).ToArray(), ordered.Select(p => p.Intensity).ToArray(), false);
                 scans.Add(new MsDataScan(spectrum, scanNumber, 2, true, Polarity.Positive, rt, new MzRange(150, 1500), "synthetic",
                     MZAnalyzerType.Orbitrap, spectrum.SumOfAllY, 10, null, $"scan={scanNumber}",
                     isolationMZ: low + WindowWidth / 2, isolationWidth: WindowWidth, dissociationType: DissociationType.HCD));

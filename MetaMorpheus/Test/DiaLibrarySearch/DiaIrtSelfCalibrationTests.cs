@@ -100,6 +100,33 @@ public class DiaIrtSelfCalibrationTests
             Assert.That(calibration.Model.ToIrt(new RtMinutes(SyntheticDiaRun.TrueRtMinutes(irt))).Value, Is.EqualTo(irt).Within(2.0), $"at library iRT {irt}");
     }
 
+    /// <summary>
+    /// The second pass (DIA-NN refits after its first search): the main search's confident targets refit the run's RT->iRT map.
+    /// Only targets at 1% count. A far-off target above 1%, or any decoy, must not pull the fit.
+    /// </summary>
+    [Test]
+    public void ARefitFromTheMainSearchUsesOnlyItsConfidentTargets()
+    {
+        var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        var calibration = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new CommonParameters());
+        var results = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, calibration.Model,
+            new DiaLibrarySearchParameters(IrtHalfWindow: calibration.IrtHalfWindow), new CommonParameters(), [], []).Run();
+        int confident = results.Matches.Count(m => !m.IsDecoy && m.QValue <= DiaIrtSelfCalibration.AnchorQValue);
+        // Poison: wrong apexes far from the curve, as a weak target and as a decoy
+        var poisoned = results.Matches.Concat(Enumerable.Range(0, 50).SelectMany(i => new[]
+        {
+            new DiaPrecursorMatch(100_000 + i, "POISONK", 2, 500, false, new Irt(100), new RtMinutes(1), new Irt(0), 1, [1.0], QValue: 0.5),
+            new DiaPrecursorMatch(200_000 + i, "KNOSIOP", 2, 500, true, new Irt(100), new RtMinutes(1), new Irt(0), 99, [1.0]),
+        })).ToList();
+
+        var refined = DiaIrtSelfCalibration.Refine(poisoned);
+
+        Assert.That(refined.AnchorCount, Is.EqualTo(Math.Min(confident, DiaIrtSelfCalibration.MaximumRefinementAnchors)));
+        for (double irt = -10; irt <= 110; irt += 10)
+            Assert.That(refined.Model.ToIrt(new RtMinutes(SyntheticDiaRun.TrueRtMinutes(irt))).Value, Is.EqualTo(irt).Within(2.0), $"at library iRT {irt}");
+    }
+
     /// <summary>With nothing to find there is nothing to calibrate on, and that is an error, not a guess.</summary>
     [Test]
     public void ARunWithNothingToFindCannotBeCalibrated()
