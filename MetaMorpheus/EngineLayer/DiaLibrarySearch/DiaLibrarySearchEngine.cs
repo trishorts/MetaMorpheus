@@ -80,45 +80,46 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             .OrderBy(window => window.Key.Minimum)
             .ToList();
 
-        var rows = new List<DiaPrecursorMatch>();
-        for (int w = 0; w < windows.Count; w++)
+        // One work item per (window, candidate), scored in parallel; results are gathered in work-item order, so the
+        // output does not depend on the thread count
+        var work = new List<(MsDataScan[] Scans, double[] ScanIrts, MslPrecursorIndexEntry Candidate)>();
+        foreach (var window in windows)
         {
-            if (GlobalVariables.StopLoops)
-                break;
-            var scans = windows[w].OrderBy(scan => scan.RetentionTime).ToArray();
-            rows.AddRange(SearchWindow(windows[w].Key, scans, tolerance));
-            ReportProgress(new ProgressEventArgs((int)(100.0 * (w + 1) / windows.Count), "Searching DIA windows...", NestedIds));
+            var scans = window.OrderBy(scan => scan.RetentionTime).ToArray();
+            double[] scanIrts = scans.Select(scan => _irtMap.ToIrt(new RtMinutes(scan.RetentionTime)).Value).ToArray();
+            double irtLow = scanIrts.Min() - _parameters.IrtHalfWindow;
+            double irtHigh = scanIrts.Max() + _parameters.IrtHalfWindow;
+            using var hits = _library.QueryWindow((float)window.Key.Minimum, (float)window.Key.Maximum, (float)irtLow, (float)irtHigh, includeDecoys: true);
+            foreach (var candidate in hits.Entries.ToArray())
+                if (candidate.PrecursorIdx % _parameters.PrecursorSampleStride == 0)
+                    work.Add((scans, scanIrts, candidate));
         }
+
+        var scored = new List<DiaPrecursorMatch>[work.Count];
+        int completed = 0;
+        System.Threading.Tasks.Parallel.For(0, work.Count,
+            new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = CommonParameters.MaxThreadsToUsePerFile },
+            (i, loop) =>
+            {
+                if (GlobalVariables.StopLoops)
+                {
+                    loop.Stop();
+                    return;
+                }
+                var (scans, scanIrts, candidate) = work[i];
+                var entry = _library.GetEntry(candidate.PrecursorIdx);
+                scored[i] = entry is null || entry.MatchedFragmentIons.Count == 0
+                    ? []
+                    : ScoreCandidates(candidate, entry, scans, scanIrts, tolerance).ToList();
+                int done = System.Threading.Interlocked.Increment(ref completed);
+                if (done % 2000 == 0 || done == work.Count)
+                    ReportProgress(new ProgressEventArgs((int)(100.0 * done / work.Count), "Searching DIA candidates...", NestedIds));
+            });
+        var rows = scored.Where(list => list is not null).SelectMany(list => list).ToList();
 
         var matches = AssignQValues(rows);
         Status("Done.");
         return new DiaLibrarySearchResults(this, matches, DiaPeptideFdr.Assign(matches));
-    }
-
-    private List<DiaPrecursorMatch> SearchWindow((double Minimum, double Maximum) window, MsDataScan[] scans, PpmTolerance tolerance)
-    {
-        var matches = new List<DiaPrecursorMatch>();
-        if (scans.Length == 0)
-            return matches;
-
-        double[] scanIrts = scans.Select(scan => _irtMap.ToIrt(new RtMinutes(scan.RetentionTime)).Value).ToArray();
-        double irtLow = scanIrts.Min() - _parameters.IrtHalfWindow;
-        double irtHigh = scanIrts.Max() + _parameters.IrtHalfWindow;
-
-        MslPrecursorIndexEntry[] candidates;
-        using (var hits = _library.QueryWindow((float)window.Minimum, (float)window.Maximum, (float)irtLow, (float)irtHigh, includeDecoys: true))
-            candidates = hits.Entries.ToArray();
-
-        foreach (var candidate in candidates)
-        {
-            if (candidate.PrecursorIdx % _parameters.PrecursorSampleStride != 0)
-                continue;
-            var entry = _library.GetEntry(candidate.PrecursorIdx);
-            if (entry is null || entry.MatchedFragmentIons.Count == 0)
-                continue;
-            matches.AddRange(ScoreCandidates(candidate, entry, scans, scanIrts, tolerance));
-        }
-        return matches;
     }
 
     /// <summary>

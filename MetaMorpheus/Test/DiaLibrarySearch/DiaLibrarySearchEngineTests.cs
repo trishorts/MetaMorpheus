@@ -166,6 +166,31 @@ public class DiaLibrarySearchEngineTests
         Assert.That(matches.All(m => m.Features[coElution] is >= 0 and <= 1));
     }
 
+    /// <summary>
+    /// The search runs candidates in parallel; the result must not depend on the thread count, match for match, in
+    /// order, including every feature, score and q-value.
+    /// </summary>
+    [Test]
+    public void ParallelSearchGivesTheSameResultAsOneThread()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => SyntheticDiaRun.Bucket(entry, 4) != 0, noisePeaksPerScan: 600);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults Run(int threads) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(), new CommonParameters(maxThreadsToUsePerFile: threads), [], []).Run();
+
+        var one = Run(1).Matches;
+        var four = Run(4).Matches;
+
+        Assert.That(four, Has.Count.EqualTo(one.Count));
+        for (int i = 0; i < one.Count; i++)
+        {
+            Assert.That(four[i].PrecursorIndex, Is.EqualTo(one[i].PrecursorIndex), $"row {i}");
+            Assert.That(four[i].Score, Is.EqualTo(one[i].Score), $"row {i}");
+            Assert.That(four[i].QValue, Is.EqualTo(one[i].QValue), $"row {i}");
+            Assert.That(four[i].Features, Is.EqualTo(one[i].Features), $"row {i}");
+        }
+    }
+
     [Test]
     public void TargetQValuesNeverDecreaseAsScoreFalls()
     {
