@@ -144,6 +144,28 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// Each precursor carries a quantity: its fragments' summed peak areas. It follows abundance, so a precursor planted
+    /// at twice the height quantifies at about twice the amount, and one at equal height at about the same.
+    /// </summary>
+    [Test]
+    public void QuantityFollowsAbundance()
+    {
+        Func<Omics.SpectralMatch.MslSpectralLibrary.MslLibraryEntry, bool> plant = entry => !entry.IsDecoy;
+        var baseline = Search(SyntheticDiaRun.Build(100, plant)).Matches.Where(m => !m.IsDecoy && m.QValue <= 0.01)
+            .ToDictionary(m => m.PrecursorIndex);
+        var doubled = Search(SyntheticDiaRun.Build(100, plant, abundance: e => SyntheticDiaRun.Bucket(e, 2) == 0 ? 2 : 1))
+            .Matches.Where(m => !m.IsDecoy && m.QValue <= 0.01).ToList();
+
+        var ratios = doubled.Where(m => baseline.ContainsKey(m.PrecursorIndex))
+            .Select(m => (Doubled: SyntheticDiaRun.Bucket(m.FullSequence, 2) == 0, Ratio: m.Quantity / baseline[m.PrecursorIndex].Quantity))
+            .ToList();
+
+        Assert.That(baseline.Values.Select(m => m.Quantity), Is.All.GreaterThan(0));
+        Assert.That(ratios.Where(r => r.Doubled).Select(r => r.Ratio).ToList(), Has.Count.GreaterThan(20).And.All.InRange(1.8, 2.2));
+        Assert.That(ratios.Where(r => !r.Doubled).Select(r => r.Ratio).ToList(), Has.Count.GreaterThan(20).And.All.InRange(0.9, 1.1));
+    }
+
+    /// <summary>
     /// Co-elution is measured against the smoothed best of the six most intense library fragments. A planted precursor's
     /// fragments share one elution profile, so its co-elution is near 1. A candidate seeing only noise has none.
     /// </summary>

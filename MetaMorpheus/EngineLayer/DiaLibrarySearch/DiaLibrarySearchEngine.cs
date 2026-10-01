@@ -413,7 +413,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 apexRt,
                 apexIrt,
                 cosine * coElution,
-                features);
+                features,
+                Quantity: areaSum);
         }
     }
 

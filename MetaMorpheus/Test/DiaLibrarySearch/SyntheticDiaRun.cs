@@ -47,7 +47,10 @@ internal sealed class SyntheticDiaRun
     public static double TrueRtMinutes(double irt) => 0.5 + 0.045 * (irt + 20) + 0.00016 * (irt + 20) * (irt + 20);
 
     /// <summary>A stable bucket for choosing a fraction of entries. string.GetHashCode is randomized per process.</summary>
-    public static int Bucket(MslLibraryEntry entry, int buckets) => entry.FullSequence.Sum(c => c) % buckets;
+    public static int Bucket(MslLibraryEntry entry, int buckets) => Bucket(entry.FullSequence, buckets);
+
+    /// <inheritdoc cref="Bucket(MslLibraryEntry, int)"/>
+    public static int Bucket(string fullSequence, int buckets) => fullSequence.Sum(c => c) % buckets;
 
     private SyntheticDiaRun(List<MslLibraryEntry> library, MsDataScan[] scans, IReadOnlySet<string> planted)
     {
@@ -59,8 +62,9 @@ internal sealed class SyntheticDiaRun
     /// <param name="targetCount">Number of target precursors in the library. Each also gets one decoy.</param>
     /// <param name="plant">Chooses which library entries elute in the run, by full sequence.</param>
     /// <param name="withDecoys">False builds a library with no decoys at all.</param>
+    /// <param name="abundance">Multiplies a planted entry's elution peak; null leaves every peak at the same height.</param>
     public static SyntheticDiaRun Build(int targetCount, Func<MslLibraryEntry, bool> plant, bool withDecoys = true,
-        int seed = 42, double noisePeaksPerScan = 60)
+        int seed = 42, double noisePeaksPerScan = 60, Func<MslLibraryEntry, double>? abundance = null)
     {
         var random = new Random(seed);
         var library = new List<MslLibraryEntry>();
@@ -94,7 +98,7 @@ internal sealed class SyntheticDiaRun
 
                 foreach (var entry in planted.Where(e => e.PrecursorMz >= low && e.PrecursorMz < low + WindowWidth))
                 {
-                    double elution = 1e5 * Math.Exp(-0.5 * Math.Pow((rt - TrueRtMinutes(entry.RetentionTime)) / ElutionSigmaMinutes, 2));
+                    double elution = 1e5 * (abundance?.Invoke(entry) ?? 1) * Math.Exp(-0.5 * Math.Pow((rt - TrueRtMinutes(entry.RetentionTime)) / ElutionSigmaMinutes, 2));
                     if (elution < 1)
                         continue;
                     foreach (var fragment in entry.MatchedFragmentIons)

@@ -27,7 +27,8 @@ public sealed record DiaPrecursorMatch(
     Irt ApexIrt,
     double Score,
     double[] Features,
-    double QValue = double.NaN)
+    double QValue = double.NaN,
+    double Quantity = double.NaN)
 {
     /// <summary>What each entry of <see cref="Features"/> measures, in order.</summary>
     public static readonly string[] FeatureNames =
