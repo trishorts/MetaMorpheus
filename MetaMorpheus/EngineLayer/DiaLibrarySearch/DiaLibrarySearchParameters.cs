@@ -19,8 +19,8 @@ namespace EngineLayer.DiaLibrarySearch;
 /// second to interference on the apex score can still be found.
 /// </param>
 /// <param name="ClassifierTrainingQValue">
-/// Targets at or below this q-value train the classifier as positives (pyProphet trains at 0.15 then 0.05; our
-/// default is 0.01). A looser cutoff teaches it the marginal cases where extra features help.
+/// Targets at or below this q-value train the classifier as positives: 0.01, as Percolator. A looser cutoff (0.15)
+/// once helped on a library of DIA-NN's own IDs, but on a whole-proteome library its positives are largely false targets and the network ranked hundreds of decoys among the best targets (4,896 against 20,966 precursors at 1%). With interference removal, 0.01 is as good or better on both libraries (results/entrapment/README.md).
 /// </param>
 /// <param name="InterferenceExplainedFragments">
 /// Interference removal (<see cref="DiaInterferenceRemoval"/>): a match is dropped when a better, co-eluting match explains
@@ -28,7 +28,7 @@ namespace EngineLayer.DiaLibrarySearch;
 /// </param>
 /// <param name="ClassifierModel">The model the rescorer fits in each fold: a linear discriminant, or a small neural-network ensemble (DIA-NN's approach).</param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
-    int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 1, double ClassifierTrainingQValue = 0.15,
+    int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 1, double ClassifierTrainingQValue = 0.01,
     StatisticalModels.RescoreModel ClassifierModel = StatisticalModels.RescoreModel.NeuralNetworkEnsemble,
     int InterferenceExplainedFragments = 4)
 {
