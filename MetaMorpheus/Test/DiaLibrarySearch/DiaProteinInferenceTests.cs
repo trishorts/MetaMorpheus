@@ -178,6 +178,81 @@ public class DiaProteinInferenceTests
         Assert.That(result.ProteinGroups, Is.Empty);
     }
 
+    // Peptide-level decoys, as a library made by reversing peptides has them: each pairs with one target sequence.
+    private static readonly Dictionary<string, string> TargetOfDecoy = new()
+    {
+        ["KLLLLL"] = "LLLLLK",
+        ["REEEEE"] = "EEEEER",
+        ["KVVVVV"] = "VVVVVK",
+        ["KWWWWW"] = "WWWWWK",
+        ["RGGGGG"] = "GGGGGR",
+    };
+
+    private static DiaProteinInferenceResult InferWithInheritedDecoys(List<DiaPeptideMatch> peptides) =>
+        DiaProteinInference.Infer(peptides, Targets, Parameters, "run.raw", [], [],
+            decoy => TargetOfDecoy.GetValueOrDefault(decoy));
+
+    /// <summary>
+    /// A library whose decoys are reversed peptides has no decoy proteins to digest. Each decoy then takes its target's
+    /// proteins, as decoys: the decoy of a shared peptide is shared by the same decoy proteins, so the decoy side has
+    /// the target side's protein structure and protein FDR stays fair.
+    /// </summary>
+    [Test]
+    public void ADecoyPeptideInheritsItsTargetsProteinsAsDecoys()
+    {
+        var peptides = new List<DiaPeptideMatch>
+        {
+            Peptide("KLLLLL", 0.001, isDecoy: true, index: 0),
+            Peptide("REEEEE", 0.001, isDecoy: true, index: 1),
+            Peptide("RGGGGG", 0.001, isDecoy: true, index: 2),
+            Peptide("KVVVVV", 0.001, isDecoy: true, index: 3),
+        };
+
+        var result = InferWithInheritedDecoys(peptides);
+
+        Assert.That(result.ProteinGroups.Select(g => g.ProteinGroupName), Is.EquivalentTo(new[] { "DECOY_A", "DECOY_B", "DECOY_C" }));
+        foreach (string name in new[] { "DECOY_A", "DECOY_B" })
+        {
+            var group = result.ProteinGroups.Single(g => g.ProteinGroupName == name);
+            Assert.That(group.AllPeptides.Select(p => p.FullSequence), Does.Contain("KLLLLL"), $"the shared decoy is in {name}");
+            Assert.That(group.UniquePeptides.Select(p => p.FullSequence), Does.Not.Contain("KLLLLL"));
+        }
+        Assert.That(result.ProteinGroups, Is.All.Matches<ProteinGroup>(g => g.IsDecoy));
+    }
+
+    /// <summary>One decoy protein per target protein, whichever of its decoy peptides is seen; and with no other evidence, the shared decoy is explained by DECOY_A, as its target is by A.</summary>
+    [Test]
+    public void DecoysOfOneProteinShareOneDecoyProtein()
+    {
+        var peptides = new List<DiaPeptideMatch>
+        {
+            Peptide("KLLLLL", 0.001, isDecoy: true, index: 0),
+            Peptide("REEEEE", 0.001, isDecoy: true, index: 1),
+        };
+
+        var result = InferWithInheritedDecoys(peptides);
+
+        var a = result.ProteinGroups.Single(g => g.ProteinGroupName == "DECOY_A");
+        Assert.That(a.Proteins, Has.Count.EqualTo(1));
+        Assert.That(a.AllPeptides.Select(p => p.FullSequence), Is.EquivalentTo(new[] { "KLLLLL", "REEEEE" }));
+    }
+
+    [Test]
+    public void ADecoyWhoseTargetNoProteinYieldsIsCounted()
+    {
+        var peptides = new List<DiaPeptideMatch>
+        {
+            Peptide("KWWWWW", 0.001, isDecoy: true, index: 0),
+            Peptide("KNOPAIR", 0.001, isDecoy: true, index: 1),
+            Peptide("EEEEER", 0.001, index: 2),
+        };
+
+        var result = InferWithInheritedDecoys(peptides);
+
+        Assert.That(result.UnmappedPeptides, Is.EqualTo(2));
+        Assert.That(result.ProteinGroups.Select(g => g.ProteinGroupName), Is.EquivalentTo(new[] { "A" }));
+    }
+
     /// <summary>
     /// The DIA search has no PEP. A PEP q-value threshold would switch the protein engine to filtering on PEP, which
     /// every DIA peptide fails, and report no proteins at all. Refuse it instead.
