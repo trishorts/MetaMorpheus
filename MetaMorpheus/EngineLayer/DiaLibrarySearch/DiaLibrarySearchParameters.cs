@@ -22,8 +22,10 @@ namespace EngineLayer.DiaLibrarySearch;
 /// Targets at or below this q-value train the classifier as positives (pyProphet trains at 0.15 then 0.05; our
 /// default is 0.01). A looser cutoff teaches it the marginal cases where extra features help.
 /// </param>
+/// <param name="ClassifierModel">The model the rescorer fits in each fold: a linear discriminant, or a small neural-network ensemble (DIA-NN's approach).</param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
-    int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 1, double ClassifierTrainingQValue = 0.01)
+    int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 1, double ClassifierTrainingQValue = 0.15,
+    StatisticalModels.RescoreModel ClassifierModel = StatisticalModels.RescoreModel.NeuralNetworkEnsemble)
 {
     private readonly int _precursorSampleStride = Positive(PrecursorSampleStride);
 

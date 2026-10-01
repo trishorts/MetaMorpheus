@@ -58,5 +58,22 @@ public sealed record DiaPrecursorMatch(
         "ApexScoreDelta",       // (this apex's score - best competing scan outside its window) / this score
         "ApexScoreZ",           // z-score of this apex's score among the window's scored scans
         "PeakSignalFraction",   // share of the window's summed fragment signal inside this peak
+        "WeightedCoElution",    // fragments' correlation with the profile, weighted by library intensity
+        "WeightedMatchedFraction", // library-intensity-weighted share of fragments seen at the apex
+        "Top3CoElution",        // correlation with the profile of the three most intense library fragments
+        "Top3Cosine",           // apex cosine on the three most intense library fragments
+        "Top1Present",          // 1 when the most intense library fragment is seen at the apex
+        "Top2Present",          // 1 when the second most intense is
+        "Top1PpmError",         // mass error of the most intense fragment at the apex (the tolerance when absent)
+        "DetectableMatchedFraction", // share seen at the apex among fragments expected above 3x the scan's noise
+        "DetectableCoElution",  // their correlation with the profile
+        "DetectableFragments",  // how many fragments were expected to be detectable
+        "Ms1Correlation",       // precursor MS1 monoisotopic trace vs the fragment profile (DIA-NN's use of MS1)
+        "Ms1IsotopeCorrelation", // precursor M+1 MS1 trace vs the fragment profile
+        "FragmentIsotopeOverlap", // weighted share of matched fragments with a bigger peak one isotope below (OpenSWATH)
+        "FragmentM1Fraction",   // weighted share of matched fragments that show their own M+1 peak
+        "MatchSurprisal",       // sum of -log10 chance-match probability over matched fragments (local peak density x window)
+        "SurprisalFraction",    // matched surprisal over the total possible
+        "SpecificityWeightedCoElution", // profile correlations weighted by each fragment's surprisal
     ];
 }
