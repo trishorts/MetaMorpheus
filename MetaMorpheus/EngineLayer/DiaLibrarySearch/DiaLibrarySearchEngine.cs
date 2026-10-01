@@ -117,7 +117,10 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             });
         var rows = scored.Where(list => list is not null).SelectMany(list => list).ToList();
 
-        var matches = AssignQValues(rows);
+        var windowBounds = windows.Select(w => (Low: w.Key.Minimum, High: w.Key.Maximum)).ToArray();
+        double cycleMinutes = windows.Select(w => w.Select(s => s.RetentionTime).Order().ToArray())
+            .Where(rts => rts.Length > 1).Select(rts => rts[rts.Length / 2] - rts[rts.Length / 2 - 1]).DefaultIfEmpty(0).Average();
+        var matches = AssignQValues(rows, windowBounds, cycleMinutes);
         Status("Done.");
         return new DiaLibrarySearchResults(this, matches, DiaPeptideFdr.Assign(matches));
     }
@@ -475,7 +478,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     /// candidate, and (D+1)/T q-values are assigned among targets.
     /// If rescoring cannot run (for example too few matches), the pre-rescoring score stands.
     /// </summary>
-    private List<DiaPrecursorMatch> AssignQValues(List<DiaPrecursorMatch> matches)
+    private List<DiaPrecursorMatch> AssignQValues(List<DiaPrecursorMatch> matches, (double Low, double High)[] windowBounds, double cycleMinutes)
     {
         if (matches.Count > 0)
         {
@@ -492,6 +495,22 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
 
         // One match per precursor: its best-scoring candidate apex, across windows
         matches = matches.GroupBy(m => m.PrecursorIndex).Select(g => g.OrderByDescending(m => m.Score).ThenBy(m => m.ApexRt.Value).First()).ToList();
+
+        // Interference removal, after DIA-NN: a match a better co-eluting match explains is dropped, target or decoy alike
+        if (_parameters.InterferenceExplainedFragments > 0)
+        {
+            int WindowOf(double mz)
+            {
+                for (int w = 0; w < windowBounds.Length; w++)
+                    if (mz >= windowBounds[w].Low && mz < windowBounds[w].High)
+                        return w;
+                return -10;
+            }
+            float[] FragmentMzs(int index) => _library.GetEntry(index)?.MatchedFragmentIons.OrderByDescending(f => f.Intensity)
+                .Take(_parameters.TopFragmentCount).Select(f => f.Mz).ToArray() ?? [];
+            matches = DiaInterferenceRemoval.Remove(matches, FragmentMzs, WindowOf, (_parameters.ApexHalfWidthScans + 1) * cycleMinutes,
+                _parameters.FragmentTolerancePpm, _parameters.InterferenceExplainedFragments);
+        }
 
         var targets = matches.Where(m => !m.IsDecoy).ToList();
         var decoyScores = matches.Where(m => m.IsDecoy).Select(m => m.Score).ToList();
