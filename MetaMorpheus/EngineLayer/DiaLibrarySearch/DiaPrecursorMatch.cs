@@ -80,5 +80,6 @@ public sealed record DiaPrecursorMatch(
         "MatchSurprisal",       // sum of -log10 chance-match probability over matched fragments (local peak density x window)
         "SurprisalFraction",    // matched surprisal over the total possible
         "SpecificityWeightedCoElution", // profile correlations weighted by each fragment's surprisal
+        "PeptideLength",        // residues: a chance match is harder with more of them; a reversed decoy keeps its target's
     ];
 }

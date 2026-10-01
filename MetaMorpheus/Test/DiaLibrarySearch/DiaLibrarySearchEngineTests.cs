@@ -166,6 +166,27 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// Peptide length is a feature: a chance match is harder to make with more residues (more fragments, more of them at
+    /// sparse high m/z), and on the whole-proteome library the decoys scoring like real identifications were shorter
+    /// (median 9 residues against 11). A reversed decoy has exactly its target's length, so the feature cannot reveal the
+    /// label.
+    /// </summary>
+    [Test]
+    public void PeptideLengthIsAFeatureAndADecoyHasItsTargetsLength()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000);
+        var lengthOf = run.Library.ToDictionary(e => e.FullSequence, e => e.BaseSequence.Length);
+
+        var matches = Search(run).Matches;
+
+        int length = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "PeptideLength");
+        Assert.That(length, Is.GreaterThanOrEqualTo(0));
+        Assert.That(matches, Has.Count.GreaterThan(100));
+        Assert.That(matches.All(m => m.Features[length] == lengthOf[m.FullSequence]));
+        Assert.That(matches.Where(m => m.IsDecoy).All(m => m.Features[length] == lengthOf[new string(m.FullSequence.Reverse().ToArray())]));
+    }
+
+    /// <summary>
     /// Co-elution is measured against the smoothed best of the six most intense library fragments. A planted precursor's
     /// fragments share one elution profile, so its co-elution is near 1. A candidate seeing only noise has none.
     /// </summary>

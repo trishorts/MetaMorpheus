@@ -404,6 +404,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 matchSurprisal,
                 surprisalFraction,
                 specificityWeightedCoElution,
+                entry.BaseSequence.Length,
             ];
 
             yield return new DiaPrecursorMatch(
