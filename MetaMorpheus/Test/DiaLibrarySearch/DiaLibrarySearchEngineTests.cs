@@ -166,6 +166,32 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// Interference removal drops matches from the reported list, but the results keep them, so a miss can be told
+    /// apart from a precursor never scored. Reported and removed together are every precursor a search without removal
+    /// reports.
+    /// </summary>
+    [Test]
+    public void MatchesRemovedAsInterferenceAreKeptInTheResults()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000);
+        string path = run.WriteLibrary(_directory);
+        DiaLibrarySearchResults SearchWith(int explained)
+        {
+            using var library = MslLibrary.Load(path);
+            return (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+                new DiaLibrarySearchParameters(InterferenceExplainedFragments: explained), new CommonParameters(), [], []).Run();
+        }
+
+        var with = SearchWith(4);
+        var without = SearchWith(0);
+
+        Assert.That(without.RemovedAsInterference, Is.Empty);
+        Assert.That(with.Matches.Select(m => m.PrecursorIndex).Intersect(with.RemovedAsInterference.Select(m => m.PrecursorIndex)), Is.Empty);
+        Assert.That(with.Matches.Concat(with.RemovedAsInterference).Select(m => m.PrecursorIndex),
+            Is.EquivalentTo(without.Matches.Select(m => m.PrecursorIndex)));
+    }
+
+    /// <summary>
     /// The classifier's network can train on a random subsample of each fold (mzLib's maxNetworkTrainingRows): on a
     /// whole-proteome library, training on every row was two thirds of the search. A cap above the row count changes
     /// nothing; a small one reaches the rescorer.

@@ -123,11 +123,11 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         var windowBounds = windows.Select(w => (Low: w.Key.Minimum, High: w.Key.Maximum)).ToArray();
         double cycleMinutes = windows.Select(w => w.Select(s => s.RetentionTime).Order().ToArray())
             .Where(rts => rts.Length > 1).Select(rts => rts[rts.Length / 2] - rts[rts.Length / 2 - 1]).DefaultIfEmpty(0).Average();
-        var matches = AssignQValues(rows, windowBounds, cycleMinutes);
+        var matches = AssignQValues(rows, windowBounds, cycleMinutes, out var removed);
         var peptides = DiaPeptideFdr.Assign(matches);
         Status($"timing: search done  [{stage.Elapsed:mm\\:ss\\.f}]");
         Status("Done.");
-        return new DiaLibrarySearchResults(this, matches, peptides);
+        return new DiaLibrarySearchResults(this, matches, peptides) { RemovedAsInterference = removed };
     }
 
     /// <summary>
@@ -484,7 +484,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     /// candidate, and (D+1)/T q-values are assigned among targets.
     /// If rescoring cannot run (for example too few matches), the pre-rescoring score stands.
     /// </summary>
-    private List<DiaPrecursorMatch> AssignQValues(List<DiaPrecursorMatch> matches, (double Low, double High)[] windowBounds, double cycleMinutes)
+    private List<DiaPrecursorMatch> AssignQValues(List<DiaPrecursorMatch> matches, (double Low, double High)[] windowBounds, double cycleMinutes,
+        out List<DiaPrecursorMatch> removed)
     {
         var clock = System.Diagnostics.Stopwatch.StartNew();
         if (matches.Count > 0)
@@ -506,6 +507,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         matches = matches.GroupBy(m => m.PrecursorIndex).Select(g => g.OrderByDescending(m => m.Score).ThenBy(m => m.ApexRt.Value).First()).ToList();
 
         // Interference removal, after DIA-NN: a match a better co-eluting match explains is dropped, target or decoy alike
+        removed = [];
         if (_parameters.InterferenceExplainedFragments > 0)
         {
             int WindowOf(double mz)
@@ -517,8 +519,11 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             }
             float[] FragmentMzs(int index) => _library.GetEntry(index)?.MatchedFragmentIons.OrderByDescending(f => f.Intensity)
                 .Take(_parameters.TopFragmentCount).Select(f => f.Mz).ToArray() ?? [];
-            matches = DiaInterferenceRemoval.Remove(matches, FragmentMzs, WindowOf, (_parameters.ApexHalfWidthScans + 1) * cycleMinutes,
+            var kept = DiaInterferenceRemoval.Remove(matches, FragmentMzs, WindowOf, (_parameters.ApexHalfWidthScans + 1) * cycleMinutes,
                 _parameters.FragmentTolerancePpm, _parameters.InterferenceExplainedFragments, Status);
+            var keptIndices = kept.Select(m => m.PrecursorIndex).ToHashSet();
+            removed = matches.Where(m => !keptIndices.Contains(m.PrecursorIndex)).ToList();
+            matches = kept;
         }
 
         var targets = matches.Where(m => !m.IsDecoy).ToList();
@@ -541,6 +546,12 @@ public class DiaLibrarySearchResults(DiaLibrarySearchEngine engine, List<DiaPrec
     public List<DiaPrecursorMatch> Matches { get; init; } = matches;
 
     public List<DiaPeptideMatch> Peptides { get; init; } = peptides;
+
+    /// <summary>
+    /// Matches dropped by interference removal (<see cref="DiaInterferenceRemoval"/>): explained by a better co-eluting
+    /// match, so not reported and without a q-value. Kept so that a miss can be told from a precursor never scored.
+    /// </summary>
+    public List<DiaPrecursorMatch> RemovedAsInterference { get; init; } = [];
 
     public int TargetCount => Matches.Count(m => !m.IsDecoy);
 
