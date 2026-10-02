@@ -85,24 +85,33 @@ public static class DiaIrtSelfCalibration
         double highIrt = targetIrts[(int)(0.98 * (targetIrts.Length - 1))];
         var provisional = IrtCalibration.Line((new RtMinutes(ms2Rts.Min()), new Irt(lowIrt)), (new RtMinutes(ms2Rts.Max()), new Irt(highIrt)));
 
+        // Anchors are picked with the linear discriminant: they only need to be confidently right, and the search's network
+        // trained three times over cost most of calibration's time. If the whole library still gives too few, the search's
+        // own model gets one try, since on weak data the linear model can find none.
+        var linear = parameters with { ClassifierModel = StatisticalModels.RescoreModel.LinearDiscriminant };
+        List<(RtMinutes, Irt)> Anchors(DiaLibrarySearchParameters model, int sampleStride) =>
+            ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(scans, library, provisional,
+                model with { IrtHalfWindow = FirstPassWindowFraction * (highIrt - lowIrt), PrecursorSampleStride = sampleStride },
+                commonParameters, [], []).Run()).Matches
+            .Where(m => !m.IsDecoy && m.QValue <= AnchorQValue)
+            .OrderByDescending(m => m.Score)
+            .Take(MaximumAnchors)
+            .Select(m => (m.ApexRt, m.LibraryIrt))
+            .ToList();
+
         int stride = FirstPassStride(targetIrts.Length, firstPassTargetCount);
         while (true)
         {
-            var firstPass = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(scans, library, provisional,
-                parameters with
-                {
-                    IrtHalfWindow = FirstPassWindowFraction * (highIrt - lowIrt),
-                    PrecursorSampleStride = stride,
-                }, commonParameters, [], []).Run();
-
-            var anchors = firstPass.Matches
-                .Where(m => !m.IsDecoy && m.QValue <= AnchorQValue)
-                .OrderByDescending(m => m.Score)
-                .Take(MaximumAnchors)
-                .Select(m => (m.ApexRt, m.LibraryIrt))
-                .ToList();
-            if (anchors.Count >= Math.Min(desiredAnchors, MaximumAnchors) || stride == 1)
-                return LaterRounds(Fit(anchors, options, windowSds), scans, library, parameters, commonParameters, options, stride, rounds, windowSds);
+            var anchors = Anchors(linear, stride);
+            bool enough = anchors.Count >= Math.Min(desiredAnchors, MaximumAnchors);
+            if (!enough && stride == 1 && parameters.ClassifierModel != StatisticalModels.RescoreModel.LinearDiscriminant)
+            {
+                var searchModel = Anchors(parameters, stride);
+                if (searchModel.Count > anchors.Count)
+                    anchors = searchModel;
+            }
+            if (enough || stride == 1)
+                return LaterRounds(Fit(anchors, options, windowSds), scans, library, linear, commonParameters, options, stride, rounds, windowSds);
             stride = Math.Max(1, stride / 2);
         }
     }
