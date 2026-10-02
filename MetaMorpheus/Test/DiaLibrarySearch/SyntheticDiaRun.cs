@@ -65,9 +65,11 @@ internal sealed class SyntheticDiaRun
     /// <param name="abundance">Multiplies a planted entry's elution peak; null leaves every peak at the same height.</param>
     /// <param name="withMs1">Adds an MS1 scan at the start of each cycle: noise, and each planted precursor's M0-M3 isotopes
     /// (Poisson, lambda = neutral mass / 1800, about averagine) on the same elution profile.</param>
+    /// <param name="withCharge3Siblings">Adds each peptide's 3+ precursor (same fragments, same iRT) where its m/z is inside
+    /// the run's windows, for targets and decoys alike. It elutes with its 2+ sibling when planted.</param>
     /// <param name="ppmOffset">Shifts every recorded m/z by this many ppm, as a miscalibrated instrument would.</param>
     public static SyntheticDiaRun Build(int targetCount, Func<MslLibraryEntry, bool> plant, bool withDecoys = true,
-        int seed = 42, double noisePeaksPerScan = 60, Func<MslLibraryEntry, double>? abundance = null, bool withMs1 = false, double ppmOffset = 0)
+        int seed = 42, double noisePeaksPerScan = 60, Func<MslLibraryEntry, double>? abundance = null, bool withMs1 = false, double ppmOffset = 0, bool withCharge3Siblings = false)
     {
         var random = new Random(seed);
         var library = new List<MslLibraryEntry>();
@@ -85,6 +87,10 @@ internal sealed class SyntheticDiaRun
             library.Add(Entry(sequence, precursorMz, irt, isDecoy: false, random));
             if (withDecoys)
                 library.Add(Entry(new string(sequence.Reverse().ToArray()), precursorMz, irt, isDecoy: true, random));
+            if (withCharge3Siblings)
+                foreach (var twoPlus in library.Skip(library.Count - (withDecoys ? 2 : 1)).ToList())
+                    if (Charge3Sibling(twoPlus) is { } threePlus)
+                        library.Add(threePlus);
         }
 
         var planted = library.Where(plant).ToList();
@@ -150,6 +156,31 @@ internal sealed class SyntheticDiaRun
         string path = Path.Combine(directory, $"synthetic_{Guid.NewGuid():N}.msl");
         MslLibrary.Save(path, Library);
         return path;
+    }
+
+    /// <summary>The same peptide at 3+: its m/z from the 2+ m/z, the same fragments, or null when outside the run's windows.</summary>
+    private static MslLibraryEntry? Charge3Sibling(MslLibraryEntry twoPlus)
+    {
+        const double proton = 1.007276;
+        double mz = ((twoPlus.PrecursorMz - proton) * 2 + 3 * proton) / 3;
+        if (mz < FirstWindowLowMz || mz >= FirstWindowLowMz + WindowCount * WindowWidth)
+            return null;
+        var sibling = new MslLibraryEntry
+        {
+            FullSequence = twoPlus.FullSequence,
+            BaseSequence = twoPlus.BaseSequence,
+            PrecursorMz = mz,
+            ChargeState = 3,
+            RetentionTime = twoPlus.RetentionTime,
+            IsDecoy = twoPlus.IsDecoy,
+        };
+        foreach (var f in twoPlus.MatchedFragmentIons)
+            sibling.MatchedFragmentIons.Add(new MslFragmentIon
+            {
+                Mz = f.Mz, Intensity = f.Intensity, ProductType = f.ProductType, FragmentNumber = f.FragmentNumber,
+                ResiduePosition = f.ResiduePosition, Charge = f.Charge,
+            });
+        return sibling;
     }
 
     private static MslLibraryEntry Entry(string sequence, double precursorMz, double irt, bool isDecoy, Random random)

@@ -84,5 +84,7 @@ public sealed record DiaPrecursorMatch(
         "Ms1EnvelopeCosine",    // M0-M3 at the apex's MS1 scan against the expected isotope pattern
         "Ms1MassErrorPpm",      // |M0 - library precursor m/z| in ppm; the full tolerance when no M0 is found
         "Ms1ApexShare",         // MS1 M0 at the apex (+-1 scan) over its maximum in the window: is the apex on an MS1 peak
+        "SiblingCoElution",     // best co-elution of another charge state of the sequence with an apex within the co-elution window
+        "SiblingApexDeltaMinutes", // RT gap to the nearest other-charge apex (1 when there is none, capped at 1)
     ];
 }

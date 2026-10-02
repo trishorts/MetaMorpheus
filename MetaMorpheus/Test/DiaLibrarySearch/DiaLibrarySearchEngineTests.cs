@@ -166,6 +166,37 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// Charge-state siblings (AlphaDIA scores elution groups): a precursor whose other charge state co-elutes at the same
+    /// apex has independent evidence. The features use only the sequence and the decoy flag, never which one is a target,
+    /// and decoys have sibling pairs too. A precursor with no sibling in the library gets none.
+    /// </summary>
+    [Test]
+    public void ACoElutingChargeStateSiblingIsEvidence()
+    {
+        var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000,
+            withCharge3Siblings: true);
+        var withSibling = run.Library.GroupBy(e => (e.FullSequence, e.IsDecoy)).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet();
+
+        var matches = Search(run).Matches;
+
+        int sibling = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "SiblingCoElution");
+        int delta = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "SiblingApexDeltaMinutes");
+        Assert.That(new[] { sibling, delta }, Is.All.GreaterThanOrEqualTo(0));
+        double Median(IEnumerable<double> values) { var s = values.Order().ToArray(); return s[s.Length / 2]; }
+        var plantedPairs = matches.Where(m => run.PlantedSequences.Contains(m.FullSequence) && withSibling.Contains((m.FullSequence, m.IsDecoy))).ToList();
+        var chancePairs = matches.Where(m => !run.PlantedSequences.Contains(m.FullSequence) && withSibling.Contains((m.FullSequence, m.IsDecoy))).ToList();
+        var alone = matches.Where(m => !withSibling.Contains((m.FullSequence, m.IsDecoy))).ToList();
+        Assert.That(plantedPairs, Has.Count.GreaterThan(30));
+        Assert.That(chancePairs, Has.Count.GreaterThan(30));
+        Assert.That(chancePairs.Count(m => m.IsDecoy), Is.GreaterThan(10), "decoys have siblings too");
+        Assert.That(Median(plantedPairs.Select(m => m.Features[sibling])), Is.GreaterThan(0.8));
+        Assert.That(Median(plantedPairs.Select(m => m.Features[delta])), Is.LessThan(0.05));
+        Assert.That(Median(chancePairs.Select(m => m.Features[sibling])), Is.LessThan(0.5));
+        Assert.That(alone.Select(m => m.Features[sibling]), Is.All.EqualTo(0));
+        Assert.That(alone.Select(m => m.Features[delta]), Is.All.EqualTo(1.0), "no sibling counts as a full minute apart");
+    }
+
+    /// <summary>
     /// MS1 evidence that does not lean on the fragments. On the whole-proteome library, a fifth of DIA-NN's identifications we
     /// miss show a clean MS1 peak inside DIA-NN's bounds while their fragments are faint, and our only MS1 features were
     /// correlations to the fragment profile. At the apex's MS1 scan: the M0-M3 envelope against the expected isotope pattern,

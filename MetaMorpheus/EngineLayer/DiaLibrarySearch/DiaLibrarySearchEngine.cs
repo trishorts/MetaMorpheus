@@ -123,6 +123,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         var windowBounds = windows.Select(w => (Low: w.Key.Minimum, High: w.Key.Maximum)).ToArray();
         double cycleMinutes = windows.Select(w => w.Select(s => s.RetentionTime).Order().ToArray())
             .Where(rts => rts.Length > 1).Select(rts => rts[rts.Length / 2] - rts[rts.Length / 2 - 1]).DefaultIfEmpty(0).Average();
+        AddSiblingFeatures(rows, (_parameters.ApexHalfWidthScans + 1) * cycleMinutes);
         var matches = AssignQValues(rows, windowBounds, cycleMinutes, out var removed);
         var peptides = DiaPeptideFdr.Assign(matches);
         Status($"timing: search done  [{stage.Elapsed:mm\\:ss\\.f}]");
@@ -436,6 +437,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1EnvelopeCosine,
                 ms1MassErrorPpm,
                 ms1ApexShare,
+                0,   // SiblingCoElution, filled in once every candidate is scored (AddSiblingFeatures)
+                1.0, // SiblingApexDeltaMinutes, likewise
             ];
 
             yield return new DiaPrecursorMatch(
@@ -463,6 +466,40 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             if (sorted[mid] < x) lo = mid + 1; else hi = mid;
         }
         return lo;
+    }
+
+    /// <summary>
+    /// Charge-state sibling features (AlphaDIA's elution groups): for each candidate, the best co-elution among candidates of
+    /// the same sequence and decoy flag at another charge whose apex lies within <paramref name="rtToleranceMinutes"/>, and
+    /// the RT gap to the nearest of them (capped at 1 minute). Only the sequence and decoy flag group them, so targets and
+    /// decoys are treated alike.
+    /// </summary>
+    private static void AddSiblingFeatures(List<DiaPrecursorMatch> rows, double rtToleranceMinutes)
+    {
+        int coElution = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "CoElution");
+        int siblingCoElution = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "SiblingCoElution");
+        int siblingDelta = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "SiblingApexDeltaMinutes");
+        foreach (var group in rows.GroupBy(r => (r.FullSequence, r.IsDecoy)))
+        {
+            var members = group.ToList();
+            if (members.Select(r => r.Charge).Distinct().Count() < 2)
+                continue;
+            foreach (var row in members)
+            {
+                double best = 0, nearest = 1.0;
+                foreach (var other in members)
+                {
+                    if (other.Charge == row.Charge)
+                        continue;
+                    double gap = Math.Abs(other.ApexRt.Value - row.ApexRt.Value);
+                    nearest = Math.Min(nearest, gap);
+                    if (gap <= rtToleranceMinutes)
+                        best = Math.Max(best, other.Features[coElution]);
+                }
+                row.Features[siblingCoElution] = best;
+                row.Features[siblingDelta] = nearest;
+            }
+        }
     }
 
     /// <summary>
