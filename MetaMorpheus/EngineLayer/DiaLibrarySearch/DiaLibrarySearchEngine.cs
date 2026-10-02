@@ -578,6 +578,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 model: _parameters.ClassifierModel,
                 maxNetworkTrainingRows: _parameters.MaxNetworkTrainingRows,
                 randomSeed: _parameters.ClassifierSeed,
+                networkMembers: _parameters.ClassifierNetworkMembers,
+                networkEpochs: _parameters.ClassifierNetworkEpochs,
                 candidateGroups: matches.Select(m => m.PrecursorIndex).ToList());
             if (rescored.Scores.All(double.IsFinite))
                 matches = matches.Select((m, i) => m with { Score = rescored.Scores[i] }).ToList();

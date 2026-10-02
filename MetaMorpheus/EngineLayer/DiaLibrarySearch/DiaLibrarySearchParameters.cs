@@ -26,6 +26,11 @@ namespace EngineLayer.DiaLibrarySearch;
 /// Interference removal (<see cref="DiaInterferenceRemoval"/>): a match is dropped when a better, co-eluting match explains
 /// at least this many of its six most intense library fragments. 0 turns removal off.
 /// </param>
+/// <param name="ClassifierNetworkMembers">
+/// Networks in the classifier's ensemble. 12, as DIA-NN, trained 10 epochs each: at a matched entrapment FDP of 1%, +1.6%
+/// (PXD005573 1 h) and +3.9% (HF-X) over 5 networks on the whole-proteome library, at about 1.5-2x the search time.
+/// </param>
+/// <param name="ClassifierNetworkEpochs">Training epochs per network (DIA-NN uses 1).</param>
 /// <param name="ClassifierSeed">
 /// The classifier's random seed. 0 is the default; other values give the run-to-run noise a result must exceed.
 /// </param>
@@ -45,7 +50,9 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     int InterferenceExplainedFragments = 4,
     int? MaxNetworkTrainingRows = 250_000,
     bool InterferenceSameMzOnly = false,
-    int ClassifierSeed = 0)
+    int ClassifierSeed = 0,
+    int ClassifierNetworkMembers = 12,
+    int ClassifierNetworkEpochs = StatisticalModels.TargetDecoyRescorer.NetworkEpochs)
 {
     private readonly int _precursorSampleStride = Positive(PrecursorSampleStride);
 
