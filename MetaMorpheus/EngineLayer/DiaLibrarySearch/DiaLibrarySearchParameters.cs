@@ -26,6 +26,9 @@ namespace EngineLayer.DiaLibrarySearch;
 /// Interference removal (<see cref="DiaInterferenceRemoval"/>): a match is dropped when a better, co-eluting match explains
 /// at least this many of its six most intense library fragments. 0 turns removal off.
 /// </param>
+/// <param name="ClassifierSeed">
+/// The classifier's random seed. 0 is the default; other values give the run-to-run noise a result must exceed.
+/// </param>
 /// <param name="InterferenceSameMzOnly">
 /// As DIA-NN, interference removal drops a match only for a better match with the same precursor m/z (or with it as the +1
 /// isotope); false lets any co-eluting match in the same or a neighbouring window explain it.
@@ -41,7 +44,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     StatisticalModels.RescoreModel ClassifierModel = StatisticalModels.RescoreModel.NeuralNetworkEnsemble,
     int InterferenceExplainedFragments = 4,
     int? MaxNetworkTrainingRows = 250_000,
-    bool InterferenceSameMzOnly = false)
+    bool InterferenceSameMzOnly = false,
+    int ClassifierSeed = 0)
 {
     private readonly int _precursorSampleStride = Positive(PrecursorSampleStride);
 

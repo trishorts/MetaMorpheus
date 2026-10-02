@@ -11,7 +11,8 @@ namespace EngineLayer.DiaLibrarySearch;
 
 /// <summary>A run's retention-time calibration, and the iRT window a search should use with it.</summary>
 /// <param name="AnchorCount">Confident first-pass identifications the calibration was fitted on.</param>
-public sealed record DiaIrtCalibration(IrtCalibrationModel Model, double IrtHalfWindow, int AnchorCount);
+/// <param name="Rounds">Calibration rounds run: the first with the provisional line, each later one with the previous fit.</param>
+public sealed record DiaIrtCalibration(IrtCalibrationModel Model, double IrtHalfWindow, int AnchorCount, int Rounds = 1);
 
 /// <summary>
 /// Calibrates a DIA run onto its library's iRT scale from the run alone, with nothing borrowed from another search.
@@ -23,6 +24,9 @@ public static class DiaIrtSelfCalibration
 {
     /// <summary>The most confident first-pass targets used as anchors; more add time, not accuracy.</summary>
     public const int MaximumAnchors = 2000;
+
+    /// <summary>The search window's half-width, in residual SDs of the calibration (at least 5 iRT).</summary>
+    public const double DefaultWindowSds = 4;
 
     /// <summary>Anchors must pass this target-decoy q-value.</summary>
     public const double AnchorQValue = 0.01;
@@ -51,9 +55,12 @@ public static class DiaIrtSelfCalibration
     /// calibrate on.
     /// </exception>
     public static DiaIrtCalibration Calibrate(MsDataScan[] scans, MslLibrary library, DiaLibrarySearchParameters parameters,
-        CommonParameters commonParameters, IrtCalibrationOptions? options = null, int firstPassTargetCount = FirstPassTargetCount)
+        CommonParameters commonParameters, IrtCalibrationOptions? options = null, int firstPassTargetCount = FirstPassTargetCount,
+        int desiredAnchors = DesiredAnchors, int rounds = 1, double windowSds = DefaultWindowSds)
     {
         ArgumentNullException.ThrowIfNull(scans);
+        if (rounds < 1)
+            throw new ArgumentOutOfRangeException(nameof(rounds), rounds, "At least one calibration round is needed.");
         ArgumentNullException.ThrowIfNull(library);
         ArgumentNullException.ThrowIfNull(parameters);
         options ??= new IrtCalibrationOptions();
@@ -87,10 +94,35 @@ public static class DiaIrtSelfCalibration
                 .Take(MaximumAnchors)
                 .Select(m => (m.ApexRt, m.LibraryIrt))
                 .ToList();
-            if (anchors.Count >= DesiredAnchors || stride == 1)
-                return Fit(anchors, options);
+            if (anchors.Count >= Math.Min(desiredAnchors, MaximumAnchors) || stride == 1)
+                return LaterRounds(Fit(anchors, options, windowSds), scans, library, parameters, commonParameters, options, stride, rounds, windowSds);
             stride = Math.Max(1, stride / 2);
         }
+    }
+
+    /// <summary>
+    /// Iterative calibration, as DIA-NN calibrates in rounds: the same sample searched again with the previous round's fit and
+    /// window, so anchors come from the whole gradient rather than where the provisional straight line happened to be right.
+    /// A round that cannot fit keeps the previous calibration.
+    /// </summary>
+    private static DiaIrtCalibration LaterRounds(DiaIrtCalibration calibration, MsDataScan[] scans, MslLibrary library,
+        DiaLibrarySearchParameters parameters, CommonParameters commonParameters, IrtCalibrationOptions options, int stride, int rounds, double windowSds)
+    {
+        for (int round = 2; round <= rounds; round++)
+        {
+            var pass = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(scans, library, calibration.Model,
+                parameters with { IrtHalfWindow = calibration.IrtHalfWindow, PrecursorSampleStride = stride }, commonParameters, [], []).Run();
+            var anchors = pass.Matches
+                .Where(m => !m.IsDecoy && m.QValue <= AnchorQValue)
+                .OrderByDescending(m => m.Score)
+                .Take(MaximumAnchors)
+                .Select(m => (m.ApexRt, m.LibraryIrt))
+                .ToList();
+            if (anchors.Count < options.MinimumAnchors)
+                break;
+            calibration = Fit(anchors, options, windowSds) with { Rounds = round };
+        }
+        return calibration;
     }
 
     /// <summary>The most confident main-search targets a <see cref="Refine"/> fit uses.</summary>
@@ -112,16 +144,16 @@ public static class DiaIrtSelfCalibration
             .Take(MaximumRefinementAnchors)
             .Select(m => (m.ApexRt, m.LibraryIrt))
             .ToList();
-        return Fit(anchors, options ?? new IrtCalibrationOptions());
+        return Fit(anchors, options ?? new IrtCalibrationOptions(), DefaultWindowSds);
     }
 
-    private static DiaIrtCalibration Fit(System.Collections.Generic.List<(RtMinutes ApexRt, Irt LibraryIrt)> anchors, IrtCalibrationOptions options)
+    private static DiaIrtCalibration Fit(System.Collections.Generic.List<(RtMinutes ApexRt, Irt LibraryIrt)> anchors, IrtCalibrationOptions options, double windowSds)
     {
         if (anchors.Count < options.MinimumAnchors)
             throw new MetaMorpheusException($"Could not calibrate retention time: the first pass found only {anchors.Count} confident " +
                 $"identifications, and at least {options.MinimumAnchors} are needed.");
 
         var model = IrtCalibration.Fit(anchors, options);
-        return new DiaIrtCalibration(model, Math.Max(5, 4 * model.ResidualSd), anchors.Count);
+        return new DiaIrtCalibration(model, Math.Max(5, windowSds * model.ResidualSd), anchors.Count);
     }
 }

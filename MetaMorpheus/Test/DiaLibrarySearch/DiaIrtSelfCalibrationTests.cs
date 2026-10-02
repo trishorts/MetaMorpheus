@@ -101,6 +101,62 @@ public class DiaIrtSelfCalibrationTests
     }
 
     /// <summary>
+    /// The first pass widens until it has the anchors asked for. A run whose first pass stopped at 843 anchors needed a second
+    /// search to fix its RT model (PXD022589, +18%); asking for more anchors up front is the cheaper fix to try.
+    /// </summary>
+    [Test]
+    public void AskingForMoreAnchorsWidensTheFirstPassFurther()
+    {
+        var run = SyntheticDiaRun.Build(3000, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) == 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+
+        var few = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new CommonParameters(),
+            firstPassTargetCount: 500, desiredAnchors: 100);
+        var many = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new CommonParameters(),
+            firstPassTargetCount: 500, desiredAnchors: 600);
+
+        Assert.That(few.AnchorCount, Is.GreaterThanOrEqualTo(100).And.LessThan(600));
+        Assert.That(many.AnchorCount, Is.GreaterThanOrEqualTo(600));
+    }
+
+    /// <summary>
+    /// The search window is a multiple of the calibration's residual SD (at least 5 iRT). On PXD005573, every change that
+    /// narrowed it cost identifications, so the multiple is a parameter to measure rather than a constant.
+    /// </summary>
+    [TestCase(4.0)]
+    [TestCase(5.0)]
+    public void TheWindowIsTheChosenMultipleOfTheResidualSd(double sds)
+    {
+        var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+
+        var calibration = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new CommonParameters(), windowSds: sds);
+
+        Assert.That(calibration.IrtHalfWindow, Is.EqualTo(Math.Max(5, sds * calibration.Model.ResidualSd)).Within(1e-9));
+    }
+
+    /// <summary>
+    /// Iterative calibration (DIA-NN calibrates in rounds): each later round searches the same sample again with the previous
+    /// round's fitted curve and window instead of the provisional straight line, so anchors come from the whole gradient
+    /// rather than where the straight line happened to be right. The curve stays accurate, and the window is the last round's.
+    /// </summary>
+    [Test]
+    public void ALaterCalibrationRoundSearchesWithTheFittedCurve()
+    {
+        var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+
+        var one = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new CommonParameters(), rounds: 1);
+        var two = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new CommonParameters(), rounds: 2);
+
+        Assert.That(two.Rounds, Is.EqualTo(2));
+        Assert.That(one.Rounds, Is.EqualTo(1));
+        Assert.That(two.AnchorCount, Is.GreaterThanOrEqualTo(one.AnchorCount * 0.9));
+        for (double irt = -10; irt <= 110; irt += 10)
+            Assert.That(two.Model.ToIrt(new RtMinutes(SyntheticDiaRun.TrueRtMinutes(irt))).Value, Is.EqualTo(irt).Within(2.0), $"at library iRT {irt}");
+    }
+
+    /// <summary>
     /// The second pass (DIA-NN refits after its first search): the main search's confident targets refit the run's RT->iRT map.
     /// Only targets at 1% count. A far-off target above 1%, or any decoy, must not pull the fit.
     /// </summary>
