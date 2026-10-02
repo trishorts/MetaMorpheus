@@ -128,6 +128,26 @@ public class DiaLibrarySearchEngineTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new DiaLibrarySearchParameters(PrecursorSampleStride: 0));
     }
 
+    /// <summary>
+    /// An offset picks which of the stride's samples is scored, so calibration can be repeated on disjoint samples: a
+    /// different first-pass sample cost HF-X 20% of its precursors, and the spread over samples is what to measure.
+    /// </summary>
+    [Test]
+    public void AnOffsetPicksADisjointSample()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+
+        var samples = Enumerable.Range(0, 3).Select(offset => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(PrecursorSampleStride: 3) { PrecursorSampleOffset = offset }, new CommonParameters(), [], []).Run()).Matches).ToList();
+
+        for (int offset = 0; offset < 3; offset++)
+            Assert.That(samples[offset].All(m => m.PrecursorIndex % 3 == offset), $"offset {offset}");
+        Assert.That(samples.Sum(s => s.Count), Is.EqualTo(((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(), new CommonParameters(), [], []).Run()).Matches.Count));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DiaLibrarySearchParameters(PrecursorSampleStride: 3) { PrecursorSampleOffset = 3 });
+    }
+
     /// <summary>The search reports peptides as well as precursors, one per full sequence, with peptide-level q-values.</summary>
     [Test]
     public void PeptidesAreReportedWithTheirOwnQValues()

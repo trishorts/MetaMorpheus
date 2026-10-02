@@ -98,7 +98,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             double irtHigh = scanIrts.Max() + _parameters.IrtHalfWindow;
             using var hits = _library.QueryWindow((float)window.Key.Minimum, (float)window.Key.Maximum, (float)irtLow, (float)irtHigh, includeDecoys: true);
             foreach (var candidate in hits.Entries.ToArray())
-                if (candidate.PrecursorIdx % _parameters.PrecursorSampleStride == 0)
+                if (candidate.PrecursorIdx % _parameters.PrecursorSampleStride == _parameters.PrecursorSampleOffset % _parameters.PrecursorSampleStride)
                     work.Add((scans, scanIrts, candidate));
         }
 

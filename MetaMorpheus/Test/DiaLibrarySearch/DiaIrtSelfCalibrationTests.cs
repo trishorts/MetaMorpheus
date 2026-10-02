@@ -100,6 +100,24 @@ public class DiaIrtSelfCalibrationTests
             Assert.That(calibration.Model.ToIrt(new RtMinutes(SyntheticDiaRun.TrueRtMinutes(irt))).Value, Is.EqualTo(irt).Within(2.0), $"at library iRT {irt}");
     }
 
+    /// <summary>Calibration can be repeated on a disjoint first-pass sample; each sample calibrates the run on its own.</summary>
+    [TestCase(1)]
+    [TestCase(3)]
+    public void AnotherFirstPassSampleCalibratesToo(int offset)
+    {
+        var run = SyntheticDiaRun.Build(3000, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) == 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+
+        var calibration = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new CommonParameters(),
+            firstPassTargetCount: 500, sampleOffset: offset);
+
+        Assert.That(calibration.AnchorCount, Is.GreaterThanOrEqualTo(100));
+        for (double irt = -10; irt <= 110; irt += 20)
+            Assert.That(calibration.Model.ToIrt(new RtMinutes(SyntheticDiaRun.TrueRtMinutes(irt))).Value, Is.EqualTo(irt).Within(2.0), $"at library iRT {irt}");
+        Assert.Throws<ArgumentOutOfRangeException>(() => DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(),
+            new CommonParameters(), sampleOffset: -1));
+    }
+
     /// <summary>
     /// The first pass widens until it has the anchors asked for. A run whose first pass stopped at 843 anchors needed a second
     /// search to fix its RT model (PXD022589, +18%); asking for more anchors up front is the cheaper fix to try.

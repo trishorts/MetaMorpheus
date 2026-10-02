@@ -57,15 +57,20 @@ public static class DiaIrtSelfCalibration
     public static int FirstPassStride(int targetCount, int firstPassTargetCount = FirstPassTargetCount) =>
         Math.Max(1, (int)Math.Ceiling((double)targetCount / firstPassTargetCount));
 
+    /// <param name="sampleOffset">
+    /// Which of each pass's samples to draw (<see cref="DiaLibrarySearchParameters.PrecursorSampleOffset"/>, taken modulo the
+    /// pass's stride). 0 by default; others repeat calibration on a disjoint sample.
+    /// </param>
     /// <exception cref="MetaMorpheusException">
     /// The run has no DIA MS2 scans, the library holds no targets, or too few confident first-pass identifications to
     /// calibrate on.
     /// </exception>
     public static DiaIrtCalibration Calibrate(MsDataScan[] scans, MslLibrary library, DiaLibrarySearchParameters parameters,
         CommonParameters commonParameters, IrtCalibrationOptions? options = null, int firstPassTargetCount = FirstPassTargetCount,
-        int desiredAnchors = DesiredAnchors, int rounds = DefaultRounds, double windowSds = DefaultWindowSds)
+        int desiredAnchors = DesiredAnchors, int rounds = DefaultRounds, double windowSds = DefaultWindowSds, int sampleOffset = 0)
     {
         ArgumentNullException.ThrowIfNull(scans);
+        ArgumentOutOfRangeException.ThrowIfNegative(sampleOffset);
         if (rounds < 1)
             throw new ArgumentOutOfRangeException(nameof(rounds), rounds, "At least one calibration round is needed.");
         ArgumentNullException.ThrowIfNull(library);
@@ -91,7 +96,7 @@ public static class DiaIrtSelfCalibration
         var linear = parameters with { ClassifierModel = StatisticalModels.RescoreModel.LinearDiscriminant };
         List<(RtMinutes, Irt)> Anchors(DiaLibrarySearchParameters model, int sampleStride) =>
             ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(scans, library, provisional,
-                model with { IrtHalfWindow = FirstPassWindowFraction * (highIrt - lowIrt), PrecursorSampleStride = sampleStride },
+                model with { IrtHalfWindow = FirstPassWindowFraction * (highIrt - lowIrt), PrecursorSampleStride = sampleStride, PrecursorSampleOffset = sampleOffset % sampleStride },
                 commonParameters, [], []).Run()).Matches
             .Where(m => !m.IsDecoy && m.QValue <= AnchorQValue)
             .OrderByDescending(m => m.Score)
@@ -111,7 +116,7 @@ public static class DiaIrtSelfCalibration
                     anchors = searchModel;
             }
             if (enough || stride == 1)
-                return LaterRounds(Fit(anchors, options, windowSds), scans, library, linear, commonParameters, options, stride, rounds, windowSds);
+                return LaterRounds(Fit(anchors, options, windowSds), scans, library, linear, commonParameters, options, stride, sampleOffset % stride, rounds, windowSds);
             stride = Math.Max(1, stride / 2);
         }
     }
@@ -122,12 +127,12 @@ public static class DiaIrtSelfCalibration
     /// A round that cannot fit keeps the previous calibration.
     /// </summary>
     private static DiaIrtCalibration LaterRounds(DiaIrtCalibration calibration, MsDataScan[] scans, MslLibrary library,
-        DiaLibrarySearchParameters parameters, CommonParameters commonParameters, IrtCalibrationOptions options, int stride, int rounds, double windowSds)
+        DiaLibrarySearchParameters parameters, CommonParameters commonParameters, IrtCalibrationOptions options, int stride, int offset, int rounds, double windowSds)
     {
         for (int round = 2; round <= rounds; round++)
         {
             var pass = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(scans, library, calibration.Model,
-                parameters with { IrtHalfWindow = calibration.IrtHalfWindow, PrecursorSampleStride = stride }, commonParameters, [], []).Run();
+                parameters with { IrtHalfWindow = calibration.IrtHalfWindow, PrecursorSampleStride = stride, PrecursorSampleOffset = offset }, commonParameters, [], []).Run();
             var anchors = pass.Matches
                 .Where(m => !m.IsDecoy && m.QValue <= AnchorQValue)
                 .OrderByDescending(m => m.Score)

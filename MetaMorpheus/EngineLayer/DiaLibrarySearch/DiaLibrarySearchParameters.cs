@@ -63,6 +63,21 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
         init => _precursorSampleStride = Positive(value);
     }
 
+    private readonly int _precursorSampleOffset;
+
+    /// <summary>
+    /// Which of the stride's samples is scored: precursors whose library index leaves this remainder. 0 by default. A sampled
+    /// search with another offset draws a disjoint sample, so calibration can be repeated to see how much its sample matters.
+    /// A search at stride 1 scores every precursor whatever the offset.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">The offset is negative or not less than the stride.</exception>
+    public int PrecursorSampleOffset
+    {
+        get => _precursorSampleOffset;
+        init => _precursorSampleOffset = value >= 0 && value < PrecursorSampleStride ? value
+            : throw new ArgumentOutOfRangeException(nameof(PrecursorSampleOffset), value, "The sample offset must be at least 0 and less than the stride.");
+    }
+
     private static int Positive(int stride) => stride >= 1 ? stride
         : throw new ArgumentOutOfRangeException(nameof(PrecursorSampleStride), stride, "The precursor sample stride must be at least 1.");
 }
