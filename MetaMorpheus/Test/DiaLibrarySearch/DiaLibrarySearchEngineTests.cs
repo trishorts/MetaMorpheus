@@ -170,6 +170,26 @@ public class DiaLibrarySearchEngineTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new DiaLibrarySearchParameters(ClassifierNetworkPasses: 0));
     }
 
+    /// <summary>
+    /// The classifier's network can train on the most confident rows rather than a random sample, as DIA-NN trains after
+    /// removing low-confidence identifications. The setting reaches the classifier: with a cap below the rows, the scores change.
+    /// </summary>
+    [Test]
+    public void TheClassifierNetworkCanTrainOnItsMostConfidentRows()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(StatisticalModels.NetworkTrainingSample sample) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans,
+            library, EndpointMap, new DiaLibrarySearchParameters(MaxNetworkTrainingRows: 40, ClassifierNetworkTrainingSample: sample),
+            new CommonParameters(), [], []).Run();
+
+        var random = SearchWith(StatisticalModels.NetworkTrainingSample.Random);
+        var confident = SearchWith(StatisticalModels.NetworkTrainingSample.Confident);
+
+        Assert.That(confident.Matches.Select(m => m.PrecursorIndex), Is.EquivalentTo(random.Matches.Select(m => m.PrecursorIndex)));
+        Assert.That(confident.Matches.Select(m => m.Score), Is.Not.EqualTo(random.Matches.Select(m => m.Score)));
+    }
+
     /// <summary>The search reports peptides as well as precursors, one per full sequence, with peptide-level q-values.</summary>
     [Test]
     public void PeptidesAreReportedWithTheirOwnQValues()

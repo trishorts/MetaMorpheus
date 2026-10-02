@@ -31,6 +31,10 @@ namespace EngineLayer.DiaLibrarySearch;
 /// (PXD005573 1 h) and +3.9% (HF-X) over 5 networks on the whole-proteome library, at about 1.5-2x the search time.
 /// </param>
 /// <param name="ClassifierNetworkEpochs">Training epochs per network (DIA-NN uses 1).</param>
+/// <param name="ClassifierNetworkTrainingSample">
+/// Which rows train the network when a fold has more than <see cref="MaxNetworkTrainingRows"/>: a random sample, or the
+/// highest-ranked targets and decoys (half each), as DIA-NN trains after removing low-confidence identifications.
+/// </param>
 /// <param name="ClassifierNetworkPasses">
 /// Network training passes: the second learns from the candidate peaks the first network picked, as DIA-NN trains twice.
 /// </param>
@@ -56,7 +60,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     int ClassifierSeed = 0,
     int ClassifierNetworkMembers = 12,
     int ClassifierNetworkEpochs = StatisticalModels.TargetDecoyRescorer.NetworkEpochs,
-    int ClassifierNetworkPasses = 1)
+    int ClassifierNetworkPasses = 1,
+    StatisticalModels.NetworkTrainingSample ClassifierNetworkTrainingSample = StatisticalModels.NetworkTrainingSample.Random)
 {
     private readonly int _classifierNetworkPasses = ClassifierNetworkPasses >= 1 ? ClassifierNetworkPasses
         : throw new ArgumentOutOfRangeException(nameof(ClassifierNetworkPasses), ClassifierNetworkPasses, "The network needs at least one training pass.");
