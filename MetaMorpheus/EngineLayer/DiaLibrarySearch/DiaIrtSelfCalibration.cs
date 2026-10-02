@@ -25,6 +25,13 @@ public static class DiaIrtSelfCalibration
     /// <summary>The most confident first-pass targets used as anchors; more add time, not accuracy.</summary>
     public const int MaximumAnchors = 2000;
 
+    /// <summary>
+    /// Calibration rounds by default. On PXD022589 (HF-X) 3 rounds give 48,978 precursors at 1% in one search, against
+    /// 40,335 for 1 round and 48,417 for a full second search (34 min against 11). On PXD005573 1 h they sit within
+    /// seed-to-seed noise (33,676 against a 4-seed mean of 34,334).
+    /// </summary>
+    public const int DefaultRounds = 3;
+
     /// <summary>The search window's half-width, in residual SDs of the calibration (at least 5 iRT).</summary>
     public const double DefaultWindowSds = 4;
 
@@ -56,7 +63,7 @@ public static class DiaIrtSelfCalibration
     /// </exception>
     public static DiaIrtCalibration Calibrate(MsDataScan[] scans, MslLibrary library, DiaLibrarySearchParameters parameters,
         CommonParameters commonParameters, IrtCalibrationOptions? options = null, int firstPassTargetCount = FirstPassTargetCount,
-        int desiredAnchors = DesiredAnchors, int rounds = 1, double windowSds = DefaultWindowSds)
+        int desiredAnchors = DesiredAnchors, int rounds = DefaultRounds, double windowSds = DefaultWindowSds)
     {
         ArgumentNullException.ThrowIfNull(scans);
         if (rounds < 1)
