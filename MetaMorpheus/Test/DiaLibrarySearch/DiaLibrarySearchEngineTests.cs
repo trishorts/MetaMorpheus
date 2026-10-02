@@ -148,6 +148,28 @@ public class DiaLibrarySearchEngineTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new DiaLibrarySearchParameters(PrecursorSampleStride: 3) { PrecursorSampleOffset = 3 });
     }
 
+    /// <summary>
+    /// The classifier's network can train twice, as DIA-NN's does: the second pass learns from the candidate peaks the first
+    /// network picked. The setting reaches the classifier: the same precursors are scored, differently. Whether it helps is
+    /// measured on real data (results/entrapment/README.md); the rescorer's own tests show the mechanism.
+    /// </summary>
+    [Test]
+    public void TheClassifierNetworkCanTrainTwice()
+    {
+        // Decoys elute too, so the classifier has both classes to train on
+        var run = SyntheticDiaRun.Build(200, entry => SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(int passes) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(ClassifierNetworkPasses: passes), new CommonParameters(), [], []).Run();
+
+        var once = SearchWith(1);
+        var twice = SearchWith(2);
+
+        Assert.That(twice.Matches.Select(m => m.Score), Is.Not.EqualTo(once.Matches.Select(m => m.Score)));
+        Assert.That(twice.Matches.Select(m => m.PrecursorIndex), Is.EquivalentTo(once.Matches.Select(m => m.PrecursorIndex)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DiaLibrarySearchParameters(ClassifierNetworkPasses: 0));
+    }
+
     /// <summary>The search reports peptides as well as precursors, one per full sequence, with peptide-level q-values.</summary>
     [Test]
     public void PeptidesAreReportedWithTheirOwnQValues()

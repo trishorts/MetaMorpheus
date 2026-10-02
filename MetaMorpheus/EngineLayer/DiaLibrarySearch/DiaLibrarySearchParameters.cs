@@ -31,6 +31,9 @@ namespace EngineLayer.DiaLibrarySearch;
 /// (PXD005573 1 h) and +3.9% (HF-X) over 5 networks on the whole-proteome library, at about 1.5-2x the search time.
 /// </param>
 /// <param name="ClassifierNetworkEpochs">Training epochs per network (DIA-NN uses 1).</param>
+/// <param name="ClassifierNetworkPasses">
+/// Network training passes: the second learns from the candidate peaks the first network picked, as DIA-NN trains twice.
+/// </param>
 /// <param name="ClassifierSeed">
 /// The classifier's random seed. 0 is the default; other values give the run-to-run noise a result must exceed.
 /// </param>
@@ -52,8 +55,20 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool InterferenceSameMzOnly = false,
     int ClassifierSeed = 0,
     int ClassifierNetworkMembers = 12,
-    int ClassifierNetworkEpochs = StatisticalModels.TargetDecoyRescorer.NetworkEpochs)
+    int ClassifierNetworkEpochs = StatisticalModels.TargetDecoyRescorer.NetworkEpochs,
+    int ClassifierNetworkPasses = 1)
 {
+    private readonly int _classifierNetworkPasses = ClassifierNetworkPasses >= 1 ? ClassifierNetworkPasses
+        : throw new ArgumentOutOfRangeException(nameof(ClassifierNetworkPasses), ClassifierNetworkPasses, "The network needs at least one training pass.");
+
+    /// <exception cref="ArgumentOutOfRangeException">Fewer than one pass.</exception>
+    public int ClassifierNetworkPasses
+    {
+        get => _classifierNetworkPasses;
+        init => _classifierNetworkPasses = value >= 1 ? value
+            : throw new ArgumentOutOfRangeException(nameof(ClassifierNetworkPasses), value, "The network needs at least one training pass.");
+    }
+
     private readonly int _precursorSampleStride = Positive(PrecursorSampleStride);
 
     /// <exception cref="ArgumentOutOfRangeException">The stride is less than 1.</exception>

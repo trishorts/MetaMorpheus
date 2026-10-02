@@ -587,6 +587,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 randomSeed: _parameters.ClassifierSeed,
                 networkMembers: _parameters.ClassifierNetworkMembers,
                 networkEpochs: _parameters.ClassifierNetworkEpochs,
+                networkPasses: _parameters.ClassifierNetworkPasses,
                 candidateGroups: matches.Select(m => m.PrecursorIndex).ToList());
             if (rescored.Scores.All(double.IsFinite))
                 matches = matches.Select((m, i) => m with { Score = rescored.Scores[i] }).ToList();
