@@ -48,6 +48,13 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     private FlashLFQ.PeakIndexingEngine? _ms1Index;
     private double[] _ms1Rts = [];
 
+    /// <summary>Each MS2 scan's noise level, sorted for once rather than for every candidate peak that peaks in it.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<MsDataScan, double> _noiseByScan = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>A scan's noise: its 25th-percentile intensity.</summary>
+    private static double NoiseOf(MsDataScan scan) =>
+        scan.MassSpectrum.Size > 0 ? scan.MassSpectrum.YArray.Order().ElementAt(scan.MassSpectrum.Size / 4) : 0;
+
     /// <param name="scans">The run's scans. Only MS2 scans with an isolation range are searched.</param>
     /// <param name="library">A loaded library holding targets and decoys. The engine does not dispose it.</param>
     /// <param name="irtMap">This run's calibration from minutes to library iRT (mzLib <see cref="IrtCalibrationModel"/>).</param>
@@ -299,7 +306,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             // Detectable fragments: the library pattern scaled to the apex by least squares, against the apex scan's noise
             // (its 25th-percentile intensity); fragments expected below 3x noise are not held against the precursor
             double libraryScale = libraryIntensities.Select((l, f) => l * apexIntensities[f]).Sum() / libraryIntensities.Sum(l => l * l);
-            double noise = apexSpectrum.Size > 0 ? apexSpectrum.YArray.Order().ElementAt(apexSpectrum.Size / 4) : 0;
+            double noise = _noiseByScan.GetOrAdd(scans[reachable[apex]], NoiseOf);
             int[] detectable = Enumerable.Range(0, fragments.Count).Where(f => libraryScale * libraryIntensities[f] >= 3 * noise).ToArray();
             if (detectable.Length == 0)
                 detectable = [byRank[0]];
