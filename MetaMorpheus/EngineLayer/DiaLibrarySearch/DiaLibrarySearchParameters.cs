@@ -33,7 +33,9 @@ namespace EngineLayer.DiaLibrarySearch;
 /// <param name="ClassifierNetworkEpochs">Training epochs per network (DIA-NN uses 1).</param>
 /// <param name="ClassifierNetworkTrainingSample">
 /// Which rows train the network when a fold has more than <see cref="MaxNetworkTrainingRows"/>: a random sample, or the
-/// highest-ranked targets and decoys (half each), as DIA-NN trains after removing low-confidence identifications.
+/// highest-ranked targets and decoys (half each), as DIA-NN trains after removing low-confidence identifications. Confident
+/// by default: at a matched entrapment FDP of 1%, +9.4% (PXD022589 HF-X) and +9.9% (PXD005573 1 h) over a random sample,
+/// at no extra time. A random sample holds about one real target in twenty on a whole-proteome library.
 /// </param>
 /// <param name="ClassifierNetworkPasses">
 /// Network training passes: the second learns from the candidate peaks the first network picked, as DIA-NN trains twice.
@@ -61,7 +63,7 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     int ClassifierNetworkMembers = 12,
     int ClassifierNetworkEpochs = StatisticalModels.TargetDecoyRescorer.NetworkEpochs,
     int ClassifierNetworkPasses = 1,
-    StatisticalModels.NetworkTrainingSample ClassifierNetworkTrainingSample = StatisticalModels.NetworkTrainingSample.Random)
+    StatisticalModels.NetworkTrainingSample ClassifierNetworkTrainingSample = StatisticalModels.NetworkTrainingSample.Confident)
 {
     private readonly int _classifierNetworkPasses = ClassifierNetworkPasses >= 1 ? ClassifierNetworkPasses
         : throw new ArgumentOutOfRangeException(nameof(ClassifierNetworkPasses), ClassifierNetworkPasses, "The network needs at least one training pass.");
