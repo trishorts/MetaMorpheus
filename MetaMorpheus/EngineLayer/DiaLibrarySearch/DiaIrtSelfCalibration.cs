@@ -12,7 +12,15 @@ namespace EngineLayer.DiaLibrarySearch;
 /// <summary>A run's retention-time calibration, and the iRT window a search should use with it.</summary>
 /// <param name="AnchorCount">Confident first-pass identifications the calibration was fitted on.</param>
 /// <param name="Rounds">Calibration rounds run: the first with the provisional line, each later one with the previous fit.</param>
-public sealed record DiaIrtCalibration(IrtCalibrationModel Model, double IrtHalfWindow, int AnchorCount, int Rounds = 1);
+public sealed record DiaIrtCalibration(IrtCalibrationModel Model, double IrtHalfWindow, int AnchorCount, int Rounds = 1)
+{
+    /// <summary>
+    /// The identifications the calibration was fitted on, as (apex RT, library iRT). A fit can look tight and still be wrong
+    /// where its anchors are: on PXD022589 a sample's anchors at 13-27 min, where nothing elutes, bent the curve by up to 39 iRT
+    /// and cost 20% of the precursors at an ordinary residual SD.
+    /// </summary>
+    public IReadOnlyList<(RtMinutes ApexRt, Irt LibraryIrt)> Anchors { get; init; } = [];
+}
 
 /// <summary>
 /// Calibrates a DIA run onto its library's iRT scale from the run alone, with nothing borrowed from another search.
@@ -175,6 +183,6 @@ public static class DiaIrtSelfCalibration
                 $"identifications, and at least {options.MinimumAnchors} are needed.");
 
         var model = IrtCalibration.Fit(anchors, options);
-        return new DiaIrtCalibration(model, Math.Max(5, windowSds * model.ResidualSd), anchors.Count);
+        return new DiaIrtCalibration(model, Math.Max(5, windowSds * model.ResidualSd), anchors.Count) { Anchors = anchors };
     }
 }

@@ -50,6 +50,9 @@ public class DiaIrtSelfCalibrationTests
         }
         Assert.That(calibration.IrtHalfWindow, Is.LessThan(20), "a calibrated run needs a narrower window than the first pass");
         Assert.That(calibration.AnchorCount, Is.GreaterThanOrEqualTo(50));
+        // The anchors are kept, so a bad fit can be traced to the identifications it was fitted on
+        Assert.That(calibration.Anchors, Has.Count.EqualTo(calibration.AnchorCount));
+        Assert.That(calibration.Anchors.Count(a => Math.Abs(calibration.Model.ToIrt(a.ApexRt).Value - a.LibraryIrt.Value) < 3), Is.GreaterThan(0.9 * calibration.AnchorCount));
     }
 
     /// <summary>Two passes find what one pass with a borrowed map found, with no map supplied at all.</summary>
