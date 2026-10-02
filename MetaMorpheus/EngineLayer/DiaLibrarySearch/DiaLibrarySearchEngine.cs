@@ -439,6 +439,9 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1ApexShare,
                 0,   // SiblingCoElution, filled in once every candidate is scored (AddSiblingFeatures)
                 1.0, // SiblingApexDeltaMinutes, likewise
+                candidate.PrecursorMz,
+                (double)candidate.Charge,
+                entry.MatchedFragmentIons.Count,
             ];
 
             yield return new DiaPrecursorMatch(

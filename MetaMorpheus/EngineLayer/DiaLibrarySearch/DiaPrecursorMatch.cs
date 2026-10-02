@@ -86,5 +86,8 @@ public sealed record DiaPrecursorMatch(
         "Ms1ApexShare",         // MS1 M0 at the apex (+-1 scan) over its maximum in the window: is the apex on an MS1 peak
         "SiblingCoElution",     // best co-elution of another charge state of the sequence with an apex within the co-elution window
         "SiblingApexDeltaMinutes", // RT gap to the nearest other-charge apex (1 when there is none, capped at 1)
+        "PrecursorMz",          // library context (DIA-NN): lets the classifier learn when to trust a prediction; a decoy shares its target's
+        "PrecursorCharge",
+        "LibraryFragmentCount",
     ];
 }

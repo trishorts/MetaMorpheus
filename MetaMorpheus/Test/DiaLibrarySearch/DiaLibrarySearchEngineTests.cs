@@ -166,6 +166,32 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// Library context as features (DIA-NN feeds m/z, charge and fragment count to its classifier), so the classifier can
+    /// learn when to trust a prediction. A decoy shares its target's precursor m/z and charge, so these cannot reveal the label.
+    /// </summary>
+    [Test]
+    public void PrecursorMzChargeAndLibraryFragmentCountAreFeatures()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000,
+            withCharge3Siblings: true);
+        var entryOf = run.Library.ToDictionary(e => (e.FullSequence, e.ChargeState));
+
+        var matches = Search(run).Matches;
+
+        int mz = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "PrecursorMz");
+        int charge = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "PrecursorCharge");
+        int count = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "LibraryFragmentCount");
+        Assert.That(new[] { mz, charge, count }, Is.All.GreaterThanOrEqualTo(0));
+        Assert.That(matches.Select(m => m.Charge).Distinct().Count(), Is.EqualTo(2));
+        foreach (var m in matches)
+        {
+            Assert.That(m.Features[mz], Is.EqualTo(m.PrecursorMz).Within(1e-3));
+            Assert.That(m.Features[charge], Is.EqualTo(m.Charge));
+            Assert.That(m.Features[count], Is.EqualTo(entryOf[(m.FullSequence, m.Charge)].MatchedFragmentIons.Count));
+        }
+    }
+
+    /// <summary>
     /// Charge-state siblings (AlphaDIA scores elution groups): a precursor whose other charge state co-elutes at the same
     /// apex has independent evidence. The features use only the sequence and the decoy flag, never which one is a target,
     /// and decoys have sibling pairs too. A precursor with no sibling in the library gets none.
