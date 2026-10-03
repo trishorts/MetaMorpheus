@@ -241,7 +241,8 @@ public class DiaLibrarySearchEngineTests
         var top = SearchWith(true).Matches.ToDictionary(m => m.PrecursorIndex, m => m.Features[sibling]);
 
         Assert.That(top.Keys.Intersect(any.Keys).Count(k => top[k] != any[k]), Is.GreaterThan(0));
-        Assert.That(new DiaLibrarySearchParameters().SiblingTopCandidateOnly, Is.False);
+        // The default since 2026-10-02: HF-X +3.5% at a matched entrapment FDP of 1%, PXD005573 1 h unchanged (-0.3%)
+        Assert.That(new DiaLibrarySearchParameters().SiblingTopCandidateOnly, Is.True);
     }
 
     /// <summary>The search reports peptides as well as precursors, one per full sequence, with peptide-level q-values.</summary>
