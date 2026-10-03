@@ -289,6 +289,25 @@ public class DiaLibrarySearchEngineTests
         Assert.That(new DiaLibrarySearchParameters().FragmentApexCandidate, Is.False);
     }
 
+    /// <summary>
+    /// The classifier can normalise each fold on a sample of its training groups rather than scoring every training row.
+    /// The setting reaches the classifier: the same precursors are scored, and their scores change.
+    /// </summary>
+    [Test]
+    public void TheClassifierCanNormaliseOnASampleOfGroups()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(int? groups) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(ClassifierNormalizationGroups: groups), new CommonParameters(), [], []).Run();
+
+        var all = SearchWith(null);
+        var sampled = SearchWith(20);
+
+        Assert.That(sampled.Matches.Select(m => m.PrecursorIndex), Is.EquivalentTo(all.Matches.Select(m => m.PrecursorIndex)));
+        Assert.That(sampled.Matches.Select(m => m.Score), Is.Not.EqualTo(all.Matches.Select(m => m.Score)));
+    }
+
     /// <summary>The search reports peptides as well as precursors, one per full sequence, with peptide-level q-values.</summary>
     [Test]
     public void PeptidesAreReportedWithTheirOwnQValues()
