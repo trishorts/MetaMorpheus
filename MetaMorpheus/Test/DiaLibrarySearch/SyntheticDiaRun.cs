@@ -84,9 +84,10 @@ internal sealed class SyntheticDiaRun
             double precursorMz = FirstWindowLowMz + 1 + random.NextDouble() * (WindowCount * WindowWidth - 2);
             double irt = -15 + random.NextDouble() * 130;
 
-            library.Add(Entry(sequence, precursorMz, irt, isDecoy: false, random));
+            // Four peptides per protein, so that a protein's other peptides can support it
+            library.Add(Entry(sequence, precursorMz, irt, isDecoy: false, random, $"PROT{i / 4}"));
             if (withDecoys)
-                library.Add(Entry(new string(sequence.Reverse().ToArray()), precursorMz, irt, isDecoy: true, random));
+                library.Add(Entry(new string(sequence.Reverse().ToArray()), precursorMz, irt, isDecoy: true, random, $"DECOY_PROT{i / 4}"));
             if (withCharge3Siblings)
                 foreach (var twoPlus in library.Skip(library.Count - (withDecoys ? 2 : 1)).ToList())
                     if (Charge3Sibling(twoPlus) is { } threePlus)
@@ -167,6 +168,7 @@ internal sealed class SyntheticDiaRun
             return null;
         var sibling = new MslLibraryEntry
         {
+            ProteinAccession = twoPlus.ProteinAccession,
             FullSequence = twoPlus.FullSequence,
             BaseSequence = twoPlus.BaseSequence,
             PrecursorMz = mz,
@@ -183,10 +185,11 @@ internal sealed class SyntheticDiaRun
         return sibling;
     }
 
-    private static MslLibraryEntry Entry(string sequence, double precursorMz, double irt, bool isDecoy, Random random)
+    private static MslLibraryEntry Entry(string sequence, double precursorMz, double irt, bool isDecoy, Random random, string accession)
     {
         var entry = new MslLibraryEntry
         {
+            ProteinAccession = accession,
             FullSequence = sequence,
             BaseSequence = sequence,
             PrecursorMz = precursorMz,
