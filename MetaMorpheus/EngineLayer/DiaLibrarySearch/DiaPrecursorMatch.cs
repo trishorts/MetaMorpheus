@@ -89,16 +89,5 @@ public sealed record DiaPrecursorMatch(
         "PrecursorMz",          // library context (DIA-NN): lets the classifier learn when to trust a prediction; a decoy shares its target's
         "PrecursorCharge",
         "LibraryFragmentCount",
-        "ShapeBin1",            // DIA-NN shape bins: the smoothed best-fragment profile over apex +-6 scans, scaled to its maximum,
-        "ShapeBin2",            // averaged in five bins (0 unless DiannFeatures)
-        "ShapeBin3",
-        "ShapeBin4",
-        "ShapeBin5",
-        "WeightedPpmError",     // core fragments' |ppm error| at the apex, weighted by their correlation with the profile
-        "LibraryIntensity2",    // library intensity of the 2nd-6th most intense fragment over the most intense
-        "LibraryIntensity3",
-        "LibraryIntensity4",
-        "LibraryIntensity5",
-        "LibraryIntensity6",
     ];
 }
