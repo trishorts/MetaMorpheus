@@ -153,14 +153,23 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             .Select(i => entry.MatchedFragmentIons[i]).ToList();
         double[] libraryIntensities = fragments.Select(f => (double)f.Intensity).ToArray();
 
-        var reachable = Enumerable.Range(0, scans.Length)
-            .Where(s => Math.Abs(scanIrts[s] - candidate.Irt) <= _parameters.IrtHalfWindow)
-            .ToArray();
+        // Plain loops in this per-candidate section: it runs for millions of (window, candidate) items, and LINQ's
+        // per-element delegates and iterators were a large share of extraction's allocations
+        var reachableList = new List<int>();
+        for (int s = 0; s < scans.Length; s++)
+            if (Math.Abs(scanIrts[s] - candidate.Irt) <= _parameters.IrtHalfWindow)
+                reachableList.Add(s);
+        int[] reachable = reachableList.ToArray();
         if (reachable.Length == 0)
             yield break;
 
-        var traces = fragments.Select(_ => new double[reachable.Length]).ToArray();
-        var ppm = fragments.Select(_ => new double[reachable.Length]).ToArray();
+        var traces = new double[fragments.Count][];
+        var ppm = new double[fragments.Count][];
+        for (int f = 0; f < fragments.Count; f++)
+        {
+            traces[f] = new double[reachable.Length];
+            ppm[f] = new double[reachable.Length];
+        }
         for (int k = 0; k < reachable.Length; k++)
         {
             var spectrum = scans[reachable[k]].MassSpectrum;
@@ -184,8 +193,22 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         var rest = Enumerable.Range(0, fragments.Count).Except(coreIndices).Select(i => traces[i]).ToList();
         // The core again, counting only peaks within a tight fraction of the tolerance
         double tightPpm = TightToleranceFraction * _parameters.FragmentTolerancePpm;
-        var tightCore = coreIndices.Select(i => traces[i].Select((v, k) => ppm[i][k] <= tightPpm ? v : 0).ToArray()).ToList();
-        double[] summed = Enumerable.Range(0, reachable.Length).Select(k => traces.Sum(trace => trace[k])).ToArray();
+        var tightCore = new List<double[]>(coreIndices.Length);
+        foreach (int i in coreIndices)
+        {
+            var tight = new double[reachable.Length];
+            for (int k = 0; k < tight.Length; k++)
+                tight[k] = ppm[i][k] <= tightPpm ? traces[i][k] : 0;
+            tightCore.Add(tight);
+        }
+        double[] summed = new double[reachable.Length];
+        for (int k = 0; k < summed.Length; k++)
+        {
+            double sum = 0;
+            foreach (var trace in traces)
+                sum += trace[k];
+            summed[k] = sum;
+        }
         // Every scan's apex score, to judge how far a candidate stands out from the rest of its window (PECAN, OpenSWATH)
         double[] apexScores = FragmentCoElution.ApexScores(traces, libraryIntensities, _parameters.ApexHalfWidthScans);
         double[] scored = apexScores.Where(v => v > 0).ToArray();
