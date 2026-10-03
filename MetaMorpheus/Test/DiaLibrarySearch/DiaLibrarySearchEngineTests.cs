@@ -289,32 +289,6 @@ public class DiaLibrarySearchEngineTests
         Assert.That(new DiaLibrarySearchParameters().FragmentApexCandidate, Is.False);
     }
 
-    /// <summary>
-    /// Protein support: how many other sequences of the precursor's protein pass 1% after a first rescoring. A real protein
-    /// shows several peptides; a decoy protein's hits are scattered chance. The precursor's own sequence never counts, so its
-    /// label never feeds its own feature. Off, the feature is 0 everywhere.
-    /// </summary>
-    [Test]
-    public void ProteinSupportCountsTheProteinsOtherConfidentPeptides()
-    {
-        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0, noisePeaksPerScan: 2000);
-        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
-        int support = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "ProteinSupport");
-        Assert.That(support, Is.GreaterThanOrEqualTo(0));
-        DiaLibrarySearchResults SearchWith(bool on) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
-            new DiaLibrarySearchParameters(ProteinSupport: on), new CommonParameters(), [], []).Run();
-
-        var off = SearchWith(false);
-        var on = SearchWith(true);
-
-        Assert.That(off.Matches.All(m => m.Features[support] == 0));
-        double planted = on.Matches.Where(m => !m.IsDecoy && run.PlantedSequences.Contains(m.FullSequence)).Average(m => m.Features[support]);
-        double decoys = on.Matches.Where(m => m.IsDecoy).Average(m => m.Features[support]);
-        Assert.That(planted, Is.GreaterThan(decoys + 0.5), $"planted {planted:F2}, decoys {decoys:F2}");
-        int found = on.Matches.Count(m => !m.IsDecoy && m.QValue <= 0.01 && run.PlantedSequences.Contains(m.FullSequence));
-        Assert.That(found, Is.GreaterThanOrEqualTo((int)Math.Ceiling(0.9 * run.PlantedSequences.Count)));
-    }
-
     /// <summary>The search reports peptides as well as precursors, one per full sequence, with peptide-level q-values.</summary>
     [Test]
     public void PeptidesAreReportedWithTheirOwnQValues()

@@ -89,6 +89,5 @@ public sealed record DiaPrecursorMatch(
         "PrecursorMz",          // library context (DIA-NN): lets the classifier learn when to trust a prediction; a decoy shares its target's
         "PrecursorCharge",
         "LibraryFragmentCount",
-        "ProteinSupport",       // log(1 + other sequences of this protein passing 1% after a first rescoring); 0 unless ProteinSupport is on
     ];
 }

@@ -493,7 +493,6 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 candidate.PrecursorMz,
                 (double)candidate.Charge,
                 entry.MatchedFragmentIons.Count,
-                0,   // ProteinSupport, filled in after a first rescoring when ProteinSupport is on
             ];
 
             yield return new DiaPrecursorMatch(
@@ -624,48 +623,6 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         out List<DiaPrecursorMatch> removed, out Dictionary<int, List<(MzLibUtil.RtMinutes ApexRt, double Score)>> losing)
     {
         var clock = System.Diagnostics.Stopwatch.StartNew();
-        matches = Rescore(matches);
-        if (_parameters.ProteinSupport && matches.Count > 0)
-        {
-            AddProteinSupport(matches);
-            matches = Rescore(matches);
-        }
-        Status($"timing: classifier ({_parameters.ClassifierModel}) trained and scored {matches.Count} rows  [{clock.Elapsed:mm\\:ss\\.f}]");
-        return AfterRescoring(matches, windowBounds, cycleMinutes, out removed, out losing);
-    }
-
-    /// <summary>
-    /// ProteinSupport: log(1 + other sequences of the row's protein passing 1%), from each precursor's best score so far.
-    /// Decoy proteins count decoys scoring at least the targets' 1% threshold. The row's own sequence never counts.
-    /// </summary>
-    private void AddProteinSupport(List<DiaPrecursorMatch> matches)
-    {
-        int feature = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "ProteinSupport");
-        var best = matches.GroupBy(m => m.PrecursorIndex).Select(g => g.MaxBy(m => m.Score)!).ToList();
-        var targets = best.Where(m => !m.IsDecoy).ToList();
-        double[] q = DeconvolutionQValueCalculator.AssignQValues(targets.Select(m => m.Score).ToList(),
-            best.Where(m => m.IsDecoy).Select(m => m.Score).ToList());
-        var passing = targets.Where((_, i) => q[i] <= 0.01).ToList();
-        double threshold = passing.Count > 0 ? passing.Min(m => m.Score) : double.PositiveInfinity;
-        var confident = passing.Concat(best.Where(m => m.IsDecoy && m.Score >= threshold));
-        var accession = new Dictionary<int, string>();
-        string AccessionOf(int precursor)
-        {
-            if (!accession.TryGetValue(precursor, out var a))
-                accession[precursor] = a = _library.GetEntry(precursor)?.ProteinAccession ?? "";
-            return a;
-        }
-        var sequencesOf = confident.GroupBy(m => AccessionOf(m.PrecursorIndex))
-            .ToDictionary(g => g.Key, g => g.Select(m => m.FullSequence).ToHashSet());
-        foreach (var m in matches)
-        {
-            int others = sequencesOf.TryGetValue(AccessionOf(m.PrecursorIndex), out var set) ? set.Count - (set.Contains(m.FullSequence) ? 1 : 0) : 0;
-            m.Features[feature] = Math.Log(1 + others);
-        }
-    }
-
-    private List<DiaPrecursorMatch> Rescore(List<DiaPrecursorMatch> matches)
-    {
         if (matches.Count > 0)
         {
             var rescored = TargetDecoyRescorer.Score(
@@ -684,12 +641,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             if (rescored.Scores.All(double.IsFinite))
                 matches = matches.Select((m, i) => m with { Score = rescored.Scores[i] }).ToList();
         }
-        return matches;
-    }
-
-    private List<DiaPrecursorMatch> AfterRescoring(List<DiaPrecursorMatch> matches, (double Low, double High)[] windowBounds, double cycleMinutes,
-        out List<DiaPrecursorMatch> removed, out Dictionary<int, List<(MzLibUtil.RtMinutes ApexRt, double Score)>> losing)
-    {
+        Status($"timing: classifier ({_parameters.ClassifierModel}) trained and scored {matches.Count} rows  [{clock.Elapsed:mm\\:ss\\.f}]");
 
         // One match per precursor: its best-scoring candidate apex, across windows; the others are kept as apex and score
         var byPrecursor = matches.GroupBy(m => m.PrecursorIndex)
