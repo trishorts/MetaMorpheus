@@ -131,11 +131,11 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         double cycleMinutes = windows.Select(w => w.Select(s => s.RetentionTime).Order().ToArray())
             .Where(rts => rts.Length > 1).Select(rts => rts[rts.Length / 2] - rts[rts.Length / 2 - 1]).DefaultIfEmpty(0).Average();
         AddSiblingFeatures(rows, (_parameters.ApexHalfWidthScans + 1) * cycleMinutes);
-        var matches = AssignQValues(rows, windowBounds, cycleMinutes, out var removed);
+        var matches = AssignQValues(rows, windowBounds, cycleMinutes, out var removed, out var losing);
         var peptides = DiaPeptideFdr.Assign(matches);
         Status($"timing: search done  [{stage.Elapsed:mm\\:ss\\.f}]");
         Status("Done.");
-        return new DiaLibrarySearchResults(this, matches, peptides) { RemovedAsInterference = removed };
+        return new DiaLibrarySearchResults(this, matches, peptides) { RemovedAsInterference = removed, LosingCandidates = losing };
     }
 
     /// <summary>
@@ -572,7 +572,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     /// If rescoring cannot run (for example too few matches), the pre-rescoring score stands.
     /// </summary>
     private List<DiaPrecursorMatch> AssignQValues(List<DiaPrecursorMatch> matches, (double Low, double High)[] windowBounds, double cycleMinutes,
-        out List<DiaPrecursorMatch> removed)
+        out List<DiaPrecursorMatch> removed, out Dictionary<int, List<(MzLibUtil.RtMinutes ApexRt, double Score)>> losing)
     {
         var clock = System.Diagnostics.Stopwatch.StartNew();
         if (matches.Count > 0)
@@ -595,8 +595,12 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         }
         Status($"timing: classifier ({_parameters.ClassifierModel}) trained and scored {matches.Count} rows  [{clock.Elapsed:mm\\:ss\\.f}]");
 
-        // One match per precursor: its best-scoring candidate apex, across windows
-        matches = matches.GroupBy(m => m.PrecursorIndex).Select(g => g.OrderByDescending(m => m.Score).ThenBy(m => m.ApexRt.Value).First()).ToList();
+        // One match per precursor: its best-scoring candidate apex, across windows; the others are kept as apex and score
+        var byPrecursor = matches.GroupBy(m => m.PrecursorIndex)
+            .Select(g => g.OrderByDescending(m => m.Score).ThenBy(m => m.ApexRt.Value).ToList()).ToList();
+        losing = byPrecursor.Where(g => g.Count > 1)
+            .ToDictionary(g => g[0].PrecursorIndex, g => g.Skip(1).Select(m => (m.ApexRt, m.Score)).ToList());
+        matches = byPrecursor.Select(g => g[0]).ToList();
 
         // Interference removal, after DIA-NN: a match a better co-eluting match explains is dropped, target or decoy alike
         removed = [];
@@ -644,6 +648,14 @@ public class DiaLibrarySearchResults(DiaLibrarySearchEngine engine, List<DiaPrec
     /// match, so not reported and without a q-value. Kept so that a miss can be told from a precursor never scored.
     /// </summary>
     public List<DiaPrecursorMatch> RemovedAsInterference { get; init; } = [];
+
+    /// <summary>
+    /// Each precursor's other candidate peaks (<see cref="DiaLibrarySearchParameters.MaxApexCandidates"/>), as apex RT and
+    /// classifier score, best first; precursors with a single candidate are absent. Kept so that a miss where another
+    /// engine chose a different peak can be told apart: scored lower among our candidates, or never a candidate.
+    /// </summary>
+    public IReadOnlyDictionary<int, List<(MzLibUtil.RtMinutes ApexRt, double Score)>> LosingCandidates { get; init; } =
+        new Dictionary<int, List<(MzLibUtil.RtMinutes ApexRt, double Score)>>();
 
     public int TargetCount => Matches.Count(m => !m.IsDecoy);
 

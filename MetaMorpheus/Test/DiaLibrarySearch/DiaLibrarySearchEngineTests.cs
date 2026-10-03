@@ -198,6 +198,30 @@ public class DiaLibrarySearchEngineTests
     public void TheNetworkTrainsOnItsMostConfidentRowsByDefault() =>
         Assert.That(new DiaLibrarySearchParameters().ClassifierNetworkTrainingSample, Is.EqualTo(StatisticalModels.NetworkTrainingSample.Confident));
 
+    /// <summary>
+    /// A precursor's other candidate peaks are kept, with their apex and score, so that a miss where another engine chose a
+    /// different peak can be told apart: was that peak among our candidates and scored lower, or never a candidate?
+    /// </summary>
+    [Test]
+    public void APrecursorsLosingCandidatePeaksAreKept()
+    {
+        // Dense noise gives precursors weaker second and third candidate peaks
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0, noisePeaksPerScan: 2000);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+
+        var results = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(MaxApexCandidates: 3), new CommonParameters(), [], []).Run();
+
+        Assert.That(results.LosingCandidates.Values.Sum(v => v.Count), Is.GreaterThan(0));
+        foreach (var match in results.Matches)
+        {
+            if (!results.LosingCandidates.TryGetValue(match.PrecursorIndex, out var others))
+                continue;
+            Assert.That(others, Has.Count.LessThanOrEqualTo(2));
+            Assert.That(others.All(o => o.Score <= match.Score && o.ApexRt.Value != match.ApexRt.Value), $"precursor {match.PrecursorIndex}");
+        }
+    }
+
     /// <summary>The search reports peptides as well as precursors, one per full sequence, with peptide-level q-values.</summary>
     [Test]
     public void PeptidesAreReportedWithTheirOwnQValues()
