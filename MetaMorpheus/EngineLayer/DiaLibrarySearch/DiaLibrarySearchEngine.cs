@@ -152,6 +152,15 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         var fragments = FragmentCoElution.TopIndices(allIntensities, _parameters.TopFragmentCount)
             .Select(i => entry.MatchedFragmentIons[i]).ToList();
         double[] libraryIntensities = fragments.Select(f => (double)f.Intensity).ToArray();
+        // Fragments after the top N, read only for their own features (ExtraFragmentCount)
+        var extraFragments = new List<Omics.SpectralMatch.MslSpectralLibrary.MslFragmentIon>();
+        if (_parameters.ExtraFragmentCount > 0)
+        {
+            var topN = FragmentCoElution.TopIndices(allIntensities, _parameters.TopFragmentCount).ToHashSet();
+            foreach (int i in FragmentCoElution.TopIndices(allIntensities, _parameters.TopFragmentCount + _parameters.ExtraFragmentCount))
+                if (!topN.Contains(i))
+                    extraFragments.Add(entry.MatchedFragmentIons[i]);
+        }
 
         // Plain loops in this per-candidate section: it runs for millions of (window, candidate) items, and LINQ's
         // per-element delegates and iterators were a large share of extraction's allocations
@@ -170,6 +179,9 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             traces[f] = new double[reachable.Length];
             ppm[f] = new double[reachable.Length];
         }
+        var extraTraces = new double[extraFragments.Count][];
+        for (int f = 0; f < extraTraces.Length; f++)
+            extraTraces[f] = new double[reachable.Length];
         for (int k = 0; k < reachable.Length; k++)
         {
             var spectrum = scans[reachable[k]].MassSpectrum;
@@ -183,6 +195,12 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                     traces[f][k] = spectrum.YArray[i];
                     ppm[f][k] = Math.Abs(spectrum.XArray[i] - fragments[f].Mz) / fragments[f].Mz * 1e6;
                 }
+            }
+            for (int f = 0; f < extraFragments.Count; f++)
+            {
+                int i = spectrum.GetClosestPeakIndex(extraFragments[f].Mz);
+                if (tolerance.Within(spectrum.XArray[i], extraFragments[f].Mz))
+                    extraTraces[f][k] = spectrum.YArray[i];
             }
         }
 
@@ -258,7 +276,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             // than an average that an interfered fragment drags along (DIA-NN's approach, Demichev et al. 2020)
             int from = Math.Max(0, apex - _parameters.ApexHalfWidthScans);
             int to = Math.Min(reachable.Length - 1, apex + _parameters.ApexHalfWidthScans);
-            double coElution = 0, tightCoElution = 0, remainingCoElution = 0;
+            double coElution = 0, tightCoElution = 0, remainingCoElution = 0, extraCoElution = 0, extraMatchedFraction = 0;
             var fragmentCorrelations = new double[CoreFragmentCount];
             double[]? reference = null;
             if (to > from)
@@ -269,6 +287,11 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 Array.Copy(correlations, fragmentCorrelations, correlations.Length);
                 if (rest.Count > 0)
                     remainingCoElution = FragmentCoElution.CorrelationsTo(rest, reference, from, to).Average();
+                if (extraTraces.Length > 0)
+                {
+                    extraCoElution = FragmentCoElution.CorrelationsTo(extraTraces, reference, from, to).Average();
+                    extraMatchedFraction = extraTraces.Count(trace => trace[apex] > 0) / (double)extraTraces.Length;
+                }
                 var tightReference = FragmentCoElution.Smooth(tightCore[FragmentCoElution.BestFragment(tightCore, from, to)]);
                 tightCoElution = FragmentCoElution.CorrelationsTo(tightCore, tightReference, from, to).Average();
             }
@@ -493,6 +516,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 candidate.PrecursorMz,
                 (double)candidate.Charge,
                 entry.MatchedFragmentIons.Count,
+                extraCoElution,
+                extraMatchedFraction,
             ];
 
             yield return new DiaPrecursorMatch(

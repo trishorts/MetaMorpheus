@@ -89,5 +89,7 @@ public sealed record DiaPrecursorMatch(
         "PrecursorMz",          // library context (DIA-NN): lets the classifier learn when to trust a prediction; a decoy shares its target's
         "PrecursorCharge",
         "LibraryFragmentCount",
+        "ExtraFragmentCoElution",       // fragments beyond the scored top N: mean correlation with the best-fragment profile (0 when none are read)
+        "ExtraFragmentMatchedFraction", // their share seen at the apex
     ];
 }

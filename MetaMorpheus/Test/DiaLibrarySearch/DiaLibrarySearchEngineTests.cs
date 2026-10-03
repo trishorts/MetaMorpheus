@@ -308,6 +308,34 @@ public class DiaLibrarySearchEngineTests
         Assert.That(sampled.Matches.Select(m => m.Score), Is.Not.EqualTo(all.Matches.Select(m => m.Score)));
     }
 
+    /// <summary>
+    /// Library fragments beyond the scored top N enter as their own features (DIA-NN's remaining-fragment scores), never by
+    /// raising N, which dilutes every core score with faint, usually absent fragments. Planted precursors' extra fragments
+    /// co-elute and are present at the apex; decoys' much less. Off, both features are 0.
+    /// </summary>
+    [Test]
+    public void FragmentsBeyondTheTopNAreTheirOwnEvidence()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0, noisePeaksPerScan: 2000);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        int coElution = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "ExtraFragmentCoElution");
+        int matched = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "ExtraFragmentMatchedFraction");
+        Assert.That(coElution, Is.GreaterThanOrEqualTo(0));
+        Assert.That(matched, Is.GreaterThanOrEqualTo(0));
+        DiaLibrarySearchResults SearchWith(int extra) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(TopFragmentCount: 3, ExtraFragmentCount: extra), new CommonParameters(), [], []).Run();
+
+        var off = SearchWith(0);
+        var on = SearchWith(3);
+
+        Assert.That(off.Matches.All(m => m.Features[coElution] == 0 && m.Features[matched] == 0));
+        var planted = on.Matches.Where(m => !m.IsDecoy && run.PlantedSequences.Contains(m.FullSequence)).ToList();
+        var decoys = on.Matches.Where(m => m.IsDecoy).ToList();
+        Assert.That(planted.Select(m => m.Features[coElution]).Order().ElementAt(planted.Count / 2), Is.GreaterThan(0.8));
+        Assert.That(planted.Average(m => m.Features[matched]), Is.GreaterThan(decoys.Average(m => m.Features[matched]) + 0.3));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DiaLibrarySearchParameters(ExtraFragmentCount: -1));
+    }
+
     /// <summary>The search reports peptides as well as precursors, one per full sequence, with peptide-level q-values.</summary>
     [Test]
     public void PeptidesAreReportedWithTheirOwnQValues()
