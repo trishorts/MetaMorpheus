@@ -42,6 +42,10 @@ namespace EngineLayer.DiaLibrarySearch;
 /// rather than from any of its candidates near this apex, where a decoy gets several chances for noise to line up. On by
 /// default: at a matched entrapment FDP of 1%, HF-X 57,200 -> 59,190 (+3.5%), PXD005573 1 h unchanged (39,280 -> 39,170).
 /// </param>
+/// <param name="MinimumApexFragments">
+/// A cheap gate before the full features, as DIA-NN's: a scan can be a candidate apex only if at least this many of the six
+/// most intense library fragments are seen there. 0 (default) turns it off.
+/// </param>
 /// <param name="ClassifierNetworkPasses">
 /// Network training passes: the second learns from the candidate peaks the first network picked, as DIA-NN trains twice.
 /// </param>
@@ -69,8 +73,20 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     int ClassifierNetworkEpochs = StatisticalModels.TargetDecoyRescorer.NetworkEpochs,
     int ClassifierNetworkPasses = 1,
     StatisticalModels.NetworkTrainingSample ClassifierNetworkTrainingSample = StatisticalModels.NetworkTrainingSample.Confident,
-    bool SiblingTopCandidateOnly = true)
+    bool SiblingTopCandidateOnly = true,
+    int MinimumApexFragments = 0)
 {
+    private readonly int _minimumApexFragments = MinimumApexFragments is >= 0 and <= 6 ? MinimumApexFragments
+        : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), MinimumApexFragments, "The gate counts the six most intense fragments, so 0 to 6.");
+
+    /// <exception cref="ArgumentOutOfRangeException">Outside 0 to 6.</exception>
+    public int MinimumApexFragments
+    {
+        get => _minimumApexFragments;
+        init => _minimumApexFragments = value is >= 0 and <= 6 ? value
+            : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), value, "The gate counts the six most intense fragments, so 0 to 6.");
+    }
+
     private readonly int _classifierNetworkPasses = ClassifierNetworkPasses >= 1 ? ClassifierNetworkPasses
         : throw new ArgumentOutOfRangeException(nameof(ClassifierNetworkPasses), ClassifierNetworkPasses, "The network needs at least one training pass.");
 

@@ -245,6 +245,29 @@ public class DiaLibrarySearchEngineTests
         Assert.That(new DiaLibrarySearchParameters().SiblingTopCandidateOnly, Is.True);
     }
 
+    /// <summary>
+    /// A cheap gate before the full features, as DIA-NN's: a scan can be a candidate apex only if at least this many of the
+    /// six most intense library fragments are seen there. Noise-only candidates are never scored, so the search scores
+    /// fewer of them and still finds what was planted.
+    /// </summary>
+    [Test]
+    public void CandidateApexesCanBeGatedOnTheirTopFragments()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0, noisePeaksPerScan: 2000);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(int gate) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(MinimumApexFragments: gate), new CommonParameters(), [], []).Run();
+
+        var open = SearchWith(0);
+        var gated = SearchWith(4);
+
+        int Candidates(DiaLibrarySearchResults r) => r.Matches.Count + r.LosingCandidates.Values.Sum(v => v.Count);
+        Assert.That(Candidates(gated), Is.LessThan(Candidates(open)));
+        int found = gated.Matches.Count(m => !m.IsDecoy && m.QValue <= 0.01 && run.PlantedSequences.Contains(m.FullSequence));
+        Assert.That(found, Is.GreaterThanOrEqualTo((int)Math.Ceiling(0.9 * run.PlantedSequences.Count)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DiaLibrarySearchParameters(MinimumApexFragments: 7));
+    }
+
     /// <summary>The search reports peptides as well as precursors, one per full sequence, with peptide-level q-values.</summary>
     [Test]
     public void PeptidesAreReportedWithTheirOwnQValues()

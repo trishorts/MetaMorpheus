@@ -207,7 +207,16 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1Isotope[k] = _ms1Index.GetIndexedPeak(isotopeMz, ms1, Ms1Tolerance)?.Intensity ?? 0;
             }
         }
-        foreach (int apex in FragmentCoElution.FindApexes(apexScores, _parameters.ApexHalfWidthScans, _parameters.MaxApexCandidates))
+        // The gate (MinimumApexFragments) picks candidates only; the apex-score features still see every scan
+        double[] candidateScores = apexScores;
+        if (_parameters.MinimumApexFragments > 0)
+        {
+            candidateScores = (double[])apexScores.Clone();
+            for (int s = 0; s < candidateScores.Length; s++)
+                if (core.Count(trace => trace[s] > 0) < _parameters.MinimumApexFragments)
+                    candidateScores[s] = 0;
+        }
+        foreach (int apex in FragmentCoElution.FindApexes(candidateScores, _parameters.ApexHalfWidthScans, _parameters.MaxApexCandidates))
         {
             double[] apexIntensities = traces.Select(trace => trace[apex]).ToArray();
             // Co-elution against the best of the six most intense library fragments, smoothed: one reliable profile rather
