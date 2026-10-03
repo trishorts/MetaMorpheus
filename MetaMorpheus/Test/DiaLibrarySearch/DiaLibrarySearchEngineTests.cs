@@ -222,6 +222,28 @@ public class DiaLibrarySearchEngineTests
         }
     }
 
+    /// <summary>
+    /// Sibling support can come from each other charge state's top candidate peak only. Taken from any of a sibling's
+    /// candidates, a decoy gets several chances for a noise peak to sit near its apex; at equal score, decoys on HF-X had
+    /// more sibling support than the targets we missed (results/entrapment/README.md, I14).
+    /// </summary>
+    [Test]
+    public void SiblingSupportCanComeFromTheSiblingsTopCandidateOnly()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0, noisePeaksPerScan: 2000,
+            withCharge3Siblings: true);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        int sibling = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "SiblingCoElution");
+        DiaLibrarySearchResults SearchWith(bool topOnly) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(SiblingTopCandidateOnly: topOnly), new CommonParameters(), [], []).Run();
+
+        var any = SearchWith(false).Matches.ToDictionary(m => m.PrecursorIndex, m => m.Features[sibling]);
+        var top = SearchWith(true).Matches.ToDictionary(m => m.PrecursorIndex, m => m.Features[sibling]);
+
+        Assert.That(top.Keys.Intersect(any.Keys).Count(k => top[k] != any[k]), Is.GreaterThan(0));
+        Assert.That(new DiaLibrarySearchParameters().SiblingTopCandidateOnly, Is.False);
+    }
+
     /// <summary>The search reports peptides as well as precursors, one per full sequence, with peptide-level q-values.</summary>
     [Test]
     public void PeptidesAreReportedWithTheirOwnQValues()

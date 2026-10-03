@@ -130,7 +130,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         var windowBounds = windows.Select(w => (Low: w.Key.Minimum, High: w.Key.Maximum)).ToArray();
         double cycleMinutes = windows.Select(w => w.Select(s => s.RetentionTime).Order().ToArray())
             .Where(rts => rts.Length > 1).Select(rts => rts[rts.Length / 2] - rts[rts.Length / 2 - 1]).DefaultIfEmpty(0).Average();
-        AddSiblingFeatures(rows, (_parameters.ApexHalfWidthScans + 1) * cycleMinutes);
+        AddSiblingFeatures(rows, (_parameters.ApexHalfWidthScans + 1) * cycleMinutes, _parameters.SiblingTopCandidateOnly);
         var matches = AssignQValues(rows, windowBounds, cycleMinutes, out var removed, out var losing);
         var peptides = DiaPeptideFdr.Assign(matches);
         Status($"timing: search done  [{stage.Elapsed:mm\\:ss\\.f}]");
@@ -484,7 +484,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     /// the RT gap to the nearest of them (capped at 1 minute). Only the sequence and decoy flag group them, so targets and
     /// decoys are treated alike.
     /// </summary>
-    private static void AddSiblingFeatures(List<DiaPrecursorMatch> rows, double rtToleranceMinutes)
+    private static void AddSiblingFeatures(List<DiaPrecursorMatch> rows, double rtToleranceMinutes, bool topCandidateOnly = false)
     {
         int coElution = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "CoElution");
         int siblingCoElution = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "SiblingCoElution");
@@ -494,10 +494,14 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             var members = group.ToList();
             if (members.Select(r => r.Charge).Distinct().Count() < 2)
                 continue;
+            // Support from each charge state's top candidate (by the pre-rescoring score), or from any of its candidates
+            var supporters = topCandidateOnly
+                ? members.GroupBy(r => r.Charge).Select(g => g.OrderByDescending(r => r.Score).ThenBy(r => r.ApexRt.Value).First()).ToList()
+                : members;
             foreach (var row in members)
             {
                 double best = 0, nearest = 1.0;
-                foreach (var other in members)
+                foreach (var other in supporters)
                 {
                     if (other.Charge == row.Charge)
                         continue;

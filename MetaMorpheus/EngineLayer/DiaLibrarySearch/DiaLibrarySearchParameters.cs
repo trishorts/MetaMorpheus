@@ -37,6 +37,10 @@ namespace EngineLayer.DiaLibrarySearch;
 /// by default: at a matched entrapment FDP of 1%, +9.4% (PXD022589 HF-X) and +9.9% (PXD005573 1 h) over a random sample,
 /// at no extra time. A random sample holds about one real target in twenty on a whole-proteome library.
 /// </param>
+/// <param name="SiblingTopCandidateOnly">
+/// Sibling support (SiblingCoElution, SiblingApexDeltaMinutes) from each other charge state's top candidate peak only,
+/// rather than from any of its candidates near this apex, where a decoy gets several chances for noise to line up.
+/// </param>
 /// <param name="ClassifierNetworkPasses">
 /// Network training passes: the second learns from the candidate peaks the first network picked, as DIA-NN trains twice.
 /// </param>
@@ -63,7 +67,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     int ClassifierNetworkMembers = 12,
     int ClassifierNetworkEpochs = StatisticalModels.TargetDecoyRescorer.NetworkEpochs,
     int ClassifierNetworkPasses = 1,
-    StatisticalModels.NetworkTrainingSample ClassifierNetworkTrainingSample = StatisticalModels.NetworkTrainingSample.Confident)
+    StatisticalModels.NetworkTrainingSample ClassifierNetworkTrainingSample = StatisticalModels.NetworkTrainingSample.Confident,
+    bool SiblingTopCandidateOnly = false)
 {
     private readonly int _classifierNetworkPasses = ClassifierNetworkPasses >= 1 ? ClassifierNetworkPasses
         : throw new ArgumentOutOfRangeException(nameof(ClassifierNetworkPasses), ClassifierNetworkPasses, "The network needs at least one training pass.");
