@@ -268,6 +268,27 @@ public class DiaLibrarySearchEngineTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new DiaLibrarySearchParameters(MinimumApexFragments: 7));
     }
 
+    /// <summary>
+    /// One more candidate by a different rule: the apex of the best single fragment's smoothed trace over the whole window,
+    /// when no candidate is already there. In about 2,300 of the DIA-NN IDs we miss per file, DIA-NN's peak was never among
+    /// our candidates, and more candidates by the same apex score did not help.
+    /// </summary>
+    [Test]
+    public void TheBestFragmentsApexCanBeAnExtraCandidate()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0, noisePeaksPerScan: 2000);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(bool extra) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(FragmentApexCandidate: extra), new CommonParameters(), [], []).Run();
+
+        var without = SearchWith(false);
+        var with = SearchWith(true);
+
+        int Candidates(DiaLibrarySearchResults r) => r.Matches.Count + r.LosingCandidates.Values.Sum(v => v.Count);
+        Assert.That(Candidates(with), Is.GreaterThan(Candidates(without)));
+        Assert.That(new DiaLibrarySearchParameters().FragmentApexCandidate, Is.False);
+    }
+
     /// <summary>The search reports peptides as well as precursors, one per full sequence, with peptide-level q-values.</summary>
     [Test]
     public void PeptidesAreReportedWithTheirOwnQValues()

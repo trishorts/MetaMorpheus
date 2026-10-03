@@ -239,7 +239,19 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 if (core.Count(trace => trace[s] > 0) < _parameters.MinimumApexFragments)
                     candidateScores[s] = 0;
         }
-        foreach (int apex in FragmentCoElution.FindApexes(candidateScores, _parameters.ApexHalfWidthScans, _parameters.MaxApexCandidates))
+        var apexes = FragmentCoElution.FindApexes(candidateScores, _parameters.ApexHalfWidthScans, _parameters.MaxApexCandidates).ToList();
+        if (_parameters.FragmentApexCandidate && reachable.Length > 1)
+        {
+            // The best single fragment's own apex over the whole window, if no candidate is already there
+            double[] bestTrace = FragmentCoElution.Smooth(core[FragmentCoElution.BestFragment(core, 0, reachable.Length - 1)]);
+            int fragmentApex = 0;
+            for (int s = 1; s < bestTrace.Length; s++)
+                if (bestTrace[s] > bestTrace[fragmentApex])
+                    fragmentApex = s;
+            if (bestTrace[fragmentApex] > 0 && apexes.All(a => Math.Abs(a - fragmentApex) > _parameters.ApexHalfWidthScans))
+                apexes.Add(fragmentApex);
+        }
+        foreach (int apex in apexes)
         {
             double[] apexIntensities = traces.Select(trace => trace[apex]).ToArray();
             // Co-elution against the best of the six most intense library fragments, smoothed: one reliable profile rather

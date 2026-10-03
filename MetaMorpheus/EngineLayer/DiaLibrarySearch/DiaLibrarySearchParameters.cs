@@ -46,6 +46,10 @@ namespace EngineLayer.DiaLibrarySearch;
 /// A cheap gate before the full features, as DIA-NN's: a scan can be a candidate apex only if at least this many of the six
 /// most intense library fragments are seen there. 0 (default) turns it off.
 /// </param>
+/// <param name="FragmentApexCandidate">
+/// One more candidate apex by a different rule: the apex of the best single fragment's smoothed trace over the whole window,
+/// when no candidate already lies within <see cref="ApexHalfWidthScans"/> of it.
+/// </param>
 /// <param name="ClassifierNetworkPasses">
 /// Network training passes: the second learns from the candidate peaks the first network picked, as DIA-NN trains twice.
 /// </param>
@@ -74,7 +78,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     int ClassifierNetworkPasses = 1,
     StatisticalModels.NetworkTrainingSample ClassifierNetworkTrainingSample = StatisticalModels.NetworkTrainingSample.Confident,
     bool SiblingTopCandidateOnly = true,
-    int MinimumApexFragments = 0)
+    int MinimumApexFragments = 0,
+    bool FragmentApexCandidate = false)
 {
     private readonly int _minimumApexFragments = MinimumApexFragments is >= 0 and <= 6 ? MinimumApexFragments
         : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), MinimumApexFragments, "The gate counts the six most intense fragments, so 0 to 6.");
