@@ -60,11 +60,13 @@ namespace EngineLayer.DiaLibrarySearch;
 /// </param>
 /// <param name="DiaNnPeakFinding">
 /// Candidate apexes as DIA-NN 1.8 picks them (<see cref="DiaLibrarySearchEngine.DiaNnCandidateApexes"/>) rather than by the
-/// apex score, still at most <see cref="MaxApexCandidates"/>.
+/// apex score, still at most <see cref="MaxApexCandidates"/>. On by default with 6 candidates: neutral at 3, +1.3% (HF-X) and
+/// +2.8% (PXD005573 1 h) at 6, at a matched paired entrapment FDP of 1%; with <see cref="DiaNnScores"/>, +1.4% and +3.6%.
 /// </param>
 /// <param name="DiaNnScores">
 /// DIA-NN 1.8 scores we otherwise lack: MinCorr, NFCorr and ShadowCorr (see <see cref="DiaPrecursorMatch.FeatureNames"/>).
-/// Off, they are 0. On, seven more traces are read per precursor.
+/// Off, they are 0. On (default), seven more traces are read per precursor: +1.0% (HF-X) and +1.4% (PXD005573 1 h) at a
+/// matched paired entrapment FDP of 1%.
 /// </param>
 /// <param name="ClassifierNetworkPasses">
 /// Network training passes: the second learns from the candidate peaks the first network picked, as DIA-NN trains twice.
@@ -83,7 +85,7 @@ namespace EngineLayer.DiaLibrarySearch;
 /// </param>
 /// <param name="ClassifierModel">The model the rescorer fits in each fold: a linear discriminant, or a small neural-network ensemble (DIA-NN's approach).</param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
-    int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 3, double ClassifierTrainingQValue = 0.01,
+    int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 6, double ClassifierTrainingQValue = 0.01,
     StatisticalModels.RescoreModel ClassifierModel = StatisticalModels.RescoreModel.NeuralNetworkEnsemble,
     int InterferenceExplainedFragments = 4,
     int? MaxNetworkTrainingRows = 250_000,
@@ -98,8 +100,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool FragmentApexCandidate = false,
     int? ClassifierNormalizationGroups = null,
     bool MostIntenseFragmentPeak = true,
-    bool DiaNnPeakFinding = false,
-    bool DiaNnScores = false)
+    bool DiaNnPeakFinding = true,
+    bool DiaNnScores = true)
 {
     private readonly int _minimumApexFragments = MinimumApexFragments is >= 0 and <= 6 ? MinimumApexFragments
         : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), MinimumApexFragments, "The gate counts the six most intense fragments, so 0 to 6.");

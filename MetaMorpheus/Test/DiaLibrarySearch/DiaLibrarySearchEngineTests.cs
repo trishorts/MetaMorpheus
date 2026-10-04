@@ -268,7 +268,8 @@ public class DiaLibrarySearchEngineTests
         var planted = SearchWith(true).Matches.Where(m => !m.IsDecoy && m.QValue <= 0.01 && run.PlantedSequences.Contains(m.FullSequence)).ToList();
         Assert.That(planted, Is.Not.Empty);
         Assert.That(planted.Average(m => m.Features[scores[0]]), Is.GreaterThan(0.5));
-        Assert.That(new DiaLibrarySearchParameters().DiaNnScores, Is.False);
+        // The default since 2026-10-04: with DIA-NN peak finding at 6 candidates, +1.4% HF-X, +3.6% PXD005573 (matched paired FDP 1%)
+        Assert.That(new DiaLibrarySearchParameters().DiaNnScores, Is.True);
     }
 
     /// <summary>
@@ -282,7 +283,7 @@ public class DiaLibrarySearchEngineTests
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0, noisePeaksPerScan: 2000);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
         DiaLibrarySearchResults SearchWith(int gate) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
-            new DiaLibrarySearchParameters(MinimumApexFragments: gate), new CommonParameters(), [], []).Run();
+            new DiaLibrarySearchParameters(MinimumApexFragments: gate, DiaNnPeakFinding: false), new CommonParameters(), [], []).Run();
 
         var open = SearchWith(0);
         var gated = SearchWith(4);
@@ -380,7 +381,9 @@ public class DiaLibrarySearchEngineTests
         Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(withTwoFragmentPeak, 3, 10), Is.EqualTo(new[] { 10 }));
         Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(withFourFragmentPeak, 3, 1), Is.EqualTo(new[] { 10 }));
         Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(Traces(), 3, 10), Is.Empty);
-        Assert.That(new DiaLibrarySearchParameters().DiaNnPeakFinding, Is.False);
+        // The default since 2026-10-04, with 6 candidates: neutral at 3, +1.3% HF-X and +2.8% PXD005573 at 6 (matched paired FDP 1%)
+        Assert.That(new DiaLibrarySearchParameters().DiaNnPeakFinding, Is.True);
+        Assert.That(new DiaLibrarySearchParameters().MaxApexCandidates, Is.EqualTo(6));
     }
 
     /// <summary>The search reports peptides as well as precursors, one per full sequence, with peptide-level q-values.</summary>
