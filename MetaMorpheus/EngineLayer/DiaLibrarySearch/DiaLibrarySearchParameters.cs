@@ -65,6 +65,10 @@ namespace EngineLayer.DiaLibrarySearch;
 /// </param>
 /// <param name="DiaNnPeakFindingMs1">With <see cref="DiaNnPeakFinding"/>, add the MS1 trace's correlation with the best fragment to the candidate score, as DIA-NN does.</param>
 /// <param name="DiaNnSignalShare">DIA-NN's pSig: the six core fragments' shares of their window signal, as SignalShare1-6.</param>
+/// <param name="ClassifierLinearIterations">
+/// Rankings of the training rows before the network: the first by the best single feature, each later one by a refit
+/// linear discriminant, which also picks each precursor's top candidate peak for the network (DIA-NN refits about 8 times).
+/// </param>
 /// <param name="DiaNnScores">
 /// DIA-NN 1.8 scores we otherwise lack: MinCorr, NFCorr and ShadowCorr (see <see cref="DiaPrecursorMatch.FeatureNames"/>).
 /// Off, they are 0. On (default), seven more traces are read per precursor: +1.0% (HF-X) and +1.4% (PXD005573 1 h) at a
@@ -105,7 +109,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool DiaNnPeakFinding = true,
     bool DiaNnScores = true,
     bool DiaNnPeakFindingMs1 = false,
-    bool DiaNnSignalShare = false)
+    bool DiaNnSignalShare = false,
+    int ClassifierLinearIterations = 3)
 {
     private readonly int _minimumApexFragments = MinimumApexFragments is >= 0 and <= 6 ? MinimumApexFragments
         : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), MinimumApexFragments, "The gate counts the six most intense fragments, so 0 to 6.");
@@ -116,6 +121,17 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
         get => _minimumApexFragments;
         init => _minimumApexFragments = value is >= 0 and <= 6 ? value
             : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), value, "The gate counts the six most intense fragments, so 0 to 6.");
+    }
+
+    private readonly int _classifierLinearIterations = ClassifierLinearIterations >= 1 ? ClassifierLinearIterations
+        : throw new ArgumentOutOfRangeException(nameof(ClassifierLinearIterations), ClassifierLinearIterations, "The linear model needs at least one iteration.");
+
+    /// <exception cref="ArgumentOutOfRangeException">Fewer than one iteration.</exception>
+    public int ClassifierLinearIterations
+    {
+        get => _classifierLinearIterations;
+        init => _classifierLinearIterations = value >= 1 ? value
+            : throw new ArgumentOutOfRangeException(nameof(ClassifierLinearIterations), value, "The linear model needs at least one iteration.");
     }
 
     private readonly int _classifierNetworkPasses = ClassifierNetworkPasses >= 1 ? ClassifierNetworkPasses

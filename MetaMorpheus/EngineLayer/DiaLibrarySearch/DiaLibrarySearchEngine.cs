@@ -799,6 +799,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 matches.Select(m => m.Features).ToList(),
                 matches.Select(m => m.IsDecoy).ToList(),
                 matches.Select(m => m.FullSequence).ToList(),
+                iterations: _parameters.ClassifierLinearIterations,
                 positiveQValue: _parameters.ClassifierTrainingQValue,
                 model: _parameters.ClassifierModel,
                 maxNetworkTrainingRows: _parameters.MaxNetworkTrainingRows,

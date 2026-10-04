@@ -297,6 +297,26 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// The linear model that picks each precursor's candidate peak for the network is refit a set number of times (DIA-NN about
+    /// 8). 3 by default (a best-single-feature ranking, then two refits); fewer than 1 is refused. More refits still find
+    /// what was planted.
+    /// </summary>
+    [Test]
+    public void TheLinearPickCanBeRefitMoreTimes()
+    {
+        Assert.That(new DiaLibrarySearchParameters().ClassifierLinearIterations, Is.EqualTo(3));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DiaLibrarySearchParameters(ClassifierLinearIterations: 0));
+
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        var results = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(ClassifierLinearIterations: 8), new CommonParameters(), [], []).Run();
+
+        int found = results.Matches.Count(m => !m.IsDecoy && m.QValue <= 0.01 && run.PlantedSequences.Contains(m.FullSequence));
+        Assert.That(found, Is.GreaterThanOrEqualTo((int)Math.Ceiling(0.9 * run.PlantedSequences.Count)));
+    }
+
+    /// <summary>
     /// A cheap gate before the full features, as DIA-NN's: a scan can be a candidate apex only if at least this many of the
     /// six most intense library fragments are seen there. Noise-only candidates are never scored, so the search scores
     /// fewer of them and still finds what was planted.
