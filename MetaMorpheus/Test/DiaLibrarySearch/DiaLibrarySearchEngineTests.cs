@@ -246,6 +246,32 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// DIA-NN 1.8 scores we lacked. MinCorr is co-elution of spike-suppressed traces (each scan the minimum of itself and its
+    /// neighbours). NFCorr is the unfragmented precursor m/z in MS2. ShadowCorr is the trace one isotope below each fragment:
+    /// is "our" fragment another ion's M+1? All three are 0 unless asked for. A planted precursor's broad peak survives spike
+    /// suppression, so its MinCorr is high.
+    /// </summary>
+    [Test]
+    public void DiaNnScoresAreFilledOnlyWhenAskedFor()
+    {
+        Assert.That(DiaLibrarySearchEngine.SpikeSuppressed([0, 0, 9, 0, 0, 1, 2, 3, 2, 1]),
+            Is.EqualTo(new double[] { 0, 0, 0, 0, 0, 0, 1, 2, 1, 1 }));
+        int[] scores = new[] { "MinCorr", "NFCorr", "ShadowCorr" }.Select(n => Array.IndexOf(DiaPrecursorMatch.FeatureNames, n)).ToArray();
+        Assert.That(scores, Has.All.GreaterThanOrEqualTo(0));
+
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(bool on) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(DiaNnScores: on), new CommonParameters(), [], []).Run();
+
+        Assert.That(SearchWith(false).Matches.SelectMany(m => scores.Select(i => m.Features[i])), Has.All.EqualTo(0));
+        var planted = SearchWith(true).Matches.Where(m => !m.IsDecoy && m.QValue <= 0.01 && run.PlantedSequences.Contains(m.FullSequence)).ToList();
+        Assert.That(planted, Is.Not.Empty);
+        Assert.That(planted.Average(m => m.Features[scores[0]]), Is.GreaterThan(0.5));
+        Assert.That(new DiaLibrarySearchParameters().DiaNnScores, Is.False);
+    }
+
+    /// <summary>
     /// A cheap gate before the full features, as DIA-NN's: a scan can be a candidate apex only if at least this many of the
     /// six most intense library fragments are seen there. Noise-only candidates are never scored, so the search scores
     /// fewer of them and still finds what was planted.

@@ -216,6 +216,30 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         double scoreSd = scored.Length > 1 ? Math.Sqrt(scored.Sum(v => (v - scoreMean) * (v - scoreMean)) / (scored.Length - 1)) : 0;
         double windowSignal = summed.Sum();
 
+        // DIA-NN's extra traces: the unfragmented precursor m/z in MS2, and one isotope below each core fragment
+        double[]? unfragmented = null;
+        List<double[]>? shadows = null, spikeSuppressed = null;
+        if (_parameters.DiaNnScores)
+        {
+            unfragmented = new double[reachable.Length];
+            shadows = coreIndices.Select(_ => new double[reachable.Length]).ToList();
+            spikeSuppressed = core.Select(SpikeSuppressed).ToList();
+            for (int k = 0; k < reachable.Length; k++)
+            {
+                var spectrum = scans[reachable[k]].MassSpectrum;
+                int i = FragmentPeakIndex(spectrum, candidate.PrecursorMz, tolerance, _parameters.MostIntenseFragmentPeak);
+                if (i >= 0)
+                    unfragmented[k] = spectrum.YArray[i];
+                for (int c = 0; c < coreIndices.Length; c++)
+                {
+                    var fragment = fragments[coreIndices[c]];
+                    i = FragmentPeakIndex(spectrum, fragment.Mz - 1.0033548 / Math.Max(1, fragment.Charge), tolerance, _parameters.MostIntenseFragmentPeak);
+                    if (i >= 0)
+                        shadows[c][k] = spectrum.YArray[i];
+                }
+            }
+        }
+
         // The precursor's MS1 traces, monoisotopic and M+1, in the MS1 scan nearest each reachable MS2 scan
         double[]? ms1Mono = null, ms1Isotope = null;
         if (_ms1Index is not null)
@@ -435,6 +459,14 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1ApexShare = windowMax > 0 ? atApex / windowMax : 0;
             }
 
+            double minCorr = 0, nfCorr = 0, shadowCorr = 0;
+            if (reference is not null && unfragmented is not null && shadows is not null && spikeSuppressed is not null)
+            {
+                minCorr = FragmentCoElution.CorrelationsTo(spikeSuppressed, reference, from, to).Average();
+                nfCorr = FragmentCoElution.CorrelationsTo([unfragmented], reference, from, to)[0];
+                shadowCorr = FragmentCoElution.CorrelationsTo(shadows, reference, from, to).Average();
+            }
+
             // Uniqueness: this apex against the best competing scan outside its co-elution window, its z-score among the
             // window's scans, and the share of the window's fragment signal inside its peak
             double apexScore = apexScores[apex];
@@ -495,6 +527,9 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 candidate.PrecursorMz,
                 (double)candidate.Charge,
                 entry.MatchedFragmentIons.Count,
+                minCorr,
+                nfCorr,
+                shadowCorr,
             ];
 
             yield return new DiaPrecursorMatch(
@@ -587,6 +622,23 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 chosen.Add(scan);
         }
         return chosen.ToArray();
+    }
+
+    /// <summary>
+    /// A trace with single-scan spikes suppressed, as DIA-NN's pMinCorr reads it: each scan the minimum of itself and its
+    /// neighbours (an end scan has one neighbour).
+    /// </summary>
+    public static double[] SpikeSuppressed(double[] trace)
+    {
+        var result = new double[trace.Length];
+        for (int s = 0; s < trace.Length; s++)
+        {
+            double min = trace[s];
+            if (s > 0) min = Math.Min(min, trace[s - 1]);
+            if (s < trace.Length - 1) min = Math.Min(min, trace[s + 1]);
+            result[s] = min;
+        }
+        return result;
     }
 
     /// <summary>Pearson's r over [from, to]; negative, flat or undefined counts as 0.</summary>

@@ -89,5 +89,8 @@ public sealed record DiaPrecursorMatch(
         "PrecursorMz",          // library context (DIA-NN): lets the classifier learn when to trust a prediction; a decoy shares its target's
         "PrecursorCharge",
         "LibraryFragmentCount",
+        "MinCorr",              // DIA-NN pMinCorr: core co-elution after spike suppression (each scan the minimum of it and its neighbours)
+        "NFCorr",               // DIA-NN pNFCorr: the unfragmented precursor m/z in MS2 against the profile (0 unless DiaNnScores)
+        "ShadowCorr",           // DIA-NN pShadow: the trace one isotope below each core fragment against the profile, averaged
     ];
 }

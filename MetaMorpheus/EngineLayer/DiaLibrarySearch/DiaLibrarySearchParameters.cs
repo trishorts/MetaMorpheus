@@ -62,6 +62,10 @@ namespace EngineLayer.DiaLibrarySearch;
 /// Candidate apexes as DIA-NN 1.8 picks them (<see cref="DiaLibrarySearchEngine.DiaNnCandidateApexes"/>) rather than by the
 /// apex score, still at most <see cref="MaxApexCandidates"/>.
 /// </param>
+/// <param name="DiaNnScores">
+/// DIA-NN 1.8 scores we otherwise lack: MinCorr, NFCorr and ShadowCorr (see <see cref="DiaPrecursorMatch.FeatureNames"/>).
+/// Off, they are 0. On, seven more traces are read per precursor.
+/// </param>
 /// <param name="ClassifierNetworkPasses">
 /// Network training passes: the second learns from the candidate peaks the first network picked, as DIA-NN trains twice.
 /// </param>
@@ -94,7 +98,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool FragmentApexCandidate = false,
     int? ClassifierNormalizationGroups = null,
     bool MostIntenseFragmentPeak = true,
-    bool DiaNnPeakFinding = false)
+    bool DiaNnPeakFinding = false,
+    bool DiaNnScores = false)
 {
     private readonly int _minimumApexFragments = MinimumApexFragments is >= 0 and <= 6 ? MinimumApexFragments
         : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), MinimumApexFragments, "The gate counts the six most intense fragments, so 0 to 6.");
