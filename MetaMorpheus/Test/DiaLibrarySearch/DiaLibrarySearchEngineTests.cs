@@ -273,6 +273,30 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// DIA-NN's pSig: each of the six most intense library fragments' share of their summed signal across the peak, in library
+    /// rank, so the classifier can set the observed pattern against the library's. 0 unless asked for. On, a planted
+    /// precursor's shares sum to 1 and follow the library: the most intense fragment takes more than the sixth.
+    /// </summary>
+    [Test]
+    public void FragmentSignalSharesAreFilledOnlyWhenAskedFor()
+    {
+        int[] shares = Enumerable.Range(1, 6).Select(k => Array.IndexOf(DiaPrecursorMatch.FeatureNames, $"SignalShare{k}")).ToArray();
+        Assert.That(shares, Has.All.GreaterThanOrEqualTo(0));
+
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(bool on) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(DiaNnSignalShare: on), new CommonParameters(), [], []).Run();
+
+        Assert.That(SearchWith(false).Matches.SelectMany(m => shares.Select(i => m.Features[i])), Has.All.EqualTo(0));
+        var planted = SearchWith(true).Matches.Where(m => !m.IsDecoy && m.QValue <= 0.01 && run.PlantedSequences.Contains(m.FullSequence)).ToList();
+        Assert.That(planted, Is.Not.Empty);
+        Assert.That(planted.Select(m => shares.Sum(i => m.Features[i])), Has.All.EqualTo(1).Within(1e-9));
+        Assert.That(planted.Average(m => m.Features[shares[0]]), Is.GreaterThan(planted.Average(m => m.Features[shares[5]])));
+        Assert.That(new DiaLibrarySearchParameters().DiaNnSignalShare, Is.False);
+    }
+
+    /// <summary>
     /// A cheap gate before the full features, as DIA-NN's: a scan can be a candidate apex only if at least this many of the
     /// six most intense library fragments are seen there. Noise-only candidates are never scored, so the search scores
     /// fewer of them and still finds what was planted.

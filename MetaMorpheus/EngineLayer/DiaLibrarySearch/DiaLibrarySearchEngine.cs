@@ -467,6 +467,20 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 shadowCorr = FragmentCoElution.CorrelationsTo(shadows, reference, from, to).Average();
             }
 
+            // DIA-NN's pSig: each core fragment's share of the core's summed signal across the co-elution window, in library rank
+            var signalShares = new double[CoreFragmentCount];
+            if (_parameters.DiaNnSignalShare)
+            {
+                double total = 0;
+                for (int c = 0; c < core.Count; c++)
+                {
+                    for (int s = from; s <= to; s++)
+                        signalShares[c] += core[c][s];
+                    total += signalShares[c];
+                }
+                for (int c = 0; c < signalShares.Length; c++)
+                    signalShares[c] = total > 0 ? signalShares[c] / total : 0;
+            }
             // Uniqueness: this apex against the best competing scan outside its co-elution window, its z-score among the
             // window's scans, and the share of the window's fragment signal inside its peak
             double apexScore = apexScores[apex];
@@ -530,6 +544,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 minCorr,
                 nfCorr,
                 shadowCorr,
+                .. signalShares,
             ];
 
             yield return new DiaPrecursorMatch(

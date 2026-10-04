@@ -92,5 +92,11 @@ public sealed record DiaPrecursorMatch(
         "MinCorr",              // DIA-NN pMinCorr: core co-elution after spike suppression (each scan the minimum of it and its neighbours)
         "NFCorr",               // DIA-NN pNFCorr: the unfragmented precursor m/z in MS2 against the profile (0 unless DiaNnScores)
         "ShadowCorr",           // DIA-NN pShadow: the trace one isotope below each core fragment against the profile, averaged
+        "SignalShare1",         // DIA-NN pSig: each core fragment's share of the core's window signal, in library rank (0 unless DiaNnSignalShare)
+        "SignalShare2",
+        "SignalShare3",
+        "SignalShare4",
+        "SignalShare5",
+        "SignalShare6",
     ];
 }
