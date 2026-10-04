@@ -377,6 +377,9 @@ public class DiaLibrarySearchEngineTests
 
         Assert.That(sampled.Matches.Select(m => m.PrecursorIndex), Is.EquivalentTo(all.Matches.Select(m => m.PrecursorIndex)));
         Assert.That(sampled.Matches.Select(m => m.Score), Is.Not.EqualTo(all.Matches.Select(m => m.Score)));
+        // The default since 2026-10-04: each fold's network otherwise scores every row three times over; HF-X 54,017 -> 54,126,
+        // PXD005573 1 h 39,282 -> 39,193 at a matched paired FDP of 1%, classifier 3:26 -> 2:51 on HF-X
+        Assert.That(new DiaLibrarySearchParameters().ClassifierNormalizationGroups, Is.EqualTo(300_000));
     }
 
     /// <summary>

@@ -52,7 +52,8 @@ namespace EngineLayer.DiaLibrarySearch;
 /// </param>
 /// <param name="ClassifierNormalizationGroups">
 /// When set, each classifier fold normalises its scores on a random sample of this many training groups instead of scoring
-/// every training row (most of the classifier's scoring time). Null scores every row.
+/// every training row (most of the classifier's scoring time). Null scores every row. 300,000 by default: IDs unchanged
+/// within 0.2% at a matched paired entrapment FDP of 1%, and the classifier about a sixth faster.
 /// </param>
 /// <param name="MostIntenseFragmentPeak">
 /// Read each fragment from the most intense peak within tolerance (DIA-NN 1.8) rather than the nearest one. On by default:
@@ -104,7 +105,7 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool SiblingTopCandidateOnly = true,
     int MinimumApexFragments = 0,
     bool FragmentApexCandidate = false,
-    int? ClassifierNormalizationGroups = null,
+    int? ClassifierNormalizationGroups = 300_000,
     bool MostIntenseFragmentPeak = true,
     bool DiaNnPeakFinding = true,
     bool DiaNnScores = true,
