@@ -381,6 +381,15 @@ public class DiaLibrarySearchEngineTests
         Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(withTwoFragmentPeak, 3, 10), Is.EqualTo(new[] { 10 }));
         Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(withFourFragmentPeak, 3, 1), Is.EqualTo(new[] { 10 }));
         Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(Traces(), 3, 10), Is.Empty);
+
+        // DIA-NN adds the MS1 trace's correlation with the best fragment to the score: two fragments that do not co-elute
+        // score 0 and are no candidate, until an MS1 peak shaped like one of them lifts the score to 1
+        var gaussian = Enumerable.Range(0, 40).Select(s => Math.Abs(s - 20) <= 5 ? 1e4 * Math.Exp(-0.5 * (s - 20) * (s - 20) / 2.25) : 0).ToArray();
+        var inverted = gaussian.Select(v => 2e4 - v).ToArray();
+        var unrelated = new[] { gaussian, inverted, new double[40], new double[40], new double[40], new double[40] };
+        Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(unrelated, 3, 10), Is.Empty);
+        Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(unrelated, 3, 10, ms1: gaussian), Is.EqualTo(new[] { 20 }));
+        Assert.That(new DiaLibrarySearchParameters().DiaNnPeakFindingMs1, Is.False);
         // The default since 2026-10-04, with 6 candidates: neutral at 3, +1.3% HF-X and +2.8% PXD005573 at 6 (matched paired FDP 1%)
         Assert.That(new DiaLibrarySearchParameters().DiaNnPeakFinding, Is.True);
         Assert.That(new DiaLibrarySearchParameters().MaxApexCandidates, Is.EqualTo(6));

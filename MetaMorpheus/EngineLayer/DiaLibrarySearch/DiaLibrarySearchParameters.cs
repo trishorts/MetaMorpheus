@@ -63,6 +63,7 @@ namespace EngineLayer.DiaLibrarySearch;
 /// apex score, still at most <see cref="MaxApexCandidates"/>. On by default with 6 candidates: neutral at 3, +1.3% (HF-X) and
 /// +2.8% (PXD005573 1 h) at 6, at a matched paired entrapment FDP of 1%; with <see cref="DiaNnScores"/>, +1.4% and +3.6%.
 /// </param>
+/// <param name="DiaNnPeakFindingMs1">With <see cref="DiaNnPeakFinding"/>, add the MS1 trace's correlation with the best fragment to the candidate score, as DIA-NN does.</param>
 /// <param name="DiaNnScores">
 /// DIA-NN 1.8 scores we otherwise lack: MinCorr, NFCorr and ShadowCorr (see <see cref="DiaPrecursorMatch.FeatureNames"/>).
 /// Off, they are 0. On (default), seven more traces are read per precursor: +1.0% (HF-X) and +1.4% (PXD005573 1 h) at a
@@ -101,7 +102,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     int? ClassifierNormalizationGroups = null,
     bool MostIntenseFragmentPeak = true,
     bool DiaNnPeakFinding = true,
-    bool DiaNnScores = true)
+    bool DiaNnScores = true,
+    bool DiaNnPeakFindingMs1 = false)
 {
     private readonly int _minimumApexFragments = MinimumApexFragments is >= 0 and <= 6 ? MinimumApexFragments
         : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), MinimumApexFragments, "The gate counts the six most intense fragments, so 0 to 6.");

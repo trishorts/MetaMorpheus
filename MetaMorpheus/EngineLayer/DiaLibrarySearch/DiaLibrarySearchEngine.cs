@@ -264,7 +264,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                     candidateScores[s] = 0;
         }
         var apexes = _parameters.DiaNnPeakFinding
-            ? DiaNnCandidateApexes(core, _parameters.ApexHalfWidthScans, _parameters.MaxApexCandidates).ToList()
+            ? DiaNnCandidateApexes(core, _parameters.ApexHalfWidthScans, _parameters.MaxApexCandidates, _parameters.DiaNnPeakFindingMs1 ? ms1Mono : null).ToList()
             : FragmentCoElution.FindApexes(candidateScores, _parameters.ApexHalfWidthScans, _parameters.MaxApexCandidates).ToList();
         if (_parameters.FragmentApexCandidate && reachable.Length > 1)
         {
@@ -574,9 +574,9 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     /// side. A scan is a candidate when at least two fragments are present, the score is at least 0.5, and the 1-2-1 smoothed
     /// best fragment peaks there (within a third of the half width). Candidates within 2.0 of the best are kept, more than
     /// <paramref name="halfWidth"/> apart, best first, at most <paramref name="maxCount"/>. DIA-NN's MS1 correlation term is
-    /// left out.
+    /// added when <paramref name="ms1"/> is given: the MS1 trace's correlation with the best fragment.
     /// </summary>
-    public static int[] DiaNnCandidateApexes(IReadOnlyList<double[]> core, int halfWidth, int maxCount)
+    public static int[] DiaNnCandidateApexes(IReadOnlyList<double[]> core, int halfWidth, int maxCount, double[]? ms1 = null)
     {
         int n = core.Count == 0 ? 0 : core[0].Length;
         var smoothed = core.Select(FragmentCoElution.Smooth).ToArray();
@@ -603,6 +603,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                     if (g != f) sum += correlation[f, g];
                 if (sum > bestSum) { bestSum = sum; best = f; }
             }
+            if (ms1 is not null)
+                bestSum += ClippedPearson(core[best], ms1, from, to);
             if (bestSum < 0.5)
                 continue;
             bool peak = true;
