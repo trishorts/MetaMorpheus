@@ -327,6 +327,36 @@ public class DiaLibrarySearchEngineTests
         Assert.That(new DiaLibrarySearchParameters().MostIntenseFragmentPeak, Is.True);
     }
 
+    /// <summary>
+    /// DIA-NN 1.8's candidate peaks: a scan is scored by its best fragment's summed correlation to the other top fragments.
+    /// It needs at least two fragments, a score of 0.5, and the smoothed best fragment at a local maximum. Every peak within
+    /// 2.0 of the best is kept. A five-fragment peak (score near 4) keeps a four-fragment one (near 3) but not a
+    /// two-fragment one (near 1). A one-fragment spike is never a candidate, however intense.
+    /// </summary>
+    [Test]
+    public void CandidatePeaksCanBeFoundAsDiaNnFindsThem()
+    {
+        static double[][] Traces(params (int Apex, int Fragments, double Height)[] peaks)
+        {
+            var traces = Enumerable.Range(0, 6).Select(_ => new double[40]).ToArray();
+            foreach (var (apex, fragments, height) in peaks)
+                for (int f = 0; f < fragments; f++)
+                    for (int s = Math.Max(0, apex - 5); s <= Math.Min(39, apex + 5); s++)
+                        traces[f][s] += height * (f + 1) * Math.Exp(-0.5 * (s - apex) * (s - apex) / 2.25);
+            return traces;
+        }
+        var withFourFragmentPeak = Traces((10, 5, 1e4), (32, 4, 1e4));
+        withFourFragmentPeak[0][25] = 1e8;
+        var withTwoFragmentPeak = Traces((10, 5, 1e4), (32, 2, 1e4));
+        withTwoFragmentPeak[0][25] = 1e8;
+
+        Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(withFourFragmentPeak, 3, 10), Is.EqualTo(new[] { 10, 32 }));
+        Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(withTwoFragmentPeak, 3, 10), Is.EqualTo(new[] { 10 }));
+        Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(withFourFragmentPeak, 3, 1), Is.EqualTo(new[] { 10 }));
+        Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(Traces(), 3, 10), Is.Empty);
+        Assert.That(new DiaLibrarySearchParameters().DiaNnPeakFinding, Is.False);
+    }
+
     /// <summary>The search reports peptides as well as precursors, one per full sequence, with peptide-level q-values.</summary>
     [Test]
     public void PeptidesAreReportedWithTheirOwnQValues()

@@ -58,6 +58,10 @@ namespace EngineLayer.DiaLibrarySearch;
 /// Read each fragment from the most intense peak within tolerance (DIA-NN 1.8) rather than the nearest one. On by default:
 /// at a matched paired entrapment FDP of 1%, +0.2% (HF-X) and +1.4% (PXD005573 1 h).
 /// </param>
+/// <param name="DiaNnPeakFinding">
+/// Candidate apexes as DIA-NN 1.8 picks them (<see cref="DiaLibrarySearchEngine.DiaNnCandidateApexes"/>) rather than by the
+/// apex score, still at most <see cref="MaxApexCandidates"/>.
+/// </param>
 /// <param name="ClassifierNetworkPasses">
 /// Network training passes: the second learns from the candidate peaks the first network picked, as DIA-NN trains twice.
 /// </param>
@@ -89,7 +93,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     int MinimumApexFragments = 0,
     bool FragmentApexCandidate = false,
     int? ClassifierNormalizationGroups = null,
-    bool MostIntenseFragmentPeak = true)
+    bool MostIntenseFragmentPeak = true,
+    bool DiaNnPeakFinding = false)
 {
     private readonly int _minimumApexFragments = MinimumApexFragments is >= 0 and <= 6 ? MinimumApexFragments
         : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), MinimumApexFragments, "The gate counts the six most intense fragments, so 0 to 6.");

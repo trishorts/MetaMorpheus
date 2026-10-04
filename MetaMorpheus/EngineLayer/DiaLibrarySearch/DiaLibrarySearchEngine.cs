@@ -239,7 +239,9 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 if (core.Count(trace => trace[s] > 0) < _parameters.MinimumApexFragments)
                     candidateScores[s] = 0;
         }
-        var apexes = FragmentCoElution.FindApexes(candidateScores, _parameters.ApexHalfWidthScans, _parameters.MaxApexCandidates).ToList();
+        var apexes = _parameters.DiaNnPeakFinding
+            ? DiaNnCandidateApexes(core, _parameters.ApexHalfWidthScans, _parameters.MaxApexCandidates).ToList()
+            : FragmentCoElution.FindApexes(candidateScores, _parameters.ApexHalfWidthScans, _parameters.MaxApexCandidates).ToList();
         if (_parameters.FragmentApexCandidate && reachable.Length > 1)
         {
             // The best single fragment's own apex over the whole window, if no candidate is already there
@@ -529,6 +531,84 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         for (int j = nearest + 1; j < spectrum.Size && tolerance.Within(spectrum.XArray[j], mz); j++)
             if (spectrum.YArray[j] > spectrum.YArray[best]) best = j;
         return best;
+    }
+
+    /// <summary>
+    /// Candidate apexes as DIA-NN 1.8 finds them (Searcher::peaks). The score of a scan is its best fragment's summed
+    /// correlation to the other fragments in <paramref name="core"/>, over the <paramref name="halfWidth"/> scans on either
+    /// side. A scan is a candidate when at least two fragments are present, the score is at least 0.5, and the 1-2-1 smoothed
+    /// best fragment peaks there (within a third of the half width). Candidates within 2.0 of the best are kept, more than
+    /// <paramref name="halfWidth"/> apart, best first, at most <paramref name="maxCount"/>. DIA-NN's MS1 correlation term is
+    /// left out.
+    /// </summary>
+    public static int[] DiaNnCandidateApexes(IReadOnlyList<double[]> core, int halfWidth, int maxCount)
+    {
+        int n = core.Count == 0 ? 0 : core[0].Length;
+        var smoothed = core.Select(FragmentCoElution.Smooth).ToArray();
+        int local = Math.Max(1, halfWidth / 3);
+        var candidates = new List<(int Scan, double Score)>();
+        var correlation = new double[core.Count, core.Count];
+        for (int s = 0; s < n; s++)
+        {
+            int present = 0;
+            foreach (var trace in core)
+                if (trace[s] > 0) present++;
+            if (present < 2)
+                continue;
+            int from = Math.Max(0, s - halfWidth), to = Math.Min(n - 1, s + halfWidth);
+            for (int f = 0; f < core.Count; f++)
+                for (int g = f + 1; g < core.Count; g++)
+                    correlation[f, g] = correlation[g, f] = ClippedPearson(core[f], core[g], from, to);
+            int best = 0;
+            double bestSum = double.NegativeInfinity;
+            for (int f = 0; f < core.Count; f++)
+            {
+                double sum = 0;
+                for (int g = 0; g < core.Count; g++)
+                    if (g != f) sum += correlation[f, g];
+                if (sum > bestSum) { bestSum = sum; best = f; }
+            }
+            if (bestSum < 0.5)
+                continue;
+            bool peak = true;
+            for (int t = Math.Max(0, s - local); t <= Math.Min(n - 1, s + local) && peak; t++)
+                if (smoothed[best][t] > smoothed[best][s] || (t < s && smoothed[best][t] == smoothed[best][s]))
+                    peak = false;
+            if (peak)
+                candidates.Add((s, bestSum));
+        }
+        var chosen = new List<int>();
+        double top = candidates.Count > 0 ? candidates.Max(c => c.Score) : 0;
+        foreach (var (scan, score) in candidates.OrderByDescending(c => c.Score).ThenBy(c => c.Scan))
+        {
+            if (score < top - 2.0 || chosen.Count == maxCount)
+                break;
+            if (chosen.All(c => Math.Abs(c - scan) > halfWidth))
+                chosen.Add(scan);
+        }
+        return chosen.ToArray();
+    }
+
+    /// <summary>Pearson's r over [from, to]; negative, flat or undefined counts as 0.</summary>
+    private static double ClippedPearson(double[] a, double[] b, int from, int to)
+    {
+        int points = to - from + 1;
+        if (points < 3)
+            return 0;
+        double meanA = 0, meanB = 0;
+        for (int i = from; i <= to; i++) { meanA += a[i]; meanB += b[i]; }
+        meanA /= points;
+        meanB /= points;
+        double cov = 0, varA = 0, varB = 0;
+        for (int i = from; i <= to; i++)
+        {
+            double da = a[i] - meanA, db = b[i] - meanB;
+            cov += da * db;
+            varA += da * da;
+            varB += db * db;
+        }
+        double r = varA > 0 && varB > 0 ? cov / Math.Sqrt(varA * varB) : 0;
+        return double.IsFinite(r) && r > 0 ? r : 0;
     }
 
     /// <summary>The first index whose value is at least <paramref name="x"/> in an ascending array.</summary>
