@@ -170,6 +170,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             traces[f] = new double[reachable.Length];
             ppm[f] = new double[reachable.Length];
         }
+        // Where each fragment was found, so its isotope shadow (DiaNnScores) is looked up from there, not by binary search
+        int[][]? peakIndices = _parameters.DiaNnScores ? fragments.Select(_ => new int[reachable.Length]).ToArray() : null;
         for (int k = 0; k < reachable.Length; k++)
         {
             var spectrum = scans[reachable[k]].MassSpectrum;
@@ -178,6 +180,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             for (int f = 0; f < fragments.Count; f++)
             {
                 int i = FragmentPeakIndex(spectrum, fragments[f].Mz, tolerance, _parameters.MostIntenseFragmentPeak);
+                if (peakIndices is not null)
+                    peakIndices[f][k] = i;
                 if (i >= 0)
                 {
                     traces[f][k] = spectrum.YArray[i];
@@ -236,7 +240,10 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 for (int c = 0; c < coreIndices.Length; c++)
                 {
                     var fragment = fragments[coreIndices[c]];
-                    i = FragmentPeakIndex(spectrum, fragment.Mz - 1.0033548 / Math.Max(1, fragment.Charge), tolerance, _parameters.MostIntenseFragmentPeak);
+                    double shadowMz = fragment.Mz - 1.0033548 / Math.Max(1, fragment.Charge);
+                    int found = peakIndices![coreIndices[c]][k];
+                    i = found >= 0 ? FragmentPeakIndex(spectrum, shadowMz, tolerance, _parameters.MostIntenseFragmentPeak, found)
+                        : FragmentPeakIndex(spectrum, shadowMz, tolerance, _parameters.MostIntenseFragmentPeak);
                     if (i >= 0)
                         shadows[c][k] = spectrum.YArray[i];
                 }
@@ -305,6 +312,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
 
             // Library similarity across the peak, each scan weighted by the profile squared
             double windowCosine = cosine;
+            var observedAt = new double[traces.Length];
             if (reference is not null)
             {
                 double weighted = 0, weights = 0;
@@ -313,7 +321,9 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                     double weight = reference[s] * reference[s];
                     if (weight <= 0)
                         continue;
-                    weighted += weight * SpectralSimilarity.CosineOfAlignedVectors(traces.Select(trace => trace[s]).ToArray(), libraryIntensities);
+                    for (int f = 0; f < traces.Length; f++)
+                        observedAt[f] = traces[f][s];
+                    weighted += weight * SpectralSimilarity.CosineOfAlignedVectors(observedAt, libraryIntensities);
                     weights += weight;
                 }
                 if (weights > 0)
@@ -487,8 +497,14 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             // Uniqueness: this apex against the best competing scan outside its co-elution window, its z-score among the
             // window's scans, and the share of the window's fragment signal inside its peak
             double apexScore = apexScores[apex];
-            double competitor = Enumerable.Range(0, apexScores.Length).Where(s => Math.Abs(s - apex) > _parameters.ApexHalfWidthScans)
-                .Select(s => apexScores[s]).DefaultIfEmpty(0).Max();
+            double competitor = 0;
+            bool anyCompetitor = false;
+            for (int s = 0; s < apexScores.Length; s++)
+                if (Math.Abs(s - apex) > _parameters.ApexHalfWidthScans)
+                {
+                    competitor = anyCompetitor ? Math.Max(competitor, apexScores[s]) : apexScores[s];
+                    anyCompetitor = true;
+                }
             double apexScoreDelta = apexScore > 0 ? Math.Clamp((apexScore - competitor) / apexScore, -1, 1) : 0;
             double apexScoreZ = scoreSd > 0 ? (apexScore - scoreMean) / scoreSd : 0;
             double peakSignalFraction = windowSignal > 0 ? Enumerable.Range(peakStart, peakEnd - peakStart + 1).Sum(s => summed[s]) / windowSignal : 0;
@@ -569,11 +585,31 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     /// The peak a fragment is read from: the one nearest <paramref name="mz"/>, or with <paramref name="mostIntense"/> the most
     /// intense within tolerance (DIA-NN 1.8's level()); -1 when none is within tolerance.
     /// </summary>
-    public static int FragmentPeakIndex(MzSpectrum spectrum, double mz, Tolerance tolerance, bool mostIntense)
+    public static int FragmentPeakIndex(MzSpectrum spectrum, double mz, Tolerance tolerance, bool mostIntense) =>
+        spectrum.Size == 0 ? -1 : PeakFromNearest(spectrum, mz, tolerance, mostIntense, spectrum.GetClosestPeakIndex(mz));
+
+    /// <summary>
+    /// <see cref="FragmentPeakIndex(MzSpectrum, double, Tolerance, bool)"/> found by walking from <paramref name="hint"/>, an
+    /// index near <paramref name="mz"/>, rather than by binary search: the same peak, cheaper when the hint is a few peaks
+    /// away (a fragment's isotope shadow, one isotope below the fragment just read).
+    /// </summary>
+    public static int FragmentPeakIndex(MzSpectrum spectrum, double mz, Tolerance tolerance, bool mostIntense, int hint)
     {
-        if (spectrum.Size == 0)
+        int n = spectrum.Size;
+        if (n == 0)
             return -1;
-        int nearest = spectrum.GetClosestPeakIndex(mz);
+        var x = spectrum.XArray;
+        // The first index at or above mz, then GetClosestIndex's rule: an exact match, an end, or the nearer neighbour
+        // (the upper one on a tie)
+        int i = Math.Clamp(hint, 0, n - 1);
+        while (i < n && x[i] < mz) i++;
+        while (i > 0 && x[i - 1] >= mz) i--;
+        int nearest = i == n ? n - 1 : i == 0 || x[i] == mz ? i : mz - x[i - 1] < x[i] - mz ? i - 1 : i;
+        return PeakFromNearest(spectrum, mz, tolerance, mostIntense, nearest);
+    }
+
+    private static int PeakFromNearest(MzSpectrum spectrum, double mz, Tolerance tolerance, bool mostIntense, int nearest)
+    {
         if (!tolerance.Within(spectrum.XArray[nearest], mz))
             return -1;
         if (!mostIntense)

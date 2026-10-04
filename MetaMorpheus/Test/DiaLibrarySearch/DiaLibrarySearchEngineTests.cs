@@ -439,6 +439,31 @@ public class DiaLibrarySearchEngineTests
         Assert.That(new DiaLibrarySearchParameters().MaxApexCandidates, Is.EqualTo(6));
     }
 
+    /// <summary>
+    /// A fragment's peak can be looked up from a nearby index (the fragment it shadows, one isotope up) instead of by binary
+    /// search: the same peak every time, nearest or most intense, from any starting index, including targets off either end.
+    /// </summary>
+    [Test]
+    public void APeakLookedUpFromANearbyIndexIsTheSamePeak()
+    {
+        var random = new Random(7);
+        var tolerance = new MzLibUtil.PpmTolerance(20);
+        for (int trial = 0; trial < 200; trial++)
+        {
+            double[] mz = Enumerable.Range(0, 1 + random.Next(300)).Select(_ => 100 + 1900 * random.NextDouble()).Distinct().OrderBy(x => x).ToArray();
+            double[] intensity = mz.Select(_ => (double)random.Next(1, 50)).ToArray();
+            var spectrum = new MassSpectrometry.MzSpectrum(mz, intensity, false);
+            for (int k = 0; k < 20; k++)
+            {
+                double target = random.Next(3) == 0 ? mz[random.Next(mz.Length)] * (1 + (random.NextDouble() - 0.5) * 4e-5) : 50 + 2000 * random.NextDouble();
+                int hint = random.Next(mz.Length);
+                foreach (bool mostIntense in new[] { false, true })
+                    Assert.That(DiaLibrarySearchEngine.FragmentPeakIndex(spectrum, target, tolerance, mostIntense, hint),
+                        Is.EqualTo(DiaLibrarySearchEngine.FragmentPeakIndex(spectrum, target, tolerance, mostIntense)), $"trial {trial}, target {target}, hint {hint}");
+            }
+        }
+    }
+
     /// <summary>The search reports peptides as well as precursors, one per full sequence, with peptide-level q-values.</summary>
     [Test]
     public void PeptidesAreReportedWithTheirOwnQValues()
