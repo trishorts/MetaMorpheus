@@ -190,7 +190,10 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         int[] coreIndices = FragmentCoElution.TopIndices(libraryIntensities, CoreFragmentCount)
             .OrderByDescending(i => libraryIntensities[i]).ThenBy(i => i).ToArray();
         var core = coreIndices.Select(i => traces[i]).ToList();
-        var rest = Enumerable.Range(0, fragments.Count).Except(coreIndices).Select(i => traces[i]).ToList();
+        var rest = new List<double[]>(fragments.Count);
+        for (int i = 0; i < fragments.Count; i++)
+            if (Array.IndexOf(coreIndices, i) < 0)
+                rest.Add(traces[i]);
         // The core again, counting only peaks within a tight fraction of the tolerance
         double tightPpm = TightToleranceFraction * _parameters.FragmentTolerancePpm;
         var tightCore = new List<double[]>(coreIndices.Length);
@@ -597,7 +600,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         var smoothed = core.Select(FragmentCoElution.Smooth).ToArray();
         int local = Math.Max(1, halfWidth / 3);
         var candidates = new List<(int Scan, double Score)>();
-        var correlation = new double[core.Count, core.Count];
+        // Flat rather than [,]: a multi-dimensional array per call was a measurable share of extraction (CreateInstanceMDArray)
+        var correlation = new double[core.Count * core.Count];
         for (int s = 0; s < n; s++)
         {
             int present = 0;
@@ -608,14 +612,14 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             int from = Math.Max(0, s - halfWidth), to = Math.Min(n - 1, s + halfWidth);
             for (int f = 0; f < core.Count; f++)
                 for (int g = f + 1; g < core.Count; g++)
-                    correlation[f, g] = correlation[g, f] = ClippedPearson(core[f], core[g], from, to);
+                    correlation[f * core.Count + g] = correlation[g * core.Count + f] = ClippedPearson(core[f], core[g], from, to);
             int best = 0;
             double bestSum = double.NegativeInfinity;
             for (int f = 0; f < core.Count; f++)
             {
                 double sum = 0;
                 for (int g = 0; g < core.Count; g++)
-                    if (g != f) sum += correlation[f, g];
+                    if (g != f) sum += correlation[f * core.Count + g];
                 if (sum > bestSum) { bestSum = sum; best = f; }
             }
             if (ms1 is not null)
