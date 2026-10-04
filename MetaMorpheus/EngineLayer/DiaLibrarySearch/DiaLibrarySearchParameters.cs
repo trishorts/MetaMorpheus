@@ -54,10 +54,6 @@ namespace EngineLayer.DiaLibrarySearch;
 /// When set, each classifier fold normalises its scores on a random sample of this many training groups instead of scoring
 /// every training row (most of the classifier's scoring time). Null scores every row.
 /// </param>
-/// <param name="DiannFeatures">
-/// DIA-NN features we lacked: five peak-shape bins, the core fragments' correlation-weighted mass error, and the library
-/// intensities of fragments 2-6 relative to the most intense. Off (0 everywhere) by default until measured.
-/// </param>
 /// <param name="ClassifierNetworkPasses">
 /// Network training passes: the second learns from the candidate peaks the first network picked, as DIA-NN trains twice.
 /// </param>
@@ -88,8 +84,7 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool SiblingTopCandidateOnly = true,
     int MinimumApexFragments = 0,
     bool FragmentApexCandidate = false,
-    int? ClassifierNormalizationGroups = null,
-    bool DiannFeatures = false)
+    int? ClassifierNormalizationGroups = null)
 {
     private readonly int _minimumApexFragments = MinimumApexFragments is >= 0 and <= 6 ? MinimumApexFragments
         : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), MinimumApexFragments, "The gate counts the six most intense fragments, so 0 to 6.");

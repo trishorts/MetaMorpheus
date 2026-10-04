@@ -444,45 +444,6 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             var apexRt = new RtMinutes(scans[reachable[apex]].RetentionTime);
             var apexIrt = _irtMap.ToIrt(apexRt);
 
-            // DIA-NN features (DiannFeatures): shape bins, correlation-weighted mass error, library intensities 2-6
-            var diann = new double[11];
-            if (_parameters.DiannFeatures)
-            {
-                if (reference is not null)
-                {
-                    // The smoothed best-fragment profile over apex +-6 scans (zero beyond the trace), scaled to its maximum,
-                    // averaged in five equal bins
-                    const int Half = 6;
-                    var profile = new double[2 * Half + 1];
-                    for (int k = -Half; k <= Half; k++)
-                        profile[k + Half] = apex + k >= 0 && apex + k < reference.Length ? reference[apex + k] : 0;
-                    double max = profile.Max();
-                    if (max > 0)
-                        for (int b = 0; b < 5; b++)
-                        {
-                            int lo = b * profile.Length / 5, hi = (b + 1) * profile.Length / 5;
-                            double sum = 0;
-                            for (int k = lo; k < hi; k++)
-                                sum += profile[k] / max;
-                            diann[b] = sum / (hi - lo);
-                        }
-                }
-                double weight = 0, weighted = 0;
-                for (int c = 0; c < coreIndices.Length; c++)
-                {
-                    double w = Math.Max(0, fragmentCorrelations[c]);
-                    if (traces[coreIndices[c]][apex] > 0 && w > 0)
-                    {
-                        weighted += w * ppm[coreIndices[c]][apex];
-                        weight += w;
-                    }
-                }
-                diann[5] = weight > 0 ? weighted / weight : _parameters.FragmentTolerancePpm;
-                double[] byIntensity = allIntensities.OrderDescending().ToArray();
-                for (int k = 1; k < 6 && k < byIntensity.Length; k++)
-                    diann[5 + k] = byIntensity[0] > 0 ? byIntensity[k] / byIntensity[0] : 0;
-            }
-
             double[] features =
             [
                 cosine,
@@ -532,7 +493,6 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 candidate.PrecursorMz,
                 (double)candidate.Charge,
                 entry.MatchedFragmentIons.Count,
-                .. diann,
             ];
 
             yield return new DiaPrecursorMatch(

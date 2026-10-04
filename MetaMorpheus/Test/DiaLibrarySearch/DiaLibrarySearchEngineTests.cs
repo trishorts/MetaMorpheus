@@ -308,40 +308,6 @@ public class DiaLibrarySearchEngineTests
         Assert.That(sampled.Matches.Select(m => m.Score), Is.Not.EqualTo(all.Matches.Select(m => m.Score)));
     }
 
-    /// <summary>
-    /// DIA-NN's features we lacked (design/DIANN.md): five peak-shape bins of the smoothed best-fragment profile around the
-    /// apex, the core fragments' correlation-weighted mass error, and the library intensities of fragments 2-6 relative to the
-    /// most intense. Off, all are 0. On, a planted precursor's profile peaks in its middle bin, and its library intensities
-    /// are the library's own ratios.
-    /// </summary>
-    [Test]
-    public void DiannFeaturesDescribeThePeakShapeAndTheLibrary()
-    {
-        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
-        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
-        string[] names = ["ShapeBin1", "ShapeBin2", "ShapeBin3", "ShapeBin4", "ShapeBin5", "WeightedPpmError",
-            "LibraryIntensity2", "LibraryIntensity3", "LibraryIntensity4", "LibraryIntensity5", "LibraryIntensity6"];
-        int[] index = names.Select(n => Array.IndexOf(DiaPrecursorMatch.FeatureNames, n)).ToArray();
-        Assert.That(index, Has.All.GreaterThanOrEqualTo(0));
-        DiaLibrarySearchResults SearchWith(bool on) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
-            new DiaLibrarySearchParameters(DiannFeatures: on), new CommonParameters(), [], []).Run();
-
-        var off = SearchWith(false);
-        var on = SearchWith(true);
-
-        Assert.That(off.Matches.All(m => index.All(i => m.Features[i] == 0)));
-        var planted = on.Matches.Where(m => !m.IsDecoy && m.QValue <= 0.01 && run.PlantedSequences.Contains(m.FullSequence)).ToList();
-        Assert.That(planted, Is.Not.Empty);
-        Assert.That(planted.Count(m => m.Features[index[2]] >= m.Features[index[0]] && m.Features[index[2]] >= m.Features[index[4]]),
-            Is.GreaterThan(0.9 * planted.Count), "the middle shape bin is the highest");
-        foreach (var m in planted.Take(20))
-        {
-            var top = library.GetEntry(m.PrecursorIndex)!.MatchedFragmentIons.Select(f => (double)f.Intensity).OrderDescending().ToArray();
-            for (int k = 1; k < 6 && k < top.Length; k++)
-                Assert.That(m.Features[index[5 + k]], Is.EqualTo(top[k] / top[0]).Within(1e-6), $"precursor {m.PrecursorIndex}, fragment {k + 1}");
-        }
-    }
-
     /// <summary>The search reports peptides as well as precursors, one per full sequence, with peptide-level q-values.</summary>
     [Test]
     public void PeptidesAreReportedWithTheirOwnQValues()
