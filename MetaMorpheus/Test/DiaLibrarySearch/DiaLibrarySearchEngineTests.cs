@@ -323,7 +323,8 @@ public class DiaLibrarySearchEngineTests
         Assert.That(DiaLibrarySearchEngine.FragmentPeakIndex(spectrum, 500.0, tolerance, mostIntense: true), Is.EqualTo(0));
         Assert.That(DiaLibrarySearchEngine.FragmentPeakIndex(spectrum, 501.0, tolerance, mostIntense: true), Is.EqualTo(-1));
         Assert.That(DiaLibrarySearchEngine.FragmentPeakIndex(spectrum, 501.0, tolerance, mostIntense: false), Is.EqualTo(-1));
-        Assert.That(new DiaLibrarySearchParameters().MostIntenseFragmentPeak, Is.False);
+        // The default since 2026-10-04: +0.2% HF-X, +1.4% PXD005573 at a matched paired FDP of 1%
+        Assert.That(new DiaLibrarySearchParameters().MostIntenseFragmentPeak, Is.True);
     }
 
     /// <summary>The search reports peptides as well as precursors, one per full sequence, with peptide-level q-values.</summary>
