@@ -308,6 +308,24 @@ public class DiaLibrarySearchEngineTests
         Assert.That(sampled.Matches.Select(m => m.Score), Is.Not.EqualTo(all.Matches.Select(m => m.Score)));
     }
 
+    /// <summary>
+    /// A fragment's trace point can be the most intense peak within tolerance, as DIA-NN reads it (diann.cpp 1.8, level()),
+    /// rather than the nearest: a faint noise peak closer to the library m/z otherwise stands in for the real fragment.
+    /// With none in tolerance there is no peak.
+    /// </summary>
+    [Test]
+    public void AFragmentCanBeReadAsTheMostIntensePeakInTolerance()
+    {
+        var spectrum = new MassSpectrometry.MzSpectrum([499.990, 500.001, 500.006, 500.03], [5e5, 1e3, 2e5, 9e6], false);
+        var tolerance = new MzLibUtil.PpmTolerance(20);
+
+        Assert.That(DiaLibrarySearchEngine.FragmentPeakIndex(spectrum, 500.0, tolerance, mostIntense: false), Is.EqualTo(1));
+        Assert.That(DiaLibrarySearchEngine.FragmentPeakIndex(spectrum, 500.0, tolerance, mostIntense: true), Is.EqualTo(0));
+        Assert.That(DiaLibrarySearchEngine.FragmentPeakIndex(spectrum, 501.0, tolerance, mostIntense: true), Is.EqualTo(-1));
+        Assert.That(DiaLibrarySearchEngine.FragmentPeakIndex(spectrum, 501.0, tolerance, mostIntense: false), Is.EqualTo(-1));
+        Assert.That(new DiaLibrarySearchParameters().MostIntenseFragmentPeak, Is.False);
+    }
+
     /// <summary>The search reports peptides as well as precursors, one per full sequence, with peptide-level q-values.</summary>
     [Test]
     public void PeptidesAreReportedWithTheirOwnQValues()

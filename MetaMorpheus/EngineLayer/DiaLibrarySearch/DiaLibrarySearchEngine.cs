@@ -177,8 +177,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 continue;
             for (int f = 0; f < fragments.Count; f++)
             {
-                int i = spectrum.GetClosestPeakIndex(fragments[f].Mz);
-                if (tolerance.Within(spectrum.XArray[i], fragments[f].Mz))
+                int i = FragmentPeakIndex(spectrum, fragments[f].Mz, tolerance, _parameters.MostIntenseFragmentPeak);
+                if (i >= 0)
                 {
                     traces[f][k] = spectrum.YArray[i];
                     ppm[f][k] = Math.Abs(spectrum.XArray[i] - fragments[f].Mz) / fragments[f].Mz * 1e6;
@@ -508,6 +508,27 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 features,
                 Quantity: areaSum);
         }
+    }
+
+    /// <summary>
+    /// The peak a fragment is read from: the one nearest <paramref name="mz"/>, or with <paramref name="mostIntense"/> the most
+    /// intense within tolerance (DIA-NN 1.8's level()); -1 when none is within tolerance.
+    /// </summary>
+    public static int FragmentPeakIndex(MzSpectrum spectrum, double mz, Tolerance tolerance, bool mostIntense)
+    {
+        if (spectrum.Size == 0)
+            return -1;
+        int nearest = spectrum.GetClosestPeakIndex(mz);
+        if (!tolerance.Within(spectrum.XArray[nearest], mz))
+            return -1;
+        if (!mostIntense)
+            return nearest;
+        int best = nearest;
+        for (int j = nearest - 1; j >= 0 && tolerance.Within(spectrum.XArray[j], mz); j--)
+            if (spectrum.YArray[j] > spectrum.YArray[best]) best = j;
+        for (int j = nearest + 1; j < spectrum.Size && tolerance.Within(spectrum.XArray[j], mz); j++)
+            if (spectrum.YArray[j] > spectrum.YArray[best]) best = j;
+        return best;
     }
 
     /// <summary>The first index whose value is at least <paramref name="x"/> in an ascending array.</summary>
