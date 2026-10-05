@@ -327,7 +327,9 @@ public class DiaLibrarySearchEngineTests
     {
         int[] extra = new[] { "ExtraCoElution", "ExtraMatchedFraction", "ExtraWeightedCoElution" }.Select(n => Array.IndexOf(DiaPrecursorMatch.FeatureNames, n)).ToArray();
         Assert.That(extra, Has.All.GreaterThanOrEqualTo(0));
-        Assert.That(new DiaLibrarySearchParameters().ExtraFragmentCount, Is.EqualTo(0));
+        // The default since 2026-10-04: fragments 13-24. Two-seed means at a matched paired FDP of 1%, against the same build
+        // without them: HF-X 53,859 -> 54,338 (+0.9%), PXD005573 1 h 39,009 -> 39,211 (+0.5%)
+        Assert.That(new DiaLibrarySearchParameters().ExtraFragmentCount, Is.EqualTo(12));
         Assert.Throws<ArgumentOutOfRangeException>(() => new DiaLibrarySearchParameters(ExtraFragmentCount: -1));
 
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);

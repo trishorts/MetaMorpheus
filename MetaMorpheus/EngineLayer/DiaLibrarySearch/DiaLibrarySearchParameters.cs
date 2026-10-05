@@ -73,7 +73,8 @@ namespace EngineLayer.DiaLibrarySearch;
 /// <param name="ExtraFragmentCount">
 /// Library fragments after the top <see cref="TopFragmentCount"/> (by library intensity) read as their own features
 /// (ExtraCoElution, ExtraMatchedFraction, ExtraWeightedCoElution), as DIA-NN adds its remaining fragments: averaged into the
-/// core scores they dilute them, since most are faint. 0 (default) reads none.
+/// core scores they dilute them, since most are faint. 12 by default (fragments 13-24): +0.9% HF-X, +0.5% PXD005573 1 h
+/// (two-seed means, matched paired entrapment FDP 1%). 0 reads none.
 /// </param>
 /// <param name="DiaNnScores">
 /// DIA-NN 1.8 scores we otherwise lack: MinCorr, NFCorr and ShadowCorr (see <see cref="DiaPrecursorMatch.FeatureNames"/>).
@@ -117,7 +118,7 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool DiaNnPeakFindingMs1 = false,
     bool DiaNnSignalShare = false,
     int ClassifierLinearIterations = 3,
-    int ExtraFragmentCount = 0)
+    int ExtraFragmentCount = 12)
 {
     private readonly int _minimumApexFragments = MinimumApexFragments is >= 0 and <= 6 ? MinimumApexFragments
         : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), MinimumApexFragments, "The gate counts the six most intense fragments, so 0 to 6.");
