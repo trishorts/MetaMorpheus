@@ -537,7 +537,8 @@ public class DiaLibrarySearchEngineTests
         Assert.That(new DiaLibrarySearchParameters().DiaNnPeakFindingMs1, Is.False);
         // The default since 2026-10-04, with 6 candidates: neutral at 3, +1.3% HF-X and +2.8% PXD005573 at 6 (matched paired FDP 1%)
         Assert.That(new DiaLibrarySearchParameters().DiaNnPeakFinding, Is.True);
-        Assert.That(new DiaLibrarySearchParameters().MaxApexCandidates, Is.EqualTo(6));
+        // 10 since 2026-10-05, with the fragment rule: two-seed means +1.2% HF-X, +0.6% PXD005573 (matched paired FDP 1%)
+        Assert.That(new DiaLibrarySearchParameters().MaxApexCandidates, Is.EqualTo(10));
     }
 
     /// <summary>
