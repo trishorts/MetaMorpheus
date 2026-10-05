@@ -396,6 +396,12 @@ public class DiaLibrarySearchEngineTests
         Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(doubly, precursorCharge: 2, chargeBelowPrecursor: true), Is.False);
         Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(doubly, precursorCharge: 3, chargeBelowPrecursor: true), Is.True);
         Assert.That(new DiaLibrarySearchParameters().FragmentChargeBelowPrecursor, Is.False);
+        // Only terminal ions: FragmentNumber is an internal ion's start residue, and a diagnostic ion has no residues (MSL, 010)
+        var internalIon = new Omics.SpectralMatch.MslSpectralLibrary.MslFragmentIon { Mz = 450, FragmentNumber = 4, SecondaryFragmentNumber = 9,
+            ProductType = Omics.Fragmentation.ProductType.b, SecondaryProductType = Omics.Fragmentation.ProductType.y, Charge = 1, Intensity = 1 };
+        var diagnostic = new Omics.SpectralMatch.MslSpectralLibrary.MslFragmentIon { Mz = 450, FragmentNumber = 5, ProductType = Omics.Fragmentation.ProductType.D, Charge = 1, Intensity = 1 };
+        Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(internalIon), Is.False);
+        Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(diagnostic), Is.False);
         // The default since 2026-10-05: two-seed means at a matched paired FDP of 1%, HF-X 54,777 -> 55,218 (+0.8%),
         // PXD005573 1 h 39,052 -> 40,558 (+3.9%)
         Assert.That(new DiaLibrarySearchParameters().DiaNnFragmentFilter, Is.True);

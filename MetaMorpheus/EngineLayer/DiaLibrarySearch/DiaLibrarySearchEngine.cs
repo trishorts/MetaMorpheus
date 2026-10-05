@@ -737,10 +737,14 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<MsDataScan, PeakBins> _binsByScan = new(ReferenceEqualityComparer.Instance);
 
-    /// <summary>DIA-NN's fragment rule (MinFrAAs = 3, MinFrMz = 200, MaxFrMz = 1800): at least 3 residues, within 200-1800 m/z.</summary>
+    /// <summary>
+    /// DIA-NN's fragment rule (MinFrAAs = 3, MinFrMz = 200, MaxFrMz = 1800): a terminal ion of at least 3 residues within
+    /// 200-1800 m/z. Internal and diagnostic ions are never scored: FragmentNumber is an internal ion's start residue and a
+    /// diagnostic ion has no residues (MSL thread, 010).
+    /// </summary>
     public static bool IsDiaNnScorable(MslFragmentIon ion, double minimumMz = 200, int minimumResidues = 3, int maximumCharge = 0,
         int precursorCharge = 0, bool chargeBelowPrecursor = false) =>
-        ion.FragmentNumber >= minimumResidues && ion.Mz >= minimumMz && ion.Mz <= 1800 && (maximumCharge <= 0 || ion.Charge <= maximumCharge)
+        !ion.IsInternalFragment && !ion.IsDiagnosticIon && ion.FragmentNumber >= minimumResidues && ion.Mz >= minimumMz && ion.Mz <= 1800 && (maximumCharge <= 0 || ion.Charge <= maximumCharge)
         && (!chargeBelowPrecursor || precursorCharge <= 1 || ion.Charge < precursorCharge);
 
     private static int PeakFromNearest(MzSpectrum spectrum, double mz, Tolerance tolerance, bool mostIntense, int nearest)
