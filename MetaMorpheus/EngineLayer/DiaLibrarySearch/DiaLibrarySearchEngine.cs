@@ -179,11 +179,12 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         for (int k = 0; k < reachable.Length; k++)
         {
             var spectrum = scans[reachable[k]].MassSpectrum;
+            var bins = _binsByScan.GetOrAdd(scans[reachable[k]], s => PeakBins.Of(s.MassSpectrum));
             if (spectrum.Size == 0)
                 continue;
             for (int f = 0; f < fragments.Count; f++)
             {
-                int i = FragmentPeakIndex(spectrum, fragments[f].Mz, tolerance, _parameters.MostIntenseFragmentPeak);
+                int i = FragmentPeakIndex(spectrum, fragments[f].Mz, tolerance, _parameters.MostIntenseFragmentPeak, bins.Hint(fragments[f].Mz));
                 if (peakIndices is not null)
                     peakIndices[f][k] = i;
                 if (i >= 0)
@@ -246,9 +247,10 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             for (int k = 0; k < reachable.Length; k++)
             {
                 var spectrum = scans[reachable[k]].MassSpectrum;
+            var bins = _binsByScan.GetOrAdd(scans[reachable[k]], s => PeakBins.Of(s.MassSpectrum));
                 for (int x = 0; x < extraTraces.Length; x++)
                 {
-                    int i = FragmentPeakIndex(spectrum, extraFragments[x].Mz, tolerance, _parameters.MostIntenseFragmentPeak);
+                    int i = FragmentPeakIndex(spectrum, extraFragments[x].Mz, tolerance, _parameters.MostIntenseFragmentPeak, bins.Hint(extraFragments[x].Mz));
                     if (i >= 0)
                         extraTraces[x][k] = spectrum.YArray[i];
                 }
@@ -265,7 +267,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             for (int k = 0; k < reachable.Length; k++)
             {
                 var spectrum = scans[reachable[k]].MassSpectrum;
-                int i = FragmentPeakIndex(spectrum, candidate.PrecursorMz, tolerance, _parameters.MostIntenseFragmentPeak);
+            var bins = _binsByScan.GetOrAdd(scans[reachable[k]], s => PeakBins.Of(s.MassSpectrum));
+                int i = FragmentPeakIndex(spectrum, candidate.PrecursorMz, tolerance, _parameters.MostIntenseFragmentPeak, bins.Hint(candidate.PrecursorMz));
                 if (i >= 0)
                     unfragmented[k] = spectrum.YArray[i];
                 for (int c = 0; c < coreIndices.Length; c++)
@@ -274,7 +277,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                     double shadowMz = fragment.Mz - 1.0033548 / Math.Max(1, fragment.Charge);
                     int found = peakIndices![coreIndices[c]][k];
                     i = found >= 0 ? FragmentPeakIndex(spectrum, shadowMz, tolerance, _parameters.MostIntenseFragmentPeak, found)
-                        : FragmentPeakIndex(spectrum, shadowMz, tolerance, _parameters.MostIntenseFragmentPeak);
+                        : FragmentPeakIndex(spectrum, shadowMz, tolerance, _parameters.MostIntenseFragmentPeak, bins.Hint(shadowMz));
                     if (i >= 0)
                         shadows[c][k] = spectrum.YArray[i];
                 }
@@ -661,6 +664,52 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         int nearest = i == n ? n - 1 : i == 0 || x[i] == mz ? i : mz - x[i - 1] < x[i] - mz ? i - 1 : i;
         return PeakFromNearest(spectrum, mz, tolerance, mostIntense, nearest);
     }
+
+    /// <summary>
+    /// A spectrum's m/z bins (<see cref="Width"/> Th): the first peak at or above each bin's lower edge, the start from which
+    /// <see cref="FragmentPeakIndex(MzSpectrum, double, Tolerance, bool, int)"/> walks to a fragment's peak instead of a binary
+    /// search (the largest share of extraction, with 25 lookups per scan per precursor). Built once per scan.
+    /// </summary>
+    public sealed class PeakBins
+    {
+        public const double Width = 2;
+        private readonly int _lowBin;
+        private readonly int[] _starts;
+        private readonly int _last;
+
+        private PeakBins(int lowBin, int[] starts, int last)
+        {
+            _lowBin = lowBin;
+            _starts = starts;
+            _last = last;
+        }
+
+        public static PeakBins Of(MzSpectrum spectrum)
+        {
+            var x = spectrum.XArray;
+            if (x.Length == 0)
+                return new PeakBins(0, [0], 0);
+            int low = (int)Math.Floor(x[0] / Width), high = (int)Math.Floor(x[^1] / Width);
+            var starts = new int[high - low + 1];
+            int i = 0;
+            for (int b = 0; b < starts.Length; b++)
+            {
+                double edge = (low + b) * Width;
+                while (i < x.Length && x[i] < edge) i++;
+                starts[b] = Math.Min(i, x.Length - 1);
+            }
+            return new PeakBins(low, starts, x.Length - 1);
+        }
+
+        /// <summary>A valid index near <paramref name="mz"/>: the first peak of its bin, clamped at either end.</summary>
+        public int Hint(double mz)
+        {
+            double bin = Math.Floor(mz / Width) - _lowBin;
+            return bin < 0 ? 0 : bin >= _starts.Length ? _last : _starts[(int)bin];
+        }
+    }
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<MsDataScan, PeakBins> _binsByScan = new(ReferenceEqualityComparer.Instance);
 
     private static int PeakFromNearest(MzSpectrum spectrum, double mz, Tolerance tolerance, bool mostIntense, int nearest)
     {

@@ -519,6 +519,29 @@ public class DiaLibrarySearchEngineTests
         }
     }
 
+    /// <summary>
+    /// A spectrum's m/z bin table: for each 2-Th bin, the first peak at or above the bin's lower edge. It is the start for the
+    /// hinted lookup, so a fragment's peak is found without a binary search; any m/z, even off either end, gets a valid start.
+    /// </summary>
+    [Test]
+    public void ASpectrumsBinTableStartsEachBinAtItsFirstPeak()
+    {
+        var random = new Random(11);
+        double[] mz = Enumerable.Range(0, 500).Select(_ => 150 + 1700 * random.NextDouble()).Distinct().OrderBy(x => x).ToArray();
+        var spectrum = new MassSpectrometry.MzSpectrum(mz, mz.Select(_ => 1.0).ToArray(), false);
+        var bins = DiaLibrarySearchEngine.PeakBins.Of(spectrum);
+
+        for (double edge = 150; edge < 1850; edge += DiaLibrarySearchEngine.PeakBins.Width)
+        {
+            int start = bins.Hint(edge + 1e-9);
+            int first = Array.FindIndex(mz, x => x >= Math.Floor((edge + 1e-9) / DiaLibrarySearchEngine.PeakBins.Width) * DiaLibrarySearchEngine.PeakBins.Width);
+            Assert.That(start, Is.EqualTo(first < 0 ? mz.Length - 1 : first), $"bin at {edge}");
+        }
+        foreach (double target in new[] { 0.0, 100.0, 5000.0 })
+            Assert.That(bins.Hint(target), Is.InRange(0, mz.Length - 1));
+        Assert.That(DiaLibrarySearchEngine.PeakBins.Of(new MassSpectrometry.MzSpectrum(Array.Empty<double>(), Array.Empty<double>(), false)).Hint(500), Is.EqualTo(0));
+    }
+
     /// <summary>The search reports peptides as well as precursors, one per full sequence, with peptide-level q-values.</summary>
     [Test]
     public void PeptidesAreReportedWithTheirOwnQValues()
