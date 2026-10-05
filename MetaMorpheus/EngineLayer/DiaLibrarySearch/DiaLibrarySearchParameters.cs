@@ -70,6 +70,10 @@ namespace EngineLayer.DiaLibrarySearch;
 /// Rankings of the training rows before the network: the first by the best single feature, each later one by a refit
 /// linear discriminant, which also picks each precursor's top candidate peak for the network (DIA-NN refits about 8 times).
 /// </param>
+/// <param name="MaxToleranceCoElution">
+/// A feature as DIA-NN scores co-elution: each core fragment's best correlation with the profile among its traces at the full
+/// tolerance, 0.45x and 0.2x (peaks beyond the fraction dropped), averaged.
+/// </param>
 /// <param name="ExtraFragmentCount">
 /// Library fragments after the top <see cref="TopFragmentCount"/> (by library intensity) read as their own features
 /// (ExtraCoElution, ExtraMatchedFraction, ExtraWeightedCoElution), as DIA-NN adds its remaining fragments: averaged into the
@@ -118,7 +122,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool DiaNnPeakFindingMs1 = false,
     bool DiaNnSignalShare = false,
     int ClassifierLinearIterations = 3,
-    int ExtraFragmentCount = 12)
+    int ExtraFragmentCount = 12,
+    bool MaxToleranceCoElution = false)
 {
     private readonly int _minimumApexFragments = MinimumApexFragments is >= 0 and <= 6 ? MinimumApexFragments
         : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), MinimumApexFragments, "The gate counts the six most intense fragments, so 0 to 6.");

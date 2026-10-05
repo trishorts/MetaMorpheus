@@ -101,5 +101,6 @@ public sealed record DiaPrecursorMatch(
         "ExtraCoElution",       // fragments after the top N (ExtraFragmentCount): mean co-elution with the profile (0 unless set)
         "ExtraMatchedFraction", // their share seen at the apex
         "ExtraWeightedCoElution", // their co-elution weighted by library intensity
+        "MaxToleranceCoElution", // DIA-NN: each core fragment's best co-elution at 1x / 0.45x / 0.2x tolerance, averaged (0 unless set)
     ];
 }

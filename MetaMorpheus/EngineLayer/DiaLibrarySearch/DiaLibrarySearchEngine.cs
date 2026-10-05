@@ -212,6 +212,20 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 tight[k] = ppm[i][k] <= tightPpm ? traces[i][k] : 0;
             tightCore.Add(tight);
         }
+        // And within 0.2 x the tolerance, for each fragment's best-tolerance co-elution (MaxToleranceCoElution, DIA-NN's)
+        List<double[]>? finestCore = null;
+        if (_parameters.MaxToleranceCoElution)
+        {
+            double finestPpm = 0.2 * _parameters.FragmentTolerancePpm;
+            finestCore = new List<double[]>(coreIndices.Length);
+            foreach (int i in coreIndices)
+            {
+                var finest = new double[reachable.Length];
+                for (int k = 0; k < finest.Length; k++)
+                    finest[k] = ppm[i][k] <= finestPpm ? traces[i][k] : 0;
+                finestCore.Add(finest);
+            }
+        }
         double[] summed = new double[reachable.Length];
         for (int k = 0; k < summed.Length; k++)
         {
@@ -311,7 +325,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             // than an average that an interfered fragment drags along (DIA-NN's approach, Demichev et al. 2020)
             int from = Math.Max(0, apex - _parameters.ApexHalfWidthScans);
             int to = Math.Min(reachable.Length - 1, apex + _parameters.ApexHalfWidthScans);
-            double coElution = 0, tightCoElution = 0, remainingCoElution = 0;
+            double coElution = 0, tightCoElution = 0, remainingCoElution = 0, maxToleranceCoElution = 0;
             var fragmentCorrelations = new double[CoreFragmentCount];
             double[]? reference = null;
             if (to > from)
@@ -324,6 +338,15 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                     remainingCoElution = FragmentCoElution.CorrelationsTo(rest, reference, from, to).Average();
                 var tightReference = FragmentCoElution.Smooth(tightCore[FragmentCoElution.BestFragment(tightCore, from, to)]);
                 tightCoElution = FragmentCoElution.CorrelationsTo(tightCore, tightReference, from, to).Average();
+                if (finestCore is not null)
+                {
+                    double[] atTight = FragmentCoElution.CorrelationsTo(tightCore, reference, from, to);
+                    double[] atFinest = FragmentCoElution.CorrelationsTo(finestCore, reference, from, to);
+                    double sum = 0;
+                    for (int f = 0; f < correlations.Length; f++)
+                        sum += Math.Max(correlations[f], Math.Max(atTight[f], atFinest[f]));
+                    maxToleranceCoElution = sum / correlations.Length;
+                }
             }
             double cosine = SpectralSimilarity.CosineOfAlignedVectors(apexIntensities, libraryIntensities);
 
@@ -594,6 +617,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 extraCoElution,
                 extraMatchedFraction,
                 extraWeightedCoElution,
+                maxToleranceCoElution,
             ];
 
             yield return new DiaPrecursorMatch(

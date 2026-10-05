@@ -345,6 +345,30 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// DIA-NN's co-elution per fragment is the best of its correlations at the full tolerance, 0.45x and 0.2x, so a noise peak
+    /// at the wide tolerance cannot spoil a fragment whose real peak sits close. As a feature it is 0 unless asked for, and
+    /// never below the full-tolerance co-elution of the same fragments.
+    /// </summary>
+    [Test]
+    public void CoElutionCanTakeEachFragmentsBestTolerance()
+    {
+        int best = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "MaxToleranceCoElution");
+        int plain = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "CoElution");
+        Assert.That(best, Is.GreaterThanOrEqualTo(0));
+        Assert.That(new DiaLibrarySearchParameters().MaxToleranceCoElution, Is.False);
+
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(bool on) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(MaxToleranceCoElution: on), new CommonParameters(), [], []).Run();
+
+        Assert.That(SearchWith(false).Matches.Select(m => m.Features[best]), Has.All.EqualTo(0));
+        var on = SearchWith(true).Matches;
+        Assert.That(on.Where(m => m.Features[plain] > 0).Select(m => m.Features[best] - m.Features[plain]), Has.All.GreaterThanOrEqualTo(-1e-12));
+        Assert.That(on.Where(m => !m.IsDecoy && run.PlantedSequences.Contains(m.FullSequence)).Average(m => m.Features[best]), Is.GreaterThan(0.5));
+    }
+
+    /// <summary>
     /// A cheap gate before the full features, as DIA-NN's: a scan can be a candidate apex only if at least this many of the
     /// six most intense library fragments are seen there. Noise-only candidates are never scored, so the search scores
     /// fewer of them and still finds what was planted.
