@@ -156,7 +156,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             var selection = (double[])allIntensities.Clone();
             int count = 0;
             for (int i = 0; i < selection.Length; i++)
-                if (IsDiaNnScorable(entry.MatchedFragmentIons[i])) count++;
+                if (IsDiaNnScorable(entry.MatchedFragmentIons[i], _parameters.FragmentMinimumMz, _parameters.FragmentMinimumResidues)) count++;
                 else selection[i] = double.NegativeInfinity;
             if (count >= 3)
             {
@@ -738,7 +738,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     private readonly System.Collections.Concurrent.ConcurrentDictionary<MsDataScan, PeakBins> _binsByScan = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>DIA-NN's fragment rule (MinFrAAs = 3, MinFrMz = 200, MaxFrMz = 1800): at least 3 residues, within 200-1800 m/z.</summary>
-    public static bool IsDiaNnScorable(MslFragmentIon ion) => ion.FragmentNumber >= 3 && ion.Mz >= 200 && ion.Mz <= 1800;
+    public static bool IsDiaNnScorable(MslFragmentIon ion, double minimumMz = 200, int minimumResidues = 3) =>
+        ion.FragmentNumber >= minimumResidues && ion.Mz >= minimumMz && ion.Mz <= 1800;
 
     private static int PeakFromNearest(MzSpectrum spectrum, double mz, Tolerance tolerance, bool mostIntense, int nearest)
     {

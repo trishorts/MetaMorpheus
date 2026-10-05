@@ -381,6 +381,11 @@ public class DiaLibrarySearchEngineTests
         Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(Ion(450, 2)), Is.False);
         Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(Ion(199.9, 4)), Is.False);
         Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(Ion(1800.1, 9)), Is.False);
+        // The limits can be set; DIA-NN's are the defaults
+        Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(Ion(250, 3), minimumMz: 300, minimumResidues: 3), Is.False);
+        Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(Ion(450, 3), minimumMz: 200, minimumResidues: 4), Is.False);
+        Assert.That(new DiaLibrarySearchParameters().FragmentMinimumMz, Is.EqualTo(200));
+        Assert.That(new DiaLibrarySearchParameters().FragmentMinimumResidues, Is.EqualTo(3));
         // The default since 2026-10-05: two-seed means at a matched paired FDP of 1%, HF-X 54,777 -> 55,218 (+0.8%),
         // PXD005573 1 h 39,052 -> 40,558 (+3.9%)
         Assert.That(new DiaLibrarySearchParameters().DiaNnFragmentFilter, Is.True);

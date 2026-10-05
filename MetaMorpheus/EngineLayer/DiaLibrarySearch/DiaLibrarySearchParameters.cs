@@ -70,6 +70,8 @@ namespace EngineLayer.DiaLibrarySearch;
 /// Rankings of the training rows before the network: the first by the best single feature, each later one by a refit
 /// linear discriminant, which also picks each precursor's top candidate peak for the network (DIA-NN refits about 8 times).
 /// </param>
+/// <param name="FragmentMinimumMz">With <see cref="DiaNnFragmentFilter"/>, the lowest fragment m/z scored (DIA-NN: 200).</param>
+/// <param name="FragmentMinimumResidues">With <see cref="DiaNnFragmentFilter"/>, the fewest residues a scored fragment spans (DIA-NN: 3).</param>
 /// <param name="DiaNnFragmentFilter">
 /// Score only fragments DIA-NN would (at least 3 residues, 200-1800 m/z), when at least 3 of a precursor's qualify. On by
 /// default: two-seed means at a matched paired entrapment FDP of 1%, HF-X +0.8%, PXD005573 1 h +3.9%.
@@ -128,7 +130,9 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     int ClassifierLinearIterations = 3,
     int ExtraFragmentCount = 12,
     bool MaxToleranceCoElution = false,
-    bool DiaNnFragmentFilter = true)
+    bool DiaNnFragmentFilter = true,
+    double FragmentMinimumMz = 200,
+    int FragmentMinimumResidues = 3)
 {
     private readonly int _minimumApexFragments = MinimumApexFragments is >= 0 and <= 6 ? MinimumApexFragments
         : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), MinimumApexFragments, "The gate counts the six most intense fragments, so 0 to 6.");
