@@ -98,5 +98,8 @@ public sealed record DiaPrecursorMatch(
         "SignalShare4",
         "SignalShare5",
         "SignalShare6",
+        "ExtraCoElution",       // fragments after the top N (ExtraFragmentCount): mean co-elution with the profile (0 unless set)
+        "ExtraMatchedFraction", // their share seen at the apex
+        "ExtraWeightedCoElution", // their co-elution weighted by library intensity
     ];
 }

@@ -70,6 +70,11 @@ namespace EngineLayer.DiaLibrarySearch;
 /// Rankings of the training rows before the network: the first by the best single feature, each later one by a refit
 /// linear discriminant, which also picks each precursor's top candidate peak for the network (DIA-NN refits about 8 times).
 /// </param>
+/// <param name="ExtraFragmentCount">
+/// Library fragments after the top <see cref="TopFragmentCount"/> (by library intensity) read as their own features
+/// (ExtraCoElution, ExtraMatchedFraction, ExtraWeightedCoElution), as DIA-NN adds its remaining fragments: averaged into the
+/// core scores they dilute them, since most are faint. 0 (default) reads none.
+/// </param>
 /// <param name="DiaNnScores">
 /// DIA-NN 1.8 scores we otherwise lack: MinCorr, NFCorr and ShadowCorr (see <see cref="DiaPrecursorMatch.FeatureNames"/>).
 /// Off, they are 0. On (default), seven more traces are read per precursor: +1.0% (HF-X) and +1.4% (PXD005573 1 h) at a
@@ -111,7 +116,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool DiaNnScores = true,
     bool DiaNnPeakFindingMs1 = false,
     bool DiaNnSignalShare = false,
-    int ClassifierLinearIterations = 3)
+    int ClassifierLinearIterations = 3,
+    int ExtraFragmentCount = 0)
 {
     private readonly int _minimumApexFragments = MinimumApexFragments is >= 0 and <= 6 ? MinimumApexFragments
         : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), MinimumApexFragments, "The gate counts the six most intense fragments, so 0 to 6.");
@@ -122,6 +128,17 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
         get => _minimumApexFragments;
         init => _minimumApexFragments = value is >= 0 and <= 6 ? value
             : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), value, "The gate counts the six most intense fragments, so 0 to 6.");
+    }
+
+    private readonly int _extraFragmentCount = ExtraFragmentCount >= 0 ? ExtraFragmentCount
+        : throw new ArgumentOutOfRangeException(nameof(ExtraFragmentCount), ExtraFragmentCount, "The extra fragment count cannot be negative.");
+
+    /// <exception cref="ArgumentOutOfRangeException">Negative.</exception>
+    public int ExtraFragmentCount
+    {
+        get => _extraFragmentCount;
+        init => _extraFragmentCount = value >= 0 ? value
+            : throw new ArgumentOutOfRangeException(nameof(ExtraFragmentCount), value, "The extra fragment count cannot be negative.");
     }
 
     private readonly int _classifierLinearIterations = ClassifierLinearIterations >= 1 ? ClassifierLinearIterations

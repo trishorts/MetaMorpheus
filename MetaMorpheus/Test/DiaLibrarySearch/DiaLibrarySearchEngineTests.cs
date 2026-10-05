@@ -317,6 +317,32 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// Library fragments beyond the scored top N enter as their own features (DIA-NN's remaining-fragment correlations), so
+    /// they add evidence without diluting the core scores: their co-elution with the profile, the share seen at the apex, and
+    /// the co-elution weighted by library intensity. 0 unless asked for, and fewer than 0 is refused. A planted precursor's
+    /// extra fragments co-elute.
+    /// </summary>
+    [Test]
+    public void FragmentsBeyondTheTopNAreTheirOwnFeatures()
+    {
+        int[] extra = new[] { "ExtraCoElution", "ExtraMatchedFraction", "ExtraWeightedCoElution" }.Select(n => Array.IndexOf(DiaPrecursorMatch.FeatureNames, n)).ToArray();
+        Assert.That(extra, Has.All.GreaterThanOrEqualTo(0));
+        Assert.That(new DiaLibrarySearchParameters().ExtraFragmentCount, Is.EqualTo(0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DiaLibrarySearchParameters(ExtraFragmentCount: -1));
+
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(int count) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(TopFragmentCount: 4, ExtraFragmentCount: count), new CommonParameters(), [], []).Run();
+
+        Assert.That(SearchWith(0).Matches.SelectMany(m => extra.Select(i => m.Features[i])), Has.All.EqualTo(0));
+        var planted = SearchWith(2).Matches.Where(m => !m.IsDecoy && m.QValue <= 0.01 && run.PlantedSequences.Contains(m.FullSequence)).ToList();
+        Assert.That(planted, Is.Not.Empty);
+        Assert.That(planted.Average(m => m.Features[extra[0]]), Is.GreaterThan(0.5));
+        Assert.That(planted.Average(m => m.Features[extra[1]]), Is.GreaterThan(0.5));
+    }
+
+    /// <summary>
     /// A cheap gate before the full features, as DIA-NN's: a scan can be a candidate apex only if at least this many of the
     /// six most intense library fragments are seen there. Noise-only candidates are never scored, so the search scores
     /// fewer of them and still finds what was planted.

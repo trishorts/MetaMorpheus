@@ -152,6 +152,10 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         var fragments = FragmentCoElution.TopIndices(allIntensities, _parameters.TopFragmentCount)
             .Select(i => entry.MatchedFragmentIons[i]).ToList();
         double[] libraryIntensities = fragments.Select(f => (double)f.Intensity).ToArray();
+        // Fragments after the top N, by library intensity, read only as their own features (ExtraFragmentCount)
+        var extraFragments = _parameters.ExtraFragmentCount == 0 ? [] : Enumerable.Range(0, allIntensities.Length)
+            .OrderByDescending(i => allIntensities[i]).ThenBy(i => i).Skip(fragments.Count).Take(_parameters.ExtraFragmentCount)
+            .Select(i => entry.MatchedFragmentIons[i]).ToList();
 
         // Plain loops in this per-candidate section: it runs for millions of (window, candidate) items, and LINQ's
         // per-element delegates and iterators were a large share of extraction's allocations
@@ -222,6 +226,19 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         double scoreMean = scored.Length > 0 ? scored.Average() : 0;
         double scoreSd = scored.Length > 1 ? Math.Sqrt(scored.Sum(v => (v - scoreMean) * (v - scoreMean)) / (scored.Length - 1)) : 0;
         double windowSignal = summed.Sum();
+
+        var extraTraces = extraFragments.Select(_ => new double[reachable.Length]).ToArray();
+        if (extraTraces.Length > 0)
+            for (int k = 0; k < reachable.Length; k++)
+            {
+                var spectrum = scans[reachable[k]].MassSpectrum;
+                for (int x = 0; x < extraTraces.Length; x++)
+                {
+                    int i = FragmentPeakIndex(spectrum, extraFragments[x].Mz, tolerance, _parameters.MostIntenseFragmentPeak);
+                    if (i >= 0)
+                        extraTraces[x][k] = spectrum.YArray[i];
+                }
+            }
 
         // DIA-NN's extra traces: the unfragmented precursor m/z in MS2, and one isotope below each core fragment
         double[]? unfragmented = null;
@@ -472,6 +489,16 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1ApexShare = windowMax > 0 ? atApex / windowMax : 0;
             }
 
+            double extraCoElution = 0, extraMatchedFraction = 0, extraWeightedCoElution = 0;
+            if (reference is not null && extraTraces.Length > 0)
+            {
+                double[] correlations = FragmentCoElution.CorrelationsTo(extraTraces, reference, from, to);
+                extraCoElution = correlations.Average();
+                extraMatchedFraction = extraTraces.Count(trace => trace[apex] > 0) / (double)extraTraces.Length;
+                double weight = extraFragments.Sum(f => (double)f.Intensity);
+                extraWeightedCoElution = weight > 0 ? extraFragments.Select((f, x) => f.Intensity * correlations[x]).Sum() / weight : 0;
+            }
+
             double minCorr = 0, nfCorr = 0, shadowCorr = 0;
             if (reference is not null && unfragmented is not null && shadows is not null && spikeSuppressed is not null)
             {
@@ -564,6 +591,9 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 nfCorr,
                 shadowCorr,
                 .. signalShares,
+                extraCoElution,
+                extraMatchedFraction,
+                extraWeightedCoElution,
             ];
 
             yield return new DiaPrecursorMatch(
