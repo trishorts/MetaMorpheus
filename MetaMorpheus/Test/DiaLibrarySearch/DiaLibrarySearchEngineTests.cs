@@ -369,6 +369,29 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// DIA-NN's fragment rule: a fragment is scored only if it spans at least 3 residues and lies within 200-1800 m/z, so
+    /// short ions shared by many peptides (y1, y2, b2) and the crowded low-m/z region do not count as evidence. Off by default;
+    /// on, a search still finds what was planted (the synthetic library's 2-residue fragments are left out).
+    /// </summary>
+    [Test]
+    public void FragmentsCanBeLimitedAsDiaNnLimitsThem()
+    {
+        Omics.SpectralMatch.MslSpectralLibrary.MslFragmentIon Ion(double mz, int number) => new() { Mz = (float)mz, FragmentNumber = number, Intensity = 1 };
+        Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(Ion(450, 3)), Is.True);
+        Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(Ion(450, 2)), Is.False);
+        Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(Ion(199.9, 4)), Is.False);
+        Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(Ion(1800.1, 9)), Is.False);
+        Assert.That(new DiaLibrarySearchParameters().DiaNnFragmentFilter, Is.False);
+
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        var results = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(DiaNnFragmentFilter: true), new CommonParameters(), [], []).Run();
+        int found = results.Matches.Count(m => !m.IsDecoy && m.QValue <= 0.01 && run.PlantedSequences.Contains(m.FullSequence));
+        Assert.That(found, Is.GreaterThanOrEqualTo((int)Math.Ceiling(0.9 * run.PlantedSequences.Count)));
+    }
+
+    /// <summary>
     /// A cheap gate before the full features, as DIA-NN's: a scan can be a candidate apex only if at least this many of the
     /// six most intense library fragments are seen there. Noise-only candidates are never scored, so the search scores
     /// fewer of them and still finds what was planted.

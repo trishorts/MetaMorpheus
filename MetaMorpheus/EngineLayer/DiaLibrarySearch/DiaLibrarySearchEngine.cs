@@ -149,11 +149,27 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         double[] scanIrts, PpmTolerance tolerance)
     {
         var allIntensities = entry.MatchedFragmentIons.Select(f => (double)f.Intensity).ToArray();
-        var fragments = FragmentCoElution.TopIndices(allIntensities, _parameters.TopFragmentCount)
+        // DIA-NN's fragment rule (DiaNnFragmentFilter): ineligible fragments are never picked, unless fewer than 3 qualify
+        int eligible = allIntensities.Length;
+        if (_parameters.DiaNnFragmentFilter)
+        {
+            var selection = (double[])allIntensities.Clone();
+            int count = 0;
+            for (int i = 0; i < selection.Length; i++)
+                if (IsDiaNnScorable(entry.MatchedFragmentIons[i])) count++;
+                else selection[i] = double.NegativeInfinity;
+            if (count >= 3)
+            {
+                allIntensities = selection;
+                eligible = count;
+            }
+        }
+        var fragments = FragmentCoElution.TopIndices(allIntensities, Math.Min(_parameters.TopFragmentCount, eligible))
             .Select(i => entry.MatchedFragmentIons[i]).ToList();
         double[] libraryIntensities = fragments.Select(f => (double)f.Intensity).ToArray();
         // Fragments after the top N, by library intensity, read only as their own features (ExtraFragmentCount)
         var extraFragments = _parameters.ExtraFragmentCount == 0 ? [] : Enumerable.Range(0, allIntensities.Length)
+            .Where(i => !double.IsNegativeInfinity(allIntensities[i]))
             .OrderByDescending(i => allIntensities[i]).ThenBy(i => i).Skip(fragments.Count).Take(_parameters.ExtraFragmentCount)
             .Select(i => entry.MatchedFragmentIons[i]).ToList();
 
@@ -720,6 +736,9 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     }
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<MsDataScan, PeakBins> _binsByScan = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>DIA-NN's fragment rule (MinFrAAs = 3, MinFrMz = 200, MaxFrMz = 1800): at least 3 residues, within 200-1800 m/z.</summary>
+    public static bool IsDiaNnScorable(MslFragmentIon ion) => ion.FragmentNumber >= 3 && ion.Mz >= 200 && ion.Mz <= 1800;
 
     private static int PeakFromNearest(MzSpectrum spectrum, double mz, Tolerance tolerance, bool mostIntense, int nearest)
     {
