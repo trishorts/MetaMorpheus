@@ -370,8 +370,8 @@ public class DiaLibrarySearchEngineTests
 
     /// <summary>
     /// DIA-NN's fragment rule: a fragment is scored only if it spans at least 3 residues and lies within 200-1800 m/z, so
-    /// short ions shared by many peptides (y1, y2, b2) and the crowded low-m/z region do not count as evidence. Off by default;
-    /// on, a search still finds what was planted (the synthetic library's 2-residue fragments are left out).
+    /// short ions shared by many peptides (y1, y2, b2) and the crowded low-m/z region do not count as evidence. On by default;
+    /// a search still finds what was planted (the synthetic library's 2-residue fragments are left out).
     /// </summary>
     [Test]
     public void FragmentsCanBeLimitedAsDiaNnLimitsThem()
@@ -381,7 +381,9 @@ public class DiaLibrarySearchEngineTests
         Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(Ion(450, 2)), Is.False);
         Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(Ion(199.9, 4)), Is.False);
         Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(Ion(1800.1, 9)), Is.False);
-        Assert.That(new DiaLibrarySearchParameters().DiaNnFragmentFilter, Is.False);
+        // The default since 2026-10-05: two-seed means at a matched paired FDP of 1%, HF-X 54,777 -> 55,218 (+0.8%),
+        // PXD005573 1 h 39,052 -> 40,558 (+3.9%)
+        Assert.That(new DiaLibrarySearchParameters().DiaNnFragmentFilter, Is.True);
 
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));

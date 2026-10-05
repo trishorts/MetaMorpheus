@@ -71,7 +71,8 @@ namespace EngineLayer.DiaLibrarySearch;
 /// linear discriminant, which also picks each precursor's top candidate peak for the network (DIA-NN refits about 8 times).
 /// </param>
 /// <param name="DiaNnFragmentFilter">
-/// Score only fragments DIA-NN would (at least 3 residues, 200-1800 m/z), when at least 3 of a precursor's qualify.
+/// Score only fragments DIA-NN would (at least 3 residues, 200-1800 m/z), when at least 3 of a precursor's qualify. On by
+/// default: two-seed means at a matched paired entrapment FDP of 1%, HF-X +0.8%, PXD005573 1 h +3.9%.
 /// </param>
 /// <param name="MaxToleranceCoElution">
 /// A feature as DIA-NN scores co-elution: each core fragment's best correlation with the profile among its traces at the full
@@ -127,7 +128,7 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     int ClassifierLinearIterations = 3,
     int ExtraFragmentCount = 12,
     bool MaxToleranceCoElution = false,
-    bool DiaNnFragmentFilter = false)
+    bool DiaNnFragmentFilter = true)
 {
     private readonly int _minimumApexFragments = MinimumApexFragments is >= 0 and <= 6 ? MinimumApexFragments
         : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), MinimumApexFragments, "The gate counts the six most intense fragments, so 0 to 6.");
