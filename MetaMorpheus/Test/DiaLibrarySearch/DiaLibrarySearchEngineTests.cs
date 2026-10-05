@@ -392,6 +392,10 @@ public class DiaLibrarySearchEngineTests
         Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(doubly, maximumCharge: 1), Is.False);
         Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(doubly, maximumCharge: 2), Is.True);
         Assert.That(new DiaLibrarySearchParameters().FragmentMaximumCharge, Is.EqualTo(0));
+        // Or relative to the precursor: a fragment cannot carry a precursor's whole charge unless its complement is neutral
+        Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(doubly, precursorCharge: 2, chargeBelowPrecursor: true), Is.False);
+        Assert.That(DiaLibrarySearchEngine.IsDiaNnScorable(doubly, precursorCharge: 3, chargeBelowPrecursor: true), Is.True);
+        Assert.That(new DiaLibrarySearchParameters().FragmentChargeBelowPrecursor, Is.False);
         // The default since 2026-10-05: two-seed means at a matched paired FDP of 1%, HF-X 54,777 -> 55,218 (+0.8%),
         // PXD005573 1 h 39,052 -> 40,558 (+3.9%)
         Assert.That(new DiaLibrarySearchParameters().DiaNnFragmentFilter, Is.True);

@@ -73,6 +73,7 @@ namespace EngineLayer.DiaLibrarySearch;
 /// <param name="FragmentMinimumMz">With <see cref="DiaNnFragmentFilter"/>, the lowest fragment m/z scored (DIA-NN: 200).</param>
 /// <param name="FragmentMinimumResidues">With <see cref="DiaNnFragmentFilter"/>, the fewest residues a scored fragment spans (DIA-NN: 3).</param>
 /// <param name="FragmentMaximumCharge">With <see cref="DiaNnFragmentFilter"/>, the highest fragment charge scored; 0 (default) sets no limit.</param>
+/// <param name="FragmentChargeBelowPrecursor">With <see cref="DiaNnFragmentFilter"/>, score only fragments of lower charge than their precursor (a 2+ precursor's 1+ fragments, a 3+ precursor's 1+ and 2+).</param>
 /// <param name="DiaNnFragmentFilter">
 /// Score only fragments DIA-NN would (at least 3 residues, 200-1800 m/z), when at least 3 of a precursor's qualify. On by
 /// default: two-seed means at a matched paired entrapment FDP of 1%, HF-X +0.8%, PXD005573 1 h +3.9%.
@@ -134,7 +135,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool DiaNnFragmentFilter = true,
     double FragmentMinimumMz = 200,
     int FragmentMinimumResidues = 3,
-    int FragmentMaximumCharge = 0)
+    int FragmentMaximumCharge = 0,
+    bool FragmentChargeBelowPrecursor = false)
 {
     private readonly int _minimumApexFragments = MinimumApexFragments is >= 0 and <= 6 ? MinimumApexFragments
         : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), MinimumApexFragments, "The gate counts the six most intense fragments, so 0 to 6.");
