@@ -73,6 +73,13 @@ public static class DiaIrtSelfCalibration
     /// The run has no DIA MS2 scans, the library holds no targets, or too few confident first-pass identifications to
     /// calibrate on.
     /// </exception>
+    /// <summary>
+    /// The search's parameters as calibration uses them: every fragment scored, whatever the fragment rule. With the rule in
+    /// calibration too, the held-out run (PXD005573 1 h) lost 2.1% (two-seed means at a matched paired entrapment FDP of 1%).
+    /// </summary>
+    public static DiaLibrarySearchParameters CalibrationParameters(DiaLibrarySearchParameters parameters) =>
+        parameters with { DiaNnFragmentFilter = false };
+
     public static DiaIrtCalibration Calibrate(MsDataScan[] scans, MslLibrary library, DiaLibrarySearchParameters parameters,
         CommonParameters commonParameters, IrtCalibrationOptions? options = null, int firstPassTargetCount = FirstPassTargetCount,
         int desiredAnchors = DesiredAnchors, int rounds = DefaultRounds, double windowSds = DefaultWindowSds, int sampleOffset = 0)
@@ -83,6 +90,7 @@ public static class DiaIrtSelfCalibration
             throw new ArgumentOutOfRangeException(nameof(rounds), rounds, "At least one calibration round is needed.");
         ArgumentNullException.ThrowIfNull(library);
         ArgumentNullException.ThrowIfNull(parameters);
+        parameters = CalibrationParameters(parameters);
         options ??= new IrtCalibrationOptions();
 
         double[] ms2Rts = scans.Where(s => s.MsnOrder == 2 && s.IsolationRange is not null).Select(s => s.RetentionTime).ToArray();

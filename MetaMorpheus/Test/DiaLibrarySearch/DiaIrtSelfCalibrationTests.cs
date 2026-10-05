@@ -34,6 +34,26 @@ public class DiaIrtSelfCalibrationTests
         Directory.Delete(_directory, true);
     }
 
+    /// <summary>
+    /// Calibration scores every fragment whatever the search's fragment rule: with the rule in calibration too, the held-out
+    /// run lost 2.1% (two-seed means at a matched paired FDP of 1%). Calibration's parameters are the search's with the rule off,
+    /// and nothing else changed; and calibration gives the same result whichever way the search sets the rule.
+    /// </summary>
+    [Test]
+    public void CalibrationIgnoresTheFragmentRule()
+    {
+        var search = new DiaLibrarySearchParameters(DiaNnFragmentFilter: true, TopFragmentCount: 10);
+        var calibrationParameters = DiaIrtSelfCalibration.CalibrationParameters(search);
+        Assert.That(calibrationParameters.DiaNnFragmentFilter, Is.False);
+        Assert.That(calibrationParameters with { DiaNnFragmentFilter = true }, Is.EqualTo(search), "nothing else changes");
+
+        var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        var on = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(DiaNnFragmentFilter: true), new CommonParameters());
+        var off = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(DiaNnFragmentFilter: false), new CommonParameters());
+        Assert.That(on.Anchors, Is.EqualTo(off.Anchors));
+    }
+
     /// <summary>The first pass's confident identifications recover the run's true, nonlinear RT(iRT).</summary>
     [Test]
     public void TheFirstPassRecoversTheRunsTrueCurve()
