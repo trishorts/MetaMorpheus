@@ -242,48 +242,6 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         double scoreSd = scored.Length > 1 ? Math.Sqrt(scored.Sum(v => (v - scoreMean) * (v - scoreMean)) / (scored.Length - 1)) : 0;
         double windowSignal = summed.Sum();
 
-        var extraTraces = extraFragments.Select(_ => new double[reachable.Length]).ToArray();
-        if (extraTraces.Length > 0)
-            for (int k = 0; k < reachable.Length; k++)
-            {
-                var spectrum = scans[reachable[k]].MassSpectrum;
-            var bins = _binsByScan.GetOrAdd(scans[reachable[k]], s => PeakBins.Of(s.MassSpectrum));
-                for (int x = 0; x < extraTraces.Length; x++)
-                {
-                    int i = FragmentPeakIndex(spectrum, extraFragments[x].Mz, tolerance, _parameters.MostIntenseFragmentPeak, bins.Hint(extraFragments[x].Mz));
-                    if (i >= 0)
-                        extraTraces[x][k] = spectrum.YArray[i];
-                }
-            }
-
-        // DIA-NN's extra traces: the unfragmented precursor m/z in MS2, and one isotope below each core fragment
-        double[]? unfragmented = null;
-        List<double[]>? shadows = null, spikeSuppressed = null;
-        if (_parameters.DiaNnScores)
-        {
-            unfragmented = new double[reachable.Length];
-            shadows = coreIndices.Select(_ => new double[reachable.Length]).ToList();
-            spikeSuppressed = core.Select(SpikeSuppressed).ToList();
-            for (int k = 0; k < reachable.Length; k++)
-            {
-                var spectrum = scans[reachable[k]].MassSpectrum;
-            var bins = _binsByScan.GetOrAdd(scans[reachable[k]], s => PeakBins.Of(s.MassSpectrum));
-                int i = FragmentPeakIndex(spectrum, candidate.PrecursorMz, tolerance, _parameters.MostIntenseFragmentPeak, bins.Hint(candidate.PrecursorMz));
-                if (i >= 0)
-                    unfragmented[k] = spectrum.YArray[i];
-                for (int c = 0; c < coreIndices.Length; c++)
-                {
-                    var fragment = fragments[coreIndices[c]];
-                    double shadowMz = fragment.Mz - 1.0033548 / Math.Max(1, fragment.Charge);
-                    int found = peakIndices![coreIndices[c]][k];
-                    i = found >= 0 ? FragmentPeakIndex(spectrum, shadowMz, tolerance, _parameters.MostIntenseFragmentPeak, found)
-                        : FragmentPeakIndex(spectrum, shadowMz, tolerance, _parameters.MostIntenseFragmentPeak, bins.Hint(shadowMz));
-                    if (i >= 0)
-                        shadows[c][k] = spectrum.YArray[i];
-                }
-            }
-        }
-
         // The precursor's MS1 traces, monoisotopic and M+1, in the MS1 scan nearest each reachable MS2 scan
         double[]? ms1Mono = null, ms1Isotope = null;
         if (_ms1Index is not null)
@@ -321,6 +279,58 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             if (bestTrace[fragmentApex] > 0 && apexes.All(a => Math.Abs(a - fragmentApex) > _parameters.ApexHalfWidthScans))
                 apexes.Add(fragmentApex);
         }
+        // The extra fragments, the unfragmented precursor and the isotope shadows enter only through correlations over a
+        // candidate's co-elution window (and its apex), so they are read only there: the same scores, far fewer lookups
+        var inWindow = new bool[reachable.Length];
+        foreach (int apex in apexes)
+            for (int k = Math.Max(0, apex - _parameters.ApexHalfWidthScans); k <= Math.Min(reachable.Length - 1, apex + _parameters.ApexHalfWidthScans); k++)
+                inWindow[k] = true;
+        var extraTraces = extraFragments.Select(_ => new double[reachable.Length]).ToArray();
+        if (extraTraces.Length > 0)
+            for (int k = 0; k < reachable.Length; k++)
+            {
+                if (!inWindow[k])
+                    continue;
+                var spectrum = scans[reachable[k]].MassSpectrum;
+            var bins = _binsByScan.GetOrAdd(scans[reachable[k]], s => PeakBins.Of(s.MassSpectrum));
+                for (int x = 0; x < extraTraces.Length; x++)
+                {
+                    int i = FragmentPeakIndex(spectrum, extraFragments[x].Mz, tolerance, _parameters.MostIntenseFragmentPeak, bins.Hint(extraFragments[x].Mz));
+                    if (i >= 0)
+                        extraTraces[x][k] = spectrum.YArray[i];
+                }
+            }
+
+        // DIA-NN's extra traces: the unfragmented precursor m/z in MS2, and one isotope below each core fragment
+        double[]? unfragmented = null;
+        List<double[]>? shadows = null, spikeSuppressed = null;
+        if (_parameters.DiaNnScores)
+        {
+            unfragmented = new double[reachable.Length];
+            shadows = coreIndices.Select(_ => new double[reachable.Length]).ToList();
+            spikeSuppressed = core.Select(SpikeSuppressed).ToList();
+            for (int k = 0; k < reachable.Length; k++)
+            {
+                if (!inWindow[k])
+                    continue;
+                var spectrum = scans[reachable[k]].MassSpectrum;
+            var bins = _binsByScan.GetOrAdd(scans[reachable[k]], s => PeakBins.Of(s.MassSpectrum));
+                int i = FragmentPeakIndex(spectrum, candidate.PrecursorMz, tolerance, _parameters.MostIntenseFragmentPeak, bins.Hint(candidate.PrecursorMz));
+                if (i >= 0)
+                    unfragmented[k] = spectrum.YArray[i];
+                for (int c = 0; c < coreIndices.Length; c++)
+                {
+                    var fragment = fragments[coreIndices[c]];
+                    double shadowMz = fragment.Mz - 1.0033548 / Math.Max(1, fragment.Charge);
+                    int found = peakIndices![coreIndices[c]][k];
+                    i = found >= 0 ? FragmentPeakIndex(spectrum, shadowMz, tolerance, _parameters.MostIntenseFragmentPeak, found)
+                        : FragmentPeakIndex(spectrum, shadowMz, tolerance, _parameters.MostIntenseFragmentPeak, bins.Hint(shadowMz));
+                    if (i >= 0)
+                        shadows[c][k] = spectrum.YArray[i];
+                }
+            }
+        }
+
         foreach (int apex in apexes)
         {
             double[] apexIntensities = traces.Select(trace => trace[apex]).ToArray();
