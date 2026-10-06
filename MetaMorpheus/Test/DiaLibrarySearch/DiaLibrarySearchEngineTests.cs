@@ -437,6 +437,29 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// MS1 co-elution can also be read at half the MS1 tolerance, as DIA-NN scores MS1 at several tolerances: the precursor's
+    /// M0 trace keeps only peaks within half the tolerance, correlated with the fragment profile. 0 unless asked for; a
+    /// planted precursor's M0 sits at its library m/z, so its tight correlation stays high.
+    /// </summary>
+    [Test]
+    public void Ms1CoElutionCanBeReadAtHalfTheTolerance()
+    {
+        int tight = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1TightCorrelation");
+        Assert.That(tight, Is.GreaterThanOrEqualTo(0));
+        Assert.That(new DiaLibrarySearchParameters().Ms1TightCorrelation, Is.False);
+
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(bool on) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(Ms1TightCorrelation: on), new CommonParameters(), [], []).Run();
+
+        Assert.That(SearchWith(false).Matches.Select(m => m.Features[tight]), Has.All.EqualTo(0));
+        var planted = SearchWith(true).Matches.Where(m => run.PlantedSequences.Contains(m.FullSequence)).Select(m => m.Features[tight]).Order().ToArray();
+        Assert.That(planted, Is.Not.Empty);
+        Assert.That(planted[planted.Length / 2], Is.GreaterThan(0.5));
+    }
+
+    /// <summary>
     /// A cheap gate before the full features, as DIA-NN's: a scan can be a candidate apex only if at least this many of the
     /// six most intense library fragments are seen there. Noise-only candidates are never scored, so the search scores
     /// fewer of them and still finds what was planted.

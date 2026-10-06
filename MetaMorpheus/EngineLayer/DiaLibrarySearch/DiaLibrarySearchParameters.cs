@@ -74,6 +74,7 @@ namespace EngineLayer.DiaLibrarySearch;
 /// <param name="FragmentMinimumResidues">With <see cref="DiaNnFragmentFilter"/>, the fewest residues a scored fragment spans (DIA-NN: 3).</param>
 /// <param name="FragmentMaximumCharge">With <see cref="DiaNnFragmentFilter"/>, the highest fragment charge scored; 0 (default) sets no limit.</param>
 /// <param name="FragmentChargeBelowPrecursor">With <see cref="DiaNnFragmentFilter"/>, score only fragments of lower charge than their precursor (a 2+ precursor's 1+ fragments, a 3+ precursor's 1+ and 2+).</param>
+/// <param name="Ms1TightCorrelation">A feature: MS1 M0 co-elution from peaks within half the MS1 tolerance, as DIA-NN scores MS1 at several tolerances.</param>
 /// <param name="Ms1TolerancePpm">
 /// MS1 tolerance for the precursor's traces, isotope envelope and mass error. 10 ppm by default: against 20, two-seed means
 /// at a matched paired entrapment FDP of 1% gain 1.1% (HF-X) and 1.6% (PXD005573 1 h); fewer random MS1 peaks in the traces.
@@ -141,7 +142,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     int FragmentMinimumResidues = 3,
     int FragmentMaximumCharge = 0,
     bool FragmentChargeBelowPrecursor = false,
-    double Ms1TolerancePpm = 10)
+    double Ms1TolerancePpm = 10,
+    bool Ms1TightCorrelation = false)
 {
     private readonly int _minimumApexFragments = MinimumApexFragments is >= 0 and <= 6 ? MinimumApexFragments
         : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), MinimumApexFragments, "The gate counts the six most intense fragments, so 0 to 6.");

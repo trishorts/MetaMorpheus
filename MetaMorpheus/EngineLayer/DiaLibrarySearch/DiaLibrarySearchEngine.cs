@@ -261,16 +261,24 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         double windowSignal = summed.Sum();
 
         // The precursor's MS1 traces, monoisotopic and M+1, in the MS1 scan nearest each reachable MS2 scan
-        double[]? ms1Mono = null, ms1Isotope = null;
+        double[]? ms1Mono = null, ms1Isotope = null, ms1MonoTight = null;
         if (_ms1Index is not null)
         {
             ms1Mono = new double[reachable.Length];
             ms1Isotope = new double[reachable.Length];
+            // Ms1TightCorrelation: the M0 trace again, keeping only peaks within half the MS1 tolerance (the closest peak is
+            // the one found, so any peak that close would be it)
+            if (_parameters.Ms1TightCorrelation)
+                ms1MonoTight = new double[reachable.Length];
             double isotopeMz = candidate.PrecursorMz + 1.0033548 / Math.Max(1, (int)candidate.Charge);
             for (int k = 0; k < reachable.Length; k++)
             {
                 int ms1 = NearestMs1(scans[reachable[k]].RetentionTime);
-                ms1Mono[k] = _ms1Index.GetIndexedPeak(candidate.PrecursorMz, ms1, Ms1Tolerance)?.Intensity ?? 0;
+                var mono = _ms1Index.GetIndexedPeak(candidate.PrecursorMz, ms1, Ms1Tolerance);
+                ms1Mono[k] = mono?.Intensity ?? 0;
+                if (ms1MonoTight is not null && mono is not null
+                    && Math.Abs(mono.M - candidate.PrecursorMz) / candidate.PrecursorMz * 1e6 <= _parameters.Ms1TolerancePpm / 2)
+                    ms1MonoTight[k] = mono.Intensity;
                 ms1Isotope[k] = _ms1Index.GetIndexedPeak(isotopeMz, ms1, Ms1Tolerance)?.Intensity ?? 0;
             }
         }
@@ -513,10 +521,12 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
 
             // MS1 as DIA-NN uses it: the precursor's MS1 trace (monoisotopic and M+1) correlated with the fragment profile,
             // never its raw intensity
-            double ms1Correlation = 0, ms1IsotopeCorrelation = 0;
+            double ms1Correlation = 0, ms1IsotopeCorrelation = 0, ms1TightCorrelation = 0;
             if (reference is not null && ms1Mono is not null && ms1Isotope is not null)
             {
                 ms1Correlation = FragmentCoElution.CorrelationsTo([ms1Mono], reference, from, to)[0];
+                if (ms1MonoTight is not null)
+                    ms1TightCorrelation = FragmentCoElution.CorrelationsTo([ms1MonoTight], reference, from, to)[0];
                 ms1IsotopeCorrelation = FragmentCoElution.CorrelationsTo([ms1Isotope], reference, from, to)[0];
             }
 
@@ -649,6 +659,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 extraMatchedFraction,
                 extraWeightedCoElution,
                 maxToleranceCoElution,
+                ms1TightCorrelation,
             ];
 
             yield return new DiaPrecursorMatch(
