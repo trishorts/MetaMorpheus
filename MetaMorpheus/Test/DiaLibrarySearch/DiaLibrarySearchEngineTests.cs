@@ -501,6 +501,32 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// MS1 evidence across the peak rather than at the apex: the M0 mass error averaged over the co-elution window, weighted by
+    /// intensity, and the M+2 isotope trace's correlation with the fragment profile. Both 0 unless asked for; on, a planted
+    /// precursor's M0 sits at its library m/z (small mass error) and its M+2 co-elutes.
+    /// </summary>
+    [Test]
+    public void Ms1EvidenceCanBeReadAcrossThePeak()
+    {
+        int error = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1PeakMassErrorPpm");
+        int m2 = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1Isotope2Correlation");
+        Assert.That(new[] { error, m2 }, Has.All.GreaterThanOrEqualTo(0));
+        Assert.That(new DiaLibrarySearchParameters().Ms1PeakFeatures, Is.False);
+
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(bool on) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(Ms1PeakFeatures: on), new CommonParameters(), [], []).Run();
+
+        Assert.That(SearchWith(false).Matches.SelectMany(m => new[] { m.Features[error], m.Features[m2] }), Has.All.EqualTo(0));
+        var planted = SearchWith(true).Matches.Where(m => run.PlantedSequences.Contains(m.FullSequence)).ToList();
+        double Median(IEnumerable<double> values) { var s = values.Order().ToArray(); return s[s.Length / 2]; }
+        Assert.That(planted, Is.Not.Empty);
+        Assert.That(Median(planted.Select(m => m.Features[error])), Is.LessThan(1));
+        Assert.That(Median(planted.Select(m => m.Features[m2])), Is.GreaterThan(0.5));
+    }
+
+    /// <summary>
     /// A cheap gate before the full features, as DIA-NN's: a scan can be a candidate apex only if at least this many of the
     /// six most intense library fragments are seen there. Noise-only candidates are never scored, so the search scores
     /// fewer of them and still finds what was planted.

@@ -74,6 +74,7 @@ namespace EngineLayer.DiaLibrarySearch;
 /// <param name="FragmentMinimumResidues">With <see cref="DiaNnFragmentFilter"/>, the fewest residues a scored fragment spans (DIA-NN: 3).</param>
 /// <param name="FragmentMaximumCharge">With <see cref="DiaNnFragmentFilter"/>, the highest fragment charge scored; 0 (default) sets no limit.</param>
 /// <param name="FragmentChargeBelowPrecursor">With <see cref="DiaNnFragmentFilter"/>, score only fragments of lower charge than their precursor (a 2+ precursor's 1+ fragments, a 3+ precursor's 1+ and 2+).</param>
+/// <param name="Ms1PeakFeatures">Features: the M0 mass error over the co-elution window (intensity-weighted) and the M+2 isotope trace's co-elution.</param>
 /// <param name="ClassifierNetworkPositiveQValue">With the confident training sample, positives are only targets passing this q-value in the linear ranking (with as many top decoys); null keeps the top half-cap of targets.</param>
 /// <param name="ClassifierNetworkLayers">The classifier network's hidden layers, input side first; null keeps the rescorer's default (DIA-NN 2020's 25-20-15-10-5).</param>
 /// <param name="Ms1TightCorrelation">A feature: MS1 M0 co-elution from peaks within half the MS1 tolerance, as DIA-NN scores MS1 at several tolerances.</param>
@@ -147,7 +148,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     double Ms1TolerancePpm = 10,
     bool Ms1TightCorrelation = false,
     int[]? ClassifierNetworkLayers = null,
-    double? ClassifierNetworkPositiveQValue = null)
+    double? ClassifierNetworkPositiveQValue = null,
+    bool Ms1PeakFeatures = false)
 {
     private readonly int _minimumApexFragments = MinimumApexFragments is >= 0 and <= 6 ? MinimumApexFragments
         : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), MinimumApexFragments, "The gate counts the six most intense fragments, so 0 to 6.");
