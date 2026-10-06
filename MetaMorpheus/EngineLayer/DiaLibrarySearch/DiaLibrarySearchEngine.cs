@@ -659,6 +659,24 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1PeakSignalFraction = ms1Window > 0 ? ms1Peak / ms1Window : 0;
             }
 
+            // Ms1PeakPoints: in how many of the peak's distinct MS1 scans the precursor is seen at all
+            double ms1PeakPointFraction = 0;
+            if (_parameters.Ms1PeakPoints && ms1Mono is not null)
+            {
+                int ms1Scans = 0, ms1Seen = 0, lastMs1 = -1;
+                for (int s = peakStart; s <= peakEnd; s++)
+                {
+                    int ms1Scan = NearestMs1(scans[reachable[s]].RetentionTime);
+                    if (ms1Scan == lastMs1)
+                        continue;
+                    lastMs1 = ms1Scan;
+                    ms1Scans++;
+                    if (ms1Mono[s] > 0)
+                        ms1Seen++;
+                }
+                ms1PeakPointFraction = ms1Scans > 0 ? (double)ms1Seen / ms1Scans : 0;
+            }
+
             double extraCoElution = 0, extraMatchedFraction = 0, extraWeightedCoElution = 0;
             if (reference is not null && extraTraces.Length > 0)
             {
@@ -774,6 +792,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1LogIntensity,
                 ms1ToFragmentLogRatio,
                 ms1PeakSignalFraction,
+                ms1PeakPointFraction,
             ];
 
             yield return new DiaPrecursorMatch(

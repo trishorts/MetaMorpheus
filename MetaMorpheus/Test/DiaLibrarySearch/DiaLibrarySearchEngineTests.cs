@@ -623,6 +623,36 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// How many of the peak's MS1 scans show the precursor at all: the share of distinct MS1 scans across the peak with an M0
+    /// found. A faint precursor's summed MS1 is small, but it is still there scan after scan; noise is there now and then.
+    /// Off gives zeros; on, planted precursors are seen in most MS1 scans of their peak, unplanted matches rarely.
+    /// </summary>
+    [Test]
+    public void Ms1PeakPointsCanBeAFeature()
+    {
+        int points = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1PeakPointFraction");
+        Assert.That(points, Is.GreaterThanOrEqualTo(0));
+        Assert.That(new DiaLibrarySearchParameters().Ms1PeakPoints, Is.False);
+
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(bool on) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(Ms1PeakPoints: on), new CommonParameters(), [], []).Run();
+        static double Median(IEnumerable<double> values)
+        {
+            var sorted = values.Order().ToArray();
+            Assert.That(sorted, Is.Not.Empty);
+            return sorted[sorted.Length / 2];
+        }
+
+        Assert.That(SearchWith(false).Matches.Select(m => m.Features[points]), Has.All.EqualTo(0));
+        var on = SearchWith(true).Matches;
+        Assert.That(on.Select(m => m.Features[points]), Has.All.InRange(0, 1));
+        Assert.That(Median(on.Where(m => run.PlantedSequences.Contains(m.FullSequence)).Select(m => m.Features[points])), Is.GreaterThan(0.75), "faint peak edges can miss M0");
+        Assert.That(Median(on.Where(m => !run.PlantedSequences.Contains(m.FullSequence)).Select(m => m.Features[points])), Is.LessThan(0.5));
+    }
+
+    /// <summary>
     /// The classifier network's hidden layers can be set (null keeps the rescorer's default, DIA-NN 2020's 25-20-15-10-5). A
     /// search with another architecture gives other scores, and a zero-unit layer is refused.
     /// </summary>

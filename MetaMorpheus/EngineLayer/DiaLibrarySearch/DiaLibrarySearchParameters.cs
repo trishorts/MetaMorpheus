@@ -83,6 +83,7 @@ namespace EngineLayer.DiaLibrarySearch;
 /// <param name="Ms1PeakEnvelopeTight">A feature: the <see cref="Ms1PeakEnvelope"/> cosine again from MS1 peaks within 0.6x the MS1 tolerance only.</param>
 /// <param name="Ms1Intensity">Features: log10(1 + M0 summed over the peak's MS1 scans), and that less log10(1 + the fragments' summed peak area).</param>
 /// <param name="Ms1PeakSignalFraction">A feature: the share of the extraction window's MS1 M0 signal inside the peak (the MS1 counterpart of PeakSignalFraction).</param>
+/// <param name="Ms1PeakPoints">A feature: the share of the peak's distinct MS1 scans in which an M0 is found.</param>
 /// <param name="Ms1PeakEnvelope">A feature: the MS1 M-1 to M3 envelope summed over the co-elution window's MS1 scans, against the expected pattern with nothing at M-1.</param>
 /// <param name="Ms1TightCorrelation">A feature: MS1 M0 co-elution from peaks within half the MS1 tolerance, as DIA-NN scores MS1 at several tolerances.</param>
 /// <param name="Ms1TolerancePpm">
@@ -165,7 +166,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     double? Ms1ToleranceSpreadMultiple = null,
     bool Ms1PeakEnvelopeTight = false,
     bool Ms1Intensity = true,
-    bool Ms1PeakSignalFraction = false)
+    bool Ms1PeakSignalFraction = false,
+    bool Ms1PeakPoints = false)
 {
     /// <summary>
     /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual
