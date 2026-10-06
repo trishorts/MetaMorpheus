@@ -501,7 +501,7 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
-    /// The peak envelope as a feature (Ms1PeakEnvelope): 0 unless asked for; on, a planted precursor's M0-M3 follow the
+    /// The peak envelope as a feature (Ms1PeakEnvelope, on by default): 0 when switched off; on, a planted precursor's M0-M3 follow the
     /// expected pattern on every MS1 scan, so its summed envelope scores near 1.
     /// </summary>
     [Test]
@@ -509,7 +509,7 @@ public class DiaLibrarySearchEngineTests
     {
         int envelope = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1PeakEnvelopeCosine");
         Assert.That(envelope, Is.GreaterThanOrEqualTo(0));
-        Assert.That(new DiaLibrarySearchParameters().Ms1PeakEnvelope, Is.False);
+        Assert.That(new DiaLibrarySearchParameters().Ms1PeakEnvelope, Is.True);
 
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));

@@ -157,7 +157,7 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool Ms1PeakFeatures = false,
     Ms1OffsetModel? Ms1Offset = null,
     bool SqrtCoElution = false,
-    bool Ms1PeakEnvelope = false)
+    bool Ms1PeakEnvelope = true)
 {
     private readonly int _minimumApexFragments = MinimumApexFragments is >= 0 and <= 6 ? MinimumApexFragments
         : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), MinimumApexFragments, "The gate counts the six most intense fragments, so 0 to 6.");
