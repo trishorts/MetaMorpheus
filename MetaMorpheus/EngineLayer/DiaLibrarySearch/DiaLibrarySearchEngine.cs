@@ -42,7 +42,9 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     private const double TightToleranceFraction = 0.45;
 
     /// <summary>MS1 tolerance for the precursor's elution-profile features (DIA-NN chose 17–22 ppm on PXD005573).</summary>
-    private static readonly PpmTolerance Ms1Tolerance = new(20);
+    private PpmTolerance? _ms1Tolerance;
+    /// <summary>The MS1 tolerance (<see cref="DiaLibrarySearchParameters.Ms1TolerancePpm"/>) for precursor traces and envelopes.</summary>
+    private PpmTolerance Ms1Tolerance => _ms1Tolerance ??= new PpmTolerance(_parameters.Ms1TolerancePpm);
 
     // The run's MS1 peaks, indexed once with FlashLFQ's indexer; null when the run has no MS1 scans
     private FlashLFQ.PeakIndexingEngine? _ms1Index;

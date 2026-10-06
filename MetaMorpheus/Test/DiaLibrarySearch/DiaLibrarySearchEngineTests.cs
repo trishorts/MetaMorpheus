@@ -415,6 +415,27 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// The MS1 tolerance (precursor traces, isotope envelope and MS1 mass error) can be set; 20 ppm by default. A tighter one
+    /// keeps random MS1 peaks out of the traces. A search at 10 ppm still finds what was planted, and a precursor's MS1 mass
+    /// error never exceeds the tolerance it was read with.
+    /// </summary>
+    [Test]
+    public void TheMs1ToleranceCanBeSet()
+    {
+        Assert.That(new DiaLibrarySearchParameters().Ms1TolerancePpm, Is.EqualTo(20));
+        int ms1Error = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1MassErrorPpm");
+
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        var results = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(Ms1TolerancePpm: 10), new CommonParameters(), [], []).Run();
+
+        Assert.That(results.Matches.Select(m => m.Features[ms1Error]), Has.All.LessThanOrEqualTo(10));
+        int found = results.Matches.Count(m => !m.IsDecoy && m.QValue <= 0.01 && run.PlantedSequences.Contains(m.FullSequence));
+        Assert.That(found, Is.GreaterThanOrEqualTo((int)Math.Ceiling(0.9 * run.PlantedSequences.Count)));
+    }
+
+    /// <summary>
     /// A cheap gate before the full features, as DIA-NN's: a scan can be a candidate apex only if at least this many of the
     /// six most intense library fragments are seen there. Noise-only candidates are never scored, so the search scores
     /// fewer of them and still finds what was planted.
