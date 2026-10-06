@@ -1001,6 +1001,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 networkPasses: _parameters.ClassifierNetworkPasses,
                 networkTrainingSample: _parameters.ClassifierNetworkTrainingSample,
                 normalizationGroups: _parameters.ClassifierNormalizationGroups,
+                networkLayers: _parameters.ClassifierNetworkLayers,
                 candidateGroups: matches.Select(m => m.PrecursorIndex).ToList());
             if (rescored.Scores.All(double.IsFinite))
                 matches = matches.Select((m, i) => m with { Score = rescored.Scores[i] }).ToList();

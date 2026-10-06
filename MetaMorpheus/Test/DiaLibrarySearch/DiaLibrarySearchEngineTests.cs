@@ -460,6 +460,27 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// The classifier network's hidden layers can be set (null keeps the rescorer's default, DIA-NN 2020's 25-20-15-10-5). A
+    /// search with another architecture gives other scores, and a zero-unit layer is refused.
+    /// </summary>
+    [Test]
+    public void TheClassifierNetworkLayersCanBeSet()
+    {
+        Assert.That(new DiaLibrarySearchParameters().ClassifierNetworkLayers, Is.Null);
+
+        var run = SyntheticDiaRun.Build(200, entry => SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(int[]? layers) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(ClassifierNetworkLayers: layers, ClassifierNetworkMembers: 3), new CommonParameters(), [], []).Run();
+
+        var standard = SearchWith(null);
+        var wide = SearchWith([16, 8]);
+
+        Assert.That(wide.Matches.Select(m => m.Score), Is.Not.EqualTo(standard.Matches.Select(m => m.Score)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => SearchWith([16, 0]), "a zero-unit layer is refused, not ignored");
+    }
+
+    /// <summary>
     /// A cheap gate before the full features, as DIA-NN's: a scan can be a candidate apex only if at least this many of the
     /// six most intense library fragments are seen there. Noise-only candidates are never scored, so the search scores
     /// fewer of them and still finds what was planted.
