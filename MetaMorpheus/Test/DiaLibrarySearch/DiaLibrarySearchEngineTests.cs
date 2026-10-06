@@ -415,14 +415,15 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
-    /// The MS1 tolerance (precursor traces, isotope envelope and MS1 mass error) can be set; 20 ppm by default. A tighter one
+    /// The MS1 tolerance (precursor traces, isotope envelope and MS1 mass error) can be set; 10 ppm by default. A tighter one
     /// keeps random MS1 peaks out of the traces. A search at 10 ppm still finds what was planted, and a precursor's MS1 mass
     /// error never exceeds the tolerance it was read with.
     /// </summary>
     [Test]
     public void TheMs1ToleranceCanBeSet()
     {
-        Assert.That(new DiaLibrarySearchParameters().Ms1TolerancePpm, Is.EqualTo(20));
+        // 10 ppm since 2026-10-05: two-seed means at a matched paired FDP of 1%, +1.1% HF-X, +1.6% PXD005573 (20 before)
+        Assert.That(new DiaLibrarySearchParameters().Ms1TolerancePpm, Is.EqualTo(10));
         int ms1Error = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1MassErrorPpm");
 
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
@@ -730,7 +731,7 @@ public class DiaLibrarySearchEngineTests
         Assert.That(Median(planted.Select(m => m.Features[envelope])), Is.GreaterThan(0.95));
         Assert.That(Median(chance.Select(m => m.Features[envelope])), Is.LessThan(0.5));
         Assert.That(Median(planted.Select(m => m.Features[ppm])), Is.LessThan(1), "the planted M0 is at the library m/z");
-        Assert.That(Median(chance.Select(m => m.Features[ppm])), Is.EqualTo(20).Within(1e-9), "no M0 found counts as the full tolerance");
+        Assert.That(Median(chance.Select(m => m.Features[ppm])), Is.EqualTo(new DiaLibrarySearchParameters().Ms1TolerancePpm).Within(1e-9), "no M0 found counts as the full tolerance");
         Assert.That(Median(planted.Select(m => m.Features[share])), Is.GreaterThan(0.8));
         Assert.That(matches.Select(m => m.Features[envelope]), Is.All.InRange(0.0, 1.0 + 1e-12));
         Assert.That(matches.Select(m => m.Features[share]), Is.All.InRange(0.0, 1.0));
