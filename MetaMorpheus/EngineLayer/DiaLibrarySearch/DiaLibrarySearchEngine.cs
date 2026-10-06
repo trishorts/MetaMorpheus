@@ -47,8 +47,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         _parameters.Ms1Offset is { } offset ? mz * (1 + offset.OffsetPpm(rtMinutes) * 1e-6) : mz;
 
     private PpmTolerance? _ms1Tolerance;
-    /// <summary>The MS1 tolerance (<see cref="DiaLibrarySearchParameters.Ms1TolerancePpm"/>) for precursor traces and envelopes.</summary>
-    private PpmTolerance Ms1Tolerance => _ms1Tolerance ??= new PpmTolerance(_parameters.Ms1TolerancePpm);
+    /// <summary>The MS1 tolerance (<see cref="DiaLibrarySearchParameters.EffectiveMs1TolerancePpm"/>) for precursor traces and envelopes.</summary>
+    private PpmTolerance Ms1Tolerance => _ms1Tolerance ??= new PpmTolerance(_parameters.EffectiveMs1TolerancePpm);
 
     // The run's MS1 peaks, indexed once with FlashLFQ's indexer; null when the run has no MS1 scans
     private FlashLFQ.PeakIndexingEngine? _ms1Index;
@@ -294,7 +294,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                     ms1Isotope2[k] = _ms1Index.GetIndexedPeak(Ms1Target(candidate.PrecursorMz + 2 * 1.0033548 / Math.Max(1, (int)candidate.Charge), scanRt), ms1, Ms1Tolerance)?.Intensity ?? 0;
                 }
                 if (ms1MonoTight is not null && mono is not null
-                    && Math.Abs(mono.M - monoMz) / monoMz * 1e6 <= _parameters.Ms1TolerancePpm / 2)
+                    && Math.Abs(mono.M - monoMz) / monoMz * 1e6 <= Ms1Tolerance.Value / 2)
                     ms1MonoTight[k] = mono.Intensity;
                 ms1Isotope[k] = _ms1Index.GetIndexedPeak(Ms1Target(isotopeMz, scanRt), ms1, Ms1Tolerance)?.Intensity ?? 0;
             }
@@ -560,7 +560,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                             weighted += ms1Mono[s] * ms1MonoPpm[s];
                             weights += ms1Mono[s];
                         }
-                    ms1PeakMassError = weights > 0 ? weighted / weights : _parameters.Ms1TolerancePpm;
+                    ms1PeakMassError = weights > 0 ? weighted / weights : Ms1Tolerance.Value;
                     ms1Isotope2Correlation = FragmentCoElution.CorrelationsTo([ms1Isotope2], reference, from, to)[0];
                 }
                 ms1IsotopeCorrelation = FragmentCoElution.CorrelationsTo([ms1Isotope], reference, from, to)[0];

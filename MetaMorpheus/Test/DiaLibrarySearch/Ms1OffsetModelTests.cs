@@ -44,4 +44,23 @@ public class Ms1OffsetModelTests
         Assert.That(Ms1OffsetModel.Constant(3).OffsetPpm(12), Is.EqualTo(3));
         Assert.That(Ms1OffsetModel.Fit([(1.0, double.NaN), (2.0, 4.0)]).OffsetPpm(1), Is.EqualTo(4), "non-finite errors are ignored");
     }
+
+    /// <summary>
+    /// The spread of the errors around the fitted offset, robustly (1.4826 x the median absolute residual, an SD for normal
+    /// errors): what is left once the drift is removed, so a run's MS1 tolerance can follow its own mass accuracy. Errors
+    /// alternating 1 ppm either side of a drifting offset give 1.4826; a constant model has no spread (NaN).
+    /// </summary>
+    [Test]
+    public void TheSpreadAroundTheOffsetIsMeasured()
+    {
+        var points = Enumerable.Range(0, 2000).Select(i =>
+        {
+            double rt = 60.0 * i / 2000;
+            return (rt, 1 + 0.1 * rt + (i % 2 == 0 ? 1.0 : -1.0));
+        }).ToList();
+
+        Assert.That(Ms1OffsetModel.Fit(points).ResidualSpreadPpm, Is.EqualTo(1.4826).Within(0.05));
+        Assert.That(Ms1OffsetModel.Constant(3).ResidualSpreadPpm, Is.NaN);
+        Assert.That(Ms1OffsetModel.Fit([]).ResidualSpreadPpm, Is.NaN);
+    }
 }

@@ -23,14 +23,21 @@ public sealed class Ms1OffsetModel
     private readonly double[] _rts;
     private readonly double[] _offsets;
 
-    private Ms1OffsetModel(double[] rts, double[] offsets)
+    private Ms1OffsetModel(double[] rts, double[] offsets, double residualSpreadPpm)
     {
         _rts = rts;
         _offsets = offsets;
+        ResidualSpreadPpm = residualSpreadPpm;
     }
 
+    /// <summary>
+    /// The errors' spread around the fitted offset, in ppm: 1.4826 x the median absolute residual (an SD for normal errors),
+    /// what remains once the drift is removed. NaN for a constant model or one fitted from nothing.
+    /// </summary>
+    public double ResidualSpreadPpm { get; }
+
     /// <summary>The same offset at every retention time.</summary>
-    public static Ms1OffsetModel Constant(double ppm) => new([0], [ppm]);
+    public static Ms1OffsetModel Constant(double ppm) => new([0], [ppm], double.NaN);
 
     /// <summary>Fits the offset from (retention time in minutes, signed MS1 error in ppm) pairs; non-finite errors are ignored.</summary>
     public static Ms1OffsetModel Fit(IEnumerable<(double RtMinutes, double ErrorPpm)> points)
@@ -49,7 +56,8 @@ public sealed class Ms1OffsetModel
             rts[b] = Median(bin.Select(p => p.RtMinutes));
             offsets[b] = Median(bin.Select(p => p.ErrorPpm));
         }
-        return new Ms1OffsetModel(rts, offsets);
+        var fitted = new Ms1OffsetModel(rts, offsets, double.NaN);
+        return new Ms1OffsetModel(rts, offsets, 1.4826 * Median(sorted.Select(p => Math.Abs(p.ErrorPpm - fitted.OffsetPpm(p.RtMinutes)))));
     }
 
     /// <summary>The offset at <paramref name="rtMinutes"/>, in ppm.</summary>

@@ -79,6 +79,7 @@ namespace EngineLayer.DiaLibrarySearch;
 /// <param name="ClassifierNetworkPositiveQValue">With the confident training sample, positives are only targets passing this q-value in the linear ranking (with as many top decoys); null keeps the top half-cap of targets.</param>
 /// <param name="ClassifierNetworkLayers">The classifier network's hidden layers, input side first; null keeps the rescorer's default (DIA-NN 2020's 25-20-15-10-5).</param>
 /// <param name="SqrtCoElution">A feature: the core fragments' co-elution on square-root traces, which damp the apex so the peak's flanks weigh more.</param>
+/// <param name="Ms1ToleranceSpreadMultiple">When set, the MS1 tolerance follows the run's own mass accuracy: this multiple of the calibrated offset's residual spread (<see cref="EffectiveMs1TolerancePpm"/>).</param>
 /// <param name="Ms1PeakEnvelope">A feature: the MS1 M-1 to M3 envelope summed over the co-elution window's MS1 scans, against the expected pattern with nothing at M-1.</param>
 /// <param name="Ms1TightCorrelation">A feature: MS1 M0 co-elution from peaks within half the MS1 tolerance, as DIA-NN scores MS1 at several tolerances.</param>
 /// <param name="Ms1TolerancePpm">
@@ -157,8 +158,18 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool Ms1PeakFeatures = false,
     Ms1OffsetModel? Ms1Offset = null,
     bool SqrtCoElution = false,
-    bool Ms1PeakEnvelope = true)
+    bool Ms1PeakEnvelope = true,
+    double? Ms1ToleranceSpreadMultiple = null)
 {
+    /// <summary>
+    /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual
+    /// spread (<see cref="Ms1OffsetModel.ResidualSpreadPpm"/>) when both are known, else <see cref="Ms1TolerancePpm"/>.
+    /// </summary>
+    public double EffectiveMs1TolerancePpm =>
+        Ms1ToleranceSpreadMultiple is { } multiple && Ms1Offset is { ResidualSpreadPpm: var spread } && double.IsFinite(spread) && spread > 0
+            ? multiple * spread
+            : Ms1TolerancePpm;
+
     private readonly int _minimumApexFragments = MinimumApexFragments is >= 0 and <= 6 ? MinimumApexFragments
         : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), MinimumApexFragments, "The gate counts the six most intense fragments, so 0 to 6.");
 

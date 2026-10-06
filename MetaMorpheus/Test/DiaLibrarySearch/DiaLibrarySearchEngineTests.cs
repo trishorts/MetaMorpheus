@@ -617,6 +617,24 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// The MS1 tolerance can follow the run's own mass accuracy: with Ms1ToleranceSpreadMultiple, it is that multiple of the
+    /// calibrated offset's residual spread. Without the option, or without a measured spread, it stays Ms1TolerancePpm.
+    /// </summary>
+    [Test]
+    public void TheMs1ToleranceCanFollowTheRunsMassAccuracy()
+    {
+        var offset = Ms1OffsetModel.Fit(Enumerable.Range(0, 400).Select(i => (i / 10.0, 2 + (i % 2 == 0 ? 1.0 : -1.0))));
+        Assert.That(new DiaLibrarySearchParameters().Ms1ToleranceSpreadMultiple, Is.Null);
+
+        Assert.That(new DiaLibrarySearchParameters(Ms1Offset: offset).EffectiveMs1TolerancePpm, Is.EqualTo(5));
+        Assert.That(new DiaLibrarySearchParameters(Ms1Offset: offset, Ms1ToleranceSpreadMultiple: 3).EffectiveMs1TolerancePpm,
+            Is.EqualTo(3 * 1.4826).Within(0.1));
+        Assert.That(new DiaLibrarySearchParameters(Ms1ToleranceSpreadMultiple: 3).EffectiveMs1TolerancePpm, Is.EqualTo(5), "no offset fitted");
+        Assert.That(new DiaLibrarySearchParameters(Ms1Offset: Ms1OffsetModel.Constant(2), Ms1ToleranceSpreadMultiple: 3).EffectiveMs1TolerancePpm,
+            Is.EqualTo(5), "no spread measured");
+    }
+
+    /// <summary>
     /// A cheap gate before the full features, as DIA-NN's: a scan can be a candidate apex only if at least this many of the
     /// six most intense library fragments are seen there. Noise-only candidates are never scored, so the search scores
     /// fewer of them and still finds what was planted.
