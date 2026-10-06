@@ -548,7 +548,47 @@ public class DiaLibrarySearchEngineTests
         Assert.That(SearchWith(false).Matches.Select(m => m.Features[tight]), Has.All.EqualTo(0));
         Assert.That(MedianFor(SearchWith(true)), Is.GreaterThan(0.95));
         Assert.That(MedianFor(SearchWith(true, ppmOffset: 4)), Is.LessThan(0.5), "peaks 4 ppm off are outside 3 ppm, though inside 5");
-    }    /// <summary>
+    }
+
+    /// <summary>
+    /// How much precursor there is, not only its shape: log10(1 + M0 summed over the peak's MS1 scans), and that less
+    /// log10(1 + the fragments' summed peak area). A real precursor's MS1 scales with its fragments; a match to noise
+    /// fragments has little or no MS1 behind it. Off gives zeros; on, planted precursors carry MS1 that unplanted matches lack.
+    /// </summary>
+    [Test]
+    public void Ms1IntensityCanBeAFeature()
+    {
+        int intensity = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1LogIntensity");
+        int ratio = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1ToFragmentLogRatio");
+        Assert.That(intensity, Is.GreaterThanOrEqualTo(0));
+        Assert.That(ratio, Is.EqualTo(intensity + 1));
+        Assert.That(new DiaLibrarySearchParameters().Ms1Intensity, Is.False);
+
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(bool on) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(Ms1Intensity: on), new CommonParameters(), [], []).Run();
+        static double Median(IEnumerable<double> values)
+        {
+            var sorted = values.Order().ToArray();
+            Assert.That(sorted, Is.Not.Empty);
+            return sorted[sorted.Length / 2];
+        }
+
+        var off = SearchWith(false);
+        Assert.That(off.Matches.Select(m => m.Features[intensity]), Has.All.EqualTo(0));
+        Assert.That(off.Matches.Select(m => m.Features[ratio]), Has.All.EqualTo(0));
+
+        var on = SearchWith(true).Matches;
+        var planted = on.Where(m => run.PlantedSequences.Contains(m.FullSequence)).ToList();
+        var unplanted = on.Where(m => !run.PlantedSequences.Contains(m.FullSequence)).ToList();
+        Assert.That(Median(planted.Select(m => m.Features[intensity])), Is.GreaterThan(Median(unplanted.Select(m => m.Features[intensity])) + 1));
+        Assert.That(Median(planted.Select(m => m.Features[ratio])), Is.GreaterThan(Median(unplanted.Select(m => m.Features[ratio]))));
+        Assert.That(planted.Select(m => m.Features[intensity] - Math.Log10(1 + m.Quantity) - m.Features[ratio]), Has.All.EqualTo(0).Within(1e-9),
+            "the ratio is the MS1 log less the fragments' log area");
+    }
+
+    /// <summary>
     /// The classifier network's hidden layers can be set (null keeps the rescorer's default, DIA-NN 2020's 25-20-15-10-5). A
     /// search with another architecture gives other scores, and a zero-unit layer is refused.
     /// </summary>

@@ -81,6 +81,7 @@ namespace EngineLayer.DiaLibrarySearch;
 /// <param name="SqrtCoElution">A feature: the core fragments' co-elution on square-root traces, which damp the apex so the peak's flanks weigh more.</param>
 /// <param name="Ms1ToleranceSpreadMultiple">When set, the MS1 tolerance follows the run's own mass accuracy: this multiple of the calibrated offset's residual spread (<see cref="EffectiveMs1TolerancePpm"/>).</param>
 /// <param name="Ms1PeakEnvelopeTight">A feature: the <see cref="Ms1PeakEnvelope"/> cosine again from MS1 peaks within 0.6x the MS1 tolerance only.</param>
+/// <param name="Ms1Intensity">Features: log10(1 + M0 summed over the peak's MS1 scans), and that less log10(1 + the fragments' summed peak area).</param>
 /// <param name="Ms1PeakEnvelope">A feature: the MS1 M-1 to M3 envelope summed over the co-elution window's MS1 scans, against the expected pattern with nothing at M-1.</param>
 /// <param name="Ms1TightCorrelation">A feature: MS1 M0 co-elution from peaks within half the MS1 tolerance, as DIA-NN scores MS1 at several tolerances.</param>
 /// <param name="Ms1TolerancePpm">
@@ -161,7 +162,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool SqrtCoElution = false,
     bool Ms1PeakEnvelope = true,
     double? Ms1ToleranceSpreadMultiple = null,
-    bool Ms1PeakEnvelopeTight = false)
+    bool Ms1PeakEnvelopeTight = false,
+    bool Ms1Intensity = false)
 {
     /// <summary>
     /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual

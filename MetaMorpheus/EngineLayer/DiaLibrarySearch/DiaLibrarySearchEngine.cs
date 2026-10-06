@@ -630,6 +630,24 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                     ms1PeakEnvelopeTightCosine = PeakEnvelopeCosine(tightEnvelope, expectedEnvelope);
             }
 
+            // Ms1Intensity: how much precursor there is over the peak (each MS1 scan once), and against the fragments' area
+            double ms1LogIntensity = 0, ms1ToFragmentLogRatio = 0;
+            if (_parameters.Ms1Intensity && ms1Mono is not null)
+            {
+                double ms1Sum = 0;
+                int lastMs1 = -1;
+                for (int s = peakStart; s <= peakEnd; s++)
+                {
+                    int ms1Scan = NearestMs1(scans[reachable[s]].RetentionTime);
+                    if (ms1Scan == lastMs1)
+                        continue;
+                    lastMs1 = ms1Scan;
+                    ms1Sum += ms1Mono[s];
+                }
+                ms1LogIntensity = Math.Log10(1 + ms1Sum);
+                ms1ToFragmentLogRatio = ms1LogIntensity - Math.Log10(1 + areaSum);
+            }
+
             double extraCoElution = 0, extraMatchedFraction = 0, extraWeightedCoElution = 0;
             if (reference is not null && extraTraces.Length > 0)
             {
@@ -742,6 +760,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 sqrtCoElution,
                 ms1PeakEnvelopeCosine,
                 ms1PeakEnvelopeTightCosine,
+                ms1LogIntensity,
+                ms1ToFragmentLogRatio,
             ];
 
             yield return new DiaPrecursorMatch(
