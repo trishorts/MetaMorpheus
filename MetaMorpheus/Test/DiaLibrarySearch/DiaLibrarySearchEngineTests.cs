@@ -527,6 +527,34 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// A run's MS1 offset can be applied: every MS1 lookup moves to the library m/z shifted by the offset at that retention
+    /// time, and the MS1 mass error feature is measured from the shifted m/z. Each match also keeps its raw signed apex MS1
+    /// error (observed minus library m/z), from which an offset is fitted. On planted precursors, whose M0 sits at the library
+    /// m/z, the raw error stays near 0 whatever the offset, and a +3 ppm offset shows up as about 3 ppm of feature error.
+    /// </summary>
+    [Test]
+    public void AnMs1OffsetShiftsTheMs1Lookups()
+    {
+        Assert.That(new DiaLibrarySearchParameters().Ms1Offset, Is.Null);
+        int error = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1MassErrorPpm");
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        List<DiaPrecursorMatch> PlantedWith(Ms1OffsetModel? offset) => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library,
+            EndpointMap, new DiaLibrarySearchParameters(Ms1Offset: offset), new CommonParameters(), [], []).Run())
+            .Matches.Where(m => run.PlantedSequences.Contains(m.FullSequence) && double.IsFinite(m.Ms1ApexErrorPpm)).ToList();
+        double Median(IEnumerable<double> values) { var s = values.Order().ToArray(); return s[s.Length / 2]; }
+
+        var none = PlantedWith(null);
+        var shifted = PlantedWith(Ms1OffsetModel.Constant(3));
+
+        Assert.That(none, Is.Not.Empty);
+        Assert.That(Median(none.Select(m => Math.Abs(m.Ms1ApexErrorPpm))), Is.LessThan(1));
+        Assert.That(Median(shifted.Select(m => Math.Abs(m.Ms1ApexErrorPpm))), Is.LessThan(1), "the raw error does not depend on the offset");
+        Assert.That(Median(none.Select(m => m.Features[error])), Is.LessThan(1));
+        Assert.That(Median(shifted.Select(m => m.Features[error])), Is.EqualTo(3).Within(0.6));
+    }
+
+    /// <summary>
     /// A cheap gate before the full features, as DIA-NN's: a scan can be a candidate apex only if at least this many of the
     /// six most intense library fragments are seen there. Noise-only candidates are never scored, so the search scores
     /// fewer of them and still finds what was planted.

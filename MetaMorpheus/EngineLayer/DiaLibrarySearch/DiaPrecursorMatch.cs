@@ -34,6 +34,12 @@ public sealed record DiaPrecursorMatch(
     double QValue = double.NaN,
     double Quantity = double.NaN)
 {
+    /// <summary>
+    /// The raw signed MS1 error at the apex: observed M0 minus library m/z, in ppm, before any <see cref="DiaLibrarySearchParameters.Ms1Offset"/>.
+    /// NaN when no M0 was found. Confident matches' errors fit the run's <see cref="Ms1OffsetModel"/>.
+    /// </summary>
+    public double Ms1ApexErrorPpm { get; init; } = double.NaN;
+
     /// <summary>What each entry of <see cref="Features"/> measures, in order.</summary>
     public static readonly string[] FeatureNames =
     [

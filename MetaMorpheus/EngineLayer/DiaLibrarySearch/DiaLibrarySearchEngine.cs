@@ -42,6 +42,10 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     private const double TightToleranceFraction = 0.45;
 
     /// <summary>MS1 tolerance for the precursor's elution-profile features (DIA-NN chose 17–22 ppm on PXD005573).</summary>
+    /// <summary>An MS1 m/z shifted by the run's MS1 offset at <paramref name="rtMinutes"/> (<see cref="DiaLibrarySearchParameters.Ms1Offset"/>).</summary>
+    private double Ms1Target(double mz, double rtMinutes) =>
+        _parameters.Ms1Offset is { } offset ? mz * (1 + offset.OffsetPpm(rtMinutes) * 1e-6) : mz;
+
     private PpmTolerance? _ms1Tolerance;
     /// <summary>The MS1 tolerance (<see cref="DiaLibrarySearchParameters.Ms1TolerancePpm"/>) for precursor traces and envelopes.</summary>
     private PpmTolerance Ms1Tolerance => _ms1Tolerance ??= new PpmTolerance(_parameters.Ms1TolerancePpm);
@@ -279,18 +283,20 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             double isotopeMz = candidate.PrecursorMz + 1.0033548 / Math.Max(1, (int)candidate.Charge);
             for (int k = 0; k < reachable.Length; k++)
             {
-                int ms1 = NearestMs1(scans[reachable[k]].RetentionTime);
-                var mono = _ms1Index.GetIndexedPeak(candidate.PrecursorMz, ms1, Ms1Tolerance);
+                double scanRt = scans[reachable[k]].RetentionTime;
+                int ms1 = NearestMs1(scanRt);
+                double monoMz = Ms1Target(candidate.PrecursorMz, scanRt);
+                var mono = _ms1Index.GetIndexedPeak(monoMz, ms1, Ms1Tolerance);
                 ms1Mono[k] = mono?.Intensity ?? 0;
                 if (ms1MonoPpm is not null && ms1Isotope2 is not null)
                 {
-                    ms1MonoPpm[k] = mono is null ? 0 : Math.Abs(mono.M - candidate.PrecursorMz) / candidate.PrecursorMz * 1e6;
-                    ms1Isotope2[k] = _ms1Index.GetIndexedPeak(candidate.PrecursorMz + 2 * 1.0033548 / Math.Max(1, (int)candidate.Charge), ms1, Ms1Tolerance)?.Intensity ?? 0;
+                    ms1MonoPpm[k] = mono is null ? 0 : Math.Abs(mono.M - monoMz) / monoMz * 1e6;
+                    ms1Isotope2[k] = _ms1Index.GetIndexedPeak(Ms1Target(candidate.PrecursorMz + 2 * 1.0033548 / Math.Max(1, (int)candidate.Charge), scanRt), ms1, Ms1Tolerance)?.Intensity ?? 0;
                 }
                 if (ms1MonoTight is not null && mono is not null
-                    && Math.Abs(mono.M - candidate.PrecursorMz) / candidate.PrecursorMz * 1e6 <= _parameters.Ms1TolerancePpm / 2)
+                    && Math.Abs(mono.M - monoMz) / monoMz * 1e6 <= _parameters.Ms1TolerancePpm / 2)
                     ms1MonoTight[k] = mono.Intensity;
-                ms1Isotope[k] = _ms1Index.GetIndexedPeak(isotopeMz, ms1, Ms1Tolerance)?.Intensity ?? 0;
+                ms1Isotope[k] = _ms1Index.GetIndexedPeak(Ms1Target(isotopeMz, scanRt), ms1, Ms1Tolerance)?.Intensity ?? 0;
             }
         }
         // The gate (MinimumApexFragments) picks candidates only; the apex-score features still see every scan
@@ -557,19 +563,24 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             // MS1 evidence that stands without the fragments, at the MS1 scan nearest the apex: the M0-M3 envelope against the
             // expected isotope pattern, the M0 mass error, and the apex's share of the window's MS1 trace maximum. On the
             // whole-proteome library a fifth of DIA-NN's identifications we missed had a clean MS1 peak and faint fragments.
-            double ms1EnvelopeCosine = 0, ms1MassErrorPpm = Ms1Tolerance.Value, ms1ApexShare = 0;
+            double ms1EnvelopeCosine = 0, ms1MassErrorPpm = Ms1Tolerance.Value, ms1ApexShare = 0, ms1ApexSignedErrorPpm = double.NaN;
             if (_ms1Index is not null && ms1Mono is not null)
             {
-                int ms1Scan = NearestMs1(scans[reachable[apex]].RetentionTime);
+                double apexScanRt = scans[reachable[apex]].RetentionTime;
+                int ms1Scan = NearestMs1(apexScanRt);
                 int z = Math.Max(1, (int)candidate.Charge);
                 double[] expected = ExpectedIsotopes((candidate.PrecursorMz - 1.007276) * z, 4);
                 var observed = new double[4];
                 for (int k = 0; k < 4; k++)
                 {
-                    var peak = _ms1Index.GetIndexedPeak(candidate.PrecursorMz + k * 1.0033548 / z, ms1Scan, Ms1Tolerance);
+                    double target = Ms1Target(candidate.PrecursorMz + k * 1.0033548 / z, apexScanRt);
+                    var peak = _ms1Index.GetIndexedPeak(target, ms1Scan, Ms1Tolerance);
                     observed[k] = peak?.Intensity ?? 0;
                     if (k == 0 && peak is not null)
-                        ms1MassErrorPpm = Math.Abs(peak.M - candidate.PrecursorMz) / candidate.PrecursorMz * 1e6;
+                    {
+                        ms1MassErrorPpm = Math.Abs(peak.M - target) / target * 1e6;
+                        ms1ApexSignedErrorPpm = (peak.M - candidate.PrecursorMz) / candidate.PrecursorMz * 1e6;
+                    }
                 }
                 ms1EnvelopeCosine = observed.Any(v => v > 0) ? SpectralSimilarity.CosineOfAlignedVectors(observed, expected) : 0;
                 double windowMax = ms1Mono.Max();
@@ -699,7 +710,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 apexIrt,
                 cosine * coElution,
                 features,
-                Quantity: areaSum);
+                Quantity: areaSum) { Ms1ApexErrorPpm = ms1ApexSignedErrorPpm };
         }
     }
 

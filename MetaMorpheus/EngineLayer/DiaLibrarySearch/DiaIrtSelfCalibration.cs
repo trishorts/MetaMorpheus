@@ -20,6 +20,12 @@ public sealed record DiaIrtCalibration(IrtCalibrationModel Model, double IrtHalf
     /// and cost 20% of the precursors at an ordinary residual SD.
     /// </summary>
     public IReadOnlyList<(RtMinutes ApexRt, Irt LibraryIrt)> Anchors { get; init; } = [];
+
+    /// <summary>
+    /// The run's MS1 offset over retention time, fitted from the last round's anchors' raw MS1 errors; null when calibration
+    /// ran a single round. A search applies it through <see cref="DiaLibrarySearchParameters.Ms1Offset"/>.
+    /// </summary>
+    public Ms1OffsetModel? Ms1Offset { get; init; }
 }
 
 /// <summary>
@@ -78,7 +84,7 @@ public static class DiaIrtSelfCalibration
     /// calibration too, the held-out run (PXD005573 1 h) lost 2.1% (two-seed means at a matched paired entrapment FDP of 1%).
     /// </summary>
     public static DiaLibrarySearchParameters CalibrationParameters(DiaLibrarySearchParameters parameters) =>
-        parameters with { DiaNnFragmentFilter = false };
+        parameters with { DiaNnFragmentFilter = false, Ms1Offset = null };
 
     public static DiaIrtCalibration Calibrate(MsDataScan[] scans, MslLibrary library, DiaLibrarySearchParameters parameters,
         CommonParameters commonParameters, IrtCalibrationOptions? options = null, int firstPassTargetCount = FirstPassTargetCount,
@@ -149,15 +155,20 @@ public static class DiaIrtSelfCalibration
         {
             var pass = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(scans, library, calibration.Model,
                 parameters with { IrtHalfWindow = calibration.IrtHalfWindow, PrecursorSampleStride = stride, PrecursorSampleOffset = offset }, commonParameters, [], []).Run();
-            var anchors = pass.Matches
+            var confident = pass.Matches
                 .Where(m => !m.IsDecoy && m.QValue <= AnchorQValue)
                 .OrderByDescending(m => m.Score)
                 .Take(MaximumAnchors)
-                .Select(m => (m.ApexRt, m.LibraryIrt))
                 .ToList();
+            var anchors = confident.Select(m => (m.ApexRt, m.LibraryIrt)).ToList();
             if (anchors.Count < options.MinimumAnchors)
                 break;
-            calibration = Fit(anchors, options, windowSds) with { Rounds = round };
+            // The same confident targets give the run's MS1 offset (calibration searches without one, so the errors are raw)
+            calibration = Fit(anchors, options, windowSds) with
+            {
+                Rounds = round,
+                Ms1Offset = Ms1OffsetModel.Fit(confident.Select(m => (m.ApexRt.Value, m.Ms1ApexErrorPpm))),
+            };
         }
         return calibration;
     }

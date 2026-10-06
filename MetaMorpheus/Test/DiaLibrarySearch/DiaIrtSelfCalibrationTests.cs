@@ -54,6 +54,23 @@ public class DiaIrtSelfCalibrationTests
         Assert.That(on.Anchors, Is.EqualTo(off.Anchors));
     }
 
+    /// <summary>
+    /// Calibration also fits the run's MS1 offset from its anchors' raw MS1 errors; the synthetic run has none, so the
+    /// fitted offset is near 0. Calibration's own passes search without an offset.
+    /// </summary>
+    [Test]
+    public void CalibrationFitsTheRunsMs1Offset()
+    {
+        var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0, withMs1: true);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+
+        var calibration = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new CommonParameters());
+
+        Assert.That(calibration.Ms1Offset, Is.Not.Null);
+        Assert.That(Math.Abs(calibration.Ms1Offset!.OffsetPpm(5)), Is.LessThan(1));
+        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters(Ms1Offset: Ms1OffsetModel.Constant(3))).Ms1Offset, Is.Null);
+    }
+
     /// <summary>The first pass's confident identifications recover the run's true, nonlinear RT(iRT).</summary>
     [Test]
     public void TheFirstPassRecoversTheRunsTrueCurve()
