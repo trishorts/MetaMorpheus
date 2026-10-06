@@ -381,7 +381,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             // than an average that an interfered fragment drags along (DIA-NN's approach, Demichev et al. 2020)
             int from = Math.Max(0, apex - _parameters.ApexHalfWidthScans);
             int to = Math.Min(reachable.Length - 1, apex + _parameters.ApexHalfWidthScans);
-            double coElution = 0, tightCoElution = 0, remainingCoElution = 0, maxToleranceCoElution = 0;
+            double coElution = 0, tightCoElution = 0, remainingCoElution = 0, maxToleranceCoElution = 0, sqrtCoElution = 0;
             var fragmentCorrelations = new double[CoreFragmentCount];
             double[]? reference = null;
             if (to > from)
@@ -402,6 +402,12 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                     for (int f = 0; f < correlations.Length; f++)
                         sum += Math.Max(correlations[f], Math.Max(atTight[f], atFinest[f]));
                     maxToleranceCoElution = sum / correlations.Length;
+                }
+                // The same on square-root traces: the apex scans weigh less against the flanks
+                if (_parameters.SqrtCoElution)
+                {
+                    double[][] sqrtCore = core.Select(trace => trace.Select(Math.Sqrt).ToArray()).ToArray();
+                    sqrtCoElution = FragmentCoElution.CorrelationsTo(sqrtCore, reference.Select(Math.Sqrt).ToArray(), from, to).Average();
                 }
             }
             double cosine = SpectralSimilarity.CosineOfAlignedVectors(apexIntensities, libraryIntensities);
@@ -697,6 +703,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1TightCorrelation,
                 ms1PeakMassError,
                 ms1Isotope2Correlation,
+                sqrtCoElution,
             ];
 
             yield return new DiaPrecursorMatch(

@@ -461,6 +461,29 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// Co-elution can also be read on square-root traces, which damp the apex scans so the peak's flanks weigh more: the core
+    /// fragments' mean correlation with the square-rooted profile. 0 unless asked for; a planted precursor's fragments share
+    /// one elution shape, so it stays high.
+    /// </summary>
+    [Test]
+    public void CoElutionCanBeReadOnSquareRootTraces()
+    {
+        int sqrt = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "SqrtCoElution");
+        Assert.That(sqrt, Is.GreaterThanOrEqualTo(0));
+        Assert.That(new DiaLibrarySearchParameters().SqrtCoElution, Is.False);
+
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(bool on) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(SqrtCoElution: on), new CommonParameters(), [], []).Run();
+
+        Assert.That(SearchWith(false).Matches.Select(m => m.Features[sqrt]), Has.All.EqualTo(0));
+        var planted = SearchWith(true).Matches.Where(m => run.PlantedSequences.Contains(m.FullSequence)).Select(m => m.Features[sqrt]).Order().ToArray();
+        Assert.That(planted, Is.Not.Empty);
+        Assert.That(planted[planted.Length / 2], Is.GreaterThan(0.5));
+    }
+
+    /// <summary>
     /// The classifier network's hidden layers can be set (null keeps the rescorer's default, DIA-NN 2020's 25-20-15-10-5). A
     /// search with another architecture gives other scores, and a zero-unit layer is refused.
     /// </summary>
