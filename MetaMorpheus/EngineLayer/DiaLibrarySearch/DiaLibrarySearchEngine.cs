@@ -648,6 +648,17 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1ToFragmentLogRatio = ms1LogIntensity - Math.Log10(1 + areaSum);
             }
 
+            // Ms1PeakSignalFraction: the share of the window's M0 signal inside this peak, as PeakSignalFraction does for fragments
+            double ms1PeakSignalFraction = 0;
+            if (_parameters.Ms1PeakSignalFraction && ms1Mono is not null)
+            {
+                double ms1Window = ms1Mono.Sum();
+                double ms1Peak = 0;
+                for (int s = peakStart; s <= peakEnd; s++)
+                    ms1Peak += ms1Mono[s];
+                ms1PeakSignalFraction = ms1Window > 0 ? ms1Peak / ms1Window : 0;
+            }
+
             double extraCoElution = 0, extraMatchedFraction = 0, extraWeightedCoElution = 0;
             if (reference is not null && extraTraces.Length > 0)
             {
@@ -762,6 +773,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1PeakEnvelopeTightCosine,
                 ms1LogIntensity,
                 ms1ToFragmentLogRatio,
+                ms1PeakSignalFraction,
             ];
 
             yield return new DiaPrecursorMatch(

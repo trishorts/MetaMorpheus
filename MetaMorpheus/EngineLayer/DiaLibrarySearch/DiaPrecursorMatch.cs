@@ -116,5 +116,6 @@ public sealed record DiaPrecursorMatch(
         "Ms1PeakEnvelopeTightCosine", // the same from MS1 peaks within 0.6x the MS1 tolerance only (0 unless Ms1PeakEnvelopeTight)
         "Ms1LogIntensity",      // log10(1 + M0 summed over the peak's MS1 scans) (0 unless Ms1Intensity)
         "Ms1ToFragmentLogRatio", // that less log10(1 + the fragments' summed peak area) (0 unless Ms1Intensity)
+        "Ms1PeakSignalFraction", // share of the window's MS1 M0 signal inside the peak (0 unless Ms1PeakSignalFraction)
     ];
 }

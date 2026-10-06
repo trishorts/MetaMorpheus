@@ -589,6 +589,40 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// The MS1 counterpart of PeakSignalFraction: the share of the extraction window's M0 signal inside this peak. A true peak
+    /// owns most of its precursor's MS1; an apex on a minor bump does not. Off gives zeros; on, planted precursors score
+    /// higher than unplanted matches, and every value is a share.
+    /// </summary>
+    [Test]
+    public void Ms1PeakSignalFractionCanBeAFeature()
+    {
+        int share = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1PeakSignalFraction");
+        Assert.That(share, Is.GreaterThanOrEqualTo(0));
+        Assert.That(new DiaLibrarySearchParameters().Ms1PeakSignalFraction, Is.False);
+
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(bool on) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(Ms1PeakSignalFraction: on), new CommonParameters(), [], []).Run();
+        static double Median(IEnumerable<double> values)
+        {
+            var sorted = values.Order().ToArray();
+            Assert.That(sorted, Is.Not.Empty);
+            return sorted[sorted.Length / 2];
+        }
+
+        Assert.That(SearchWith(false).Matches.Select(m => m.Features[share]), Has.All.EqualTo(0));
+        var on = SearchWith(true).Matches;
+        Assert.That(on.Select(m => m.Features[share]), Has.All.InRange(0, 1));
+        double planted = Median(on.Where(m => run.PlantedSequences.Contains(m.FullSequence)).Select(m => m.Features[share]));
+        double unplanted = Median(on.Where(m => !run.PlantedSequences.Contains(m.FullSequence)).Select(m => m.Features[share]));
+        Assert.That(planted, Is.GreaterThan(0.5));
+        Assert.That(planted, Is.GreaterThan(unplanted));
+        Assert.That(on.Where(m => !run.PlantedSequences.Contains(m.FullSequence)).Select(m => m.Features[share]), Has.Some.InRange(0.01, 0.9),
+            "an unplanted match that sees stray MS1 mostly sees it outside its peak");
+    }
+
+    /// <summary>
     /// The classifier network's hidden layers can be set (null keeps the rescorer's default, DIA-NN 2020's 25-20-15-10-5). A
     /// search with another architecture gives other scores, and a zero-unit layer is refused.
     /// </summary>
