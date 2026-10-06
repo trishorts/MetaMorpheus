@@ -112,5 +112,6 @@ public sealed record DiaPrecursorMatch(
         "Ms1PeakMassErrorPpm",  // M0 |mass error| over the co-elution window, intensity-weighted (0 unless Ms1PeakFeatures)
         "Ms1Isotope2Correlation", // the M+2 isotope trace against the profile (0 unless Ms1PeakFeatures)
         "SqrtCoElution",        // core fragments' co-elution on square-root traces (0 unless SqrtCoElution)
+        "Ms1PeakEnvelopeCosine", // MS1 M-1..M3 summed over the window's MS1 scans vs the expected envelope (0 unless Ms1PeakEnvelope)
     ];
 }

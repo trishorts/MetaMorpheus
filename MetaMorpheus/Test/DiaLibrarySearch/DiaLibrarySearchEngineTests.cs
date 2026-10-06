@@ -484,6 +484,44 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// The MS1 envelope read across the peak, not at one scan: M-1 to M3 summed over the co-elution window's MS1 scans,
+    /// against the expected pattern with nothing at M-1. A clean envelope scores near 1; a peak one isotope below as large as
+    /// M0 (our M0 is then probably another ion's M+1) pulls it well down.
+    /// </summary>
+    [Test]
+    public void PeakEnvelopeCosinePenalisesAPeakOneIsotopeBelow()
+    {
+        double[] expected = DiaLibrarySearchEngine.ExpectedIsotopes(1500, 4);
+        double[] clean = [0, .. expected.Select(e => 1000 * e)];
+        double[] shadowed = [1000 * expected[0], .. expected.Select(e => 1000 * e)];
+
+        Assert.That(DiaLibrarySearchEngine.PeakEnvelopeCosine(clean, expected), Is.EqualTo(1).Within(1e-9));
+        Assert.That(DiaLibrarySearchEngine.PeakEnvelopeCosine(shadowed, expected), Is.LessThan(0.85));
+        Assert.That(DiaLibrarySearchEngine.PeakEnvelopeCosine(new double[5], expected), Is.EqualTo(0));
+    }
+
+    /// <summary>
+    /// The peak envelope as a feature (Ms1PeakEnvelope): 0 unless asked for; on, a planted precursor's M0-M3 follow the
+    /// expected pattern on every MS1 scan, so its summed envelope scores near 1.
+    /// </summary>
+    [Test]
+    public void Ms1EnvelopeCanBeReadAcrossThePeak()
+    {
+        int envelope = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1PeakEnvelopeCosine");
+        Assert.That(envelope, Is.GreaterThanOrEqualTo(0));
+        Assert.That(new DiaLibrarySearchParameters().Ms1PeakEnvelope, Is.False);
+
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(bool on) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(Ms1PeakEnvelope: on), new CommonParameters(), [], []).Run();
+
+        Assert.That(SearchWith(false).Matches.Select(m => m.Features[envelope]), Has.All.EqualTo(0));
+        var planted = SearchWith(true).Matches.Where(m => run.PlantedSequences.Contains(m.FullSequence)).Select(m => m.Features[envelope]).Order().ToArray();
+        Assert.That(planted, Is.Not.Empty);
+        Assert.That(planted[planted.Length / 2], Is.GreaterThan(0.95));
+    }
+    /// <summary>
     /// The classifier network's hidden layers can be set (null keeps the rescorer's default, DIA-NN 2020's 25-20-15-10-5). A
     /// search with another architecture gives other scores, and a zero-unit layer is refused.
     /// </summary>

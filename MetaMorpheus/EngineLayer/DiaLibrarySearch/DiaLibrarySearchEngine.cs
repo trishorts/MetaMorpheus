@@ -594,6 +594,27 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1ApexShare = windowMax > 0 ? atApex / windowMax : 0;
             }
 
+            // Ms1PeakEnvelope: M-1 to M3 summed over every MS1 scan of the co-elution window, so a faint precursor's envelope
+            // rests on several scans rather than the one nearest the apex
+            double ms1PeakEnvelopeCosine = 0;
+            if (_parameters.Ms1PeakEnvelope && _ms1Index is not null)
+            {
+                int z = Math.Max(1, (int)candidate.Charge);
+                var summedEnvelope = new double[5];
+                int lastMs1 = -1;
+                for (int s = from; s <= to; s++)
+                {
+                    double scanRt = scans[reachable[s]].RetentionTime;
+                    int ms1Scan = NearestMs1(scanRt);
+                    if (ms1Scan == lastMs1)
+                        continue;
+                    lastMs1 = ms1Scan;
+                    for (int k = -1; k <= 3; k++)
+                        summedEnvelope[k + 1] += _ms1Index.GetIndexedPeak(Ms1Target(candidate.PrecursorMz + k * 1.0033548 / z, scanRt), ms1Scan, Ms1Tolerance)?.Intensity ?? 0;
+                }
+                ms1PeakEnvelopeCosine = PeakEnvelopeCosine(summedEnvelope, ExpectedIsotopes((candidate.PrecursorMz - 1.007276) * z, 4));
+            }
+
             double extraCoElution = 0, extraMatchedFraction = 0, extraWeightedCoElution = 0;
             if (reference is not null && extraTraces.Length > 0)
             {
@@ -704,6 +725,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1PeakMassError,
                 ms1Isotope2Correlation,
                 sqrtCoElution,
+                ms1PeakEnvelopeCosine,
             ];
 
             yield return new DiaPrecursorMatch(
@@ -978,6 +1000,18 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         for (int k = 1; k < count; k++)
             p[k] = p[k - 1] * lambda / k;
         return p;
+    }
+
+    /// <summary>
+    /// Cosine of an observed MS1 envelope, <paramref name="observedMinus1ToM3"/> (M-1, M0, ... M3), against
+    /// <paramref name="expectedM0ToM3"/> with nothing expected at M-1: a peak one isotope below lowers it, as it marks our M0
+    /// as probably another ion's isotope. 0 when nothing was observed.
+    /// </summary>
+    internal static double PeakEnvelopeCosine(double[] observedMinus1ToM3, double[] expectedM0ToM3)
+    {
+        if (!observedMinus1ToM3.Any(v => v > 0))
+            return 0;
+        return SpectralSimilarity.CosineOfAlignedVectors(observedMinus1ToM3, [0, .. expectedM0ToM3]);
     }
 
     private int NearestMs1(double retentionTime)
