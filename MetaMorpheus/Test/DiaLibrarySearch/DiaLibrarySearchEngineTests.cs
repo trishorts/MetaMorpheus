@@ -422,8 +422,9 @@ public class DiaLibrarySearchEngineTests
     [Test]
     public void TheMs1ToleranceCanBeSet()
     {
-        // 10 ppm since 2026-10-05: two-seed means at a matched paired FDP of 1%, +1.1% HF-X, +1.6% PXD005573 (20 before)
-        Assert.That(new DiaLibrarySearchParameters().Ms1TolerancePpm, Is.EqualTo(10));
+        // 5 ppm since 2026-10-06, with the calibrated MS1 offset applied: two-seed means at a matched paired FDP of 1%,
+        // +1.6% HF-X, +1.3% PXD005573 against 10 ppm without it (10 since 2026-10-05, 20 before)
+        Assert.That(new DiaLibrarySearchParameters().Ms1TolerancePpm, Is.EqualTo(5));
         int ms1Error = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1MassErrorPpm");
 
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);

@@ -26,6 +26,10 @@ public sealed record DiaIrtCalibration(IrtCalibrationModel Model, double IrtHalf
     /// ran a single round. A search applies it through <see cref="DiaLibrarySearchParameters.Ms1Offset"/>.
     /// </summary>
     public Ms1OffsetModel? Ms1Offset { get; init; }
+
+    /// <summary>The search's parameters with this calibration applied: its iRT window and its MS1 offset.</summary>
+    public DiaLibrarySearchParameters ApplyTo(DiaLibrarySearchParameters parameters) =>
+        parameters with { IrtHalfWindow = IrtHalfWindow, Ms1Offset = Ms1Offset };
 }
 
 /// <summary>
@@ -80,11 +84,18 @@ public static class DiaIrtSelfCalibration
     /// calibrate on.
     /// </exception>
     /// <summary>
-    /// The search's parameters as calibration uses them: every fragment scored, whatever the fragment rule. With the rule in
+    /// The search's parameters as calibration uses them: every fragment scored, whatever the fragment rule, and MS1 read at
+    /// <see cref="CalibrationMs1TolerancePpm"/> with no offset, since calibration is what fits the offset. With the rule in
     /// calibration too, the held-out run (PXD005573 1 h) lost 2.1% (two-seed means at a matched paired entrapment FDP of 1%).
     /// </summary>
     public static DiaLibrarySearchParameters CalibrationParameters(DiaLibrarySearchParameters parameters) =>
-        parameters with { DiaNnFragmentFilter = false, Ms1Offset = null };
+        parameters with { DiaNnFragmentFilter = false, Ms1Offset = null, Ms1TolerancePpm = CalibrationMs1TolerancePpm };
+
+    /// <summary>
+    /// MS1 tolerance during calibration, before the run's offset is known: wide enough for an error that drifts up to 3 ppm off
+    /// zero (PXD022589). The search's tighter default relies on the offset calibration fits.
+    /// </summary>
+    public const double CalibrationMs1TolerancePpm = 10;
 
     public static DiaIrtCalibration Calibrate(MsDataScan[] scans, MslLibrary library, DiaLibrarySearchParameters parameters,
         CommonParameters commonParameters, IrtCalibrationOptions? options = null, int firstPassTargetCount = FirstPassTargetCount,

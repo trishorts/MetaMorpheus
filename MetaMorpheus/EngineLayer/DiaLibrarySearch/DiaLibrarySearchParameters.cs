@@ -80,8 +80,10 @@ namespace EngineLayer.DiaLibrarySearch;
 /// <param name="ClassifierNetworkLayers">The classifier network's hidden layers, input side first; null keeps the rescorer's default (DIA-NN 2020's 25-20-15-10-5).</param>
 /// <param name="Ms1TightCorrelation">A feature: MS1 M0 co-elution from peaks within half the MS1 tolerance, as DIA-NN scores MS1 at several tolerances.</param>
 /// <param name="Ms1TolerancePpm">
-/// MS1 tolerance for the precursor's traces, isotope envelope and mass error. 10 ppm by default: against 20, two-seed means
-/// at a matched paired entrapment FDP of 1% gain 1.1% (HF-X) and 1.6% (PXD005573 1 h); fewer random MS1 peaks in the traces.
+/// MS1 tolerance for the precursor's traces, isotope envelope and mass error, around the offset-corrected m/z
+/// (<see cref="Ms1Offset"/>). 5 ppm by default, with the calibrated offset applied: against 10 ppm without it, two-seed means
+/// at a matched paired entrapment FDP of 1% gain 1.6% (HF-X) and 1.3% (PXD005573 1 h). 10 ppm against 20 gained 1.1% and
+/// 1.6%. Without the offset, 5 ppm clipped real precursors as the run's error drifted up to 3 ppm off zero.
 /// </param>
 /// <param name="DiaNnFragmentFilter">
 /// Score only fragments DIA-NN would (at least 3 residues, 200-1800 m/z), when at least 3 of a precursor's qualify. On by
@@ -146,7 +148,7 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     int FragmentMinimumResidues = 3,
     int FragmentMaximumCharge = 0,
     bool FragmentChargeBelowPrecursor = false,
-    double Ms1TolerancePpm = 10,
+    double Ms1TolerancePpm = 5,
     bool Ms1TightCorrelation = false,
     int[]? ClassifierNetworkLayers = null,
     double? ClassifierNetworkPositiveQValue = null,

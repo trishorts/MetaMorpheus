@@ -45,7 +45,8 @@ public class DiaIrtSelfCalibrationTests
         var search = new DiaLibrarySearchParameters(DiaNnFragmentFilter: true, TopFragmentCount: 10);
         var calibrationParameters = DiaIrtSelfCalibration.CalibrationParameters(search);
         Assert.That(calibrationParameters.DiaNnFragmentFilter, Is.False);
-        Assert.That(calibrationParameters with { DiaNnFragmentFilter = true }, Is.EqualTo(search), "nothing else changes");
+        Assert.That(calibrationParameters with { DiaNnFragmentFilter = true, Ms1TolerancePpm = search.Ms1TolerancePpm }, Is.EqualTo(search),
+            "nothing else changes but calibration's own MS1 tolerance");
 
         var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
@@ -69,6 +70,13 @@ public class DiaIrtSelfCalibrationTests
         Assert.That(calibration.Ms1Offset, Is.Not.Null);
         Assert.That(Math.Abs(calibration.Ms1Offset!.OffsetPpm(5)), Is.LessThan(1));
         Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters(Ms1Offset: Ms1OffsetModel.Constant(3))).Ms1Offset, Is.Null);
+        // Calibration reads MS1 at its own fixed tolerance (the offset is not known yet), whatever the search's
+        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters(Ms1TolerancePpm: 5)).Ms1TolerancePpm,
+            Is.EqualTo(DiaIrtSelfCalibration.CalibrationMs1TolerancePpm));
+        // Applying a calibration sets the search's iRT window and MS1 offset together
+        var applied = calibration.ApplyTo(new DiaLibrarySearchParameters());
+        Assert.That(applied.IrtHalfWindow, Is.EqualTo(calibration.IrtHalfWindow));
+        Assert.That(applied.Ms1Offset, Is.SameAs(calibration.Ms1Offset));
     }
 
     /// <summary>The first pass's confident identifications recover the run's true, nonlinear RT(iRT).</summary>
