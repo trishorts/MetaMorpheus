@@ -163,7 +163,7 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool Ms1PeakEnvelope = true,
     double? Ms1ToleranceSpreadMultiple = null,
     bool Ms1PeakEnvelopeTight = false,
-    bool Ms1Intensity = false)
+    bool Ms1Intensity = true)
 {
     /// <summary>
     /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual

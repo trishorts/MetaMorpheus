@@ -562,7 +562,7 @@ public class DiaLibrarySearchEngineTests
         int ratio = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1ToFragmentLogRatio");
         Assert.That(intensity, Is.GreaterThanOrEqualTo(0));
         Assert.That(ratio, Is.EqualTo(intensity + 1));
-        Assert.That(new DiaLibrarySearchParameters().Ms1Intensity, Is.False);
+        Assert.That(new DiaLibrarySearchParameters().Ms1Intensity, Is.True);
 
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
