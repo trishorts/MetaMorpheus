@@ -596,11 +596,14 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
 
             // Ms1PeakEnvelope: M-1 to M3 summed over every MS1 scan of the co-elution window, so a faint precursor's envelope
             // rests on several scans rather than the one nearest the apex
-            double ms1PeakEnvelopeCosine = 0;
-            if (_parameters.Ms1PeakEnvelope && _ms1Index is not null)
+            // Ms1PeakEnvelopeTight: the same from peaks within 0.6x the MS1 tolerance, so the envelope is seen at two widths
+            double ms1PeakEnvelopeCosine = 0, ms1PeakEnvelopeTightCosine = 0;
+            if ((_parameters.Ms1PeakEnvelope || _parameters.Ms1PeakEnvelopeTight) && _ms1Index is not null)
             {
                 int z = Math.Max(1, (int)candidate.Charge);
                 var summedEnvelope = new double[5];
+                var tightEnvelope = new double[5];
+                double envelopeTightPpm = 0.6 * Ms1Tolerance.Value;
                 int lastMs1 = -1;
                 for (int s = from; s <= to; s++)
                 {
@@ -610,9 +613,21 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                         continue;
                     lastMs1 = ms1Scan;
                     for (int k = -1; k <= 3; k++)
-                        summedEnvelope[k + 1] += _ms1Index.GetIndexedPeak(Ms1Target(candidate.PrecursorMz + k * 1.0033548 / z, scanRt), ms1Scan, Ms1Tolerance)?.Intensity ?? 0;
+                    {
+                        double target = Ms1Target(candidate.PrecursorMz + k * 1.0033548 / z, scanRt);
+                        var peak = _ms1Index.GetIndexedPeak(target, ms1Scan, Ms1Tolerance);
+                        if (peak is null)
+                            continue;
+                        summedEnvelope[k + 1] += peak.Intensity;
+                        if (Math.Abs(peak.M - target) / target * 1e6 <= envelopeTightPpm)
+                            tightEnvelope[k + 1] += peak.Intensity;
+                    }
                 }
-                ms1PeakEnvelopeCosine = PeakEnvelopeCosine(summedEnvelope, ExpectedIsotopes((candidate.PrecursorMz - 1.007276) * z, 4));
+                double[] expectedEnvelope = ExpectedIsotopes((candidate.PrecursorMz - 1.007276) * z, 4);
+                if (_parameters.Ms1PeakEnvelope)
+                    ms1PeakEnvelopeCosine = PeakEnvelopeCosine(summedEnvelope, expectedEnvelope);
+                if (_parameters.Ms1PeakEnvelopeTight)
+                    ms1PeakEnvelopeTightCosine = PeakEnvelopeCosine(tightEnvelope, expectedEnvelope);
             }
 
             double extraCoElution = 0, extraMatchedFraction = 0, extraWeightedCoElution = 0;
@@ -726,6 +741,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1Isotope2Correlation,
                 sqrtCoElution,
                 ms1PeakEnvelopeCosine,
+                ms1PeakEnvelopeTightCosine,
             ];
 
             yield return new DiaPrecursorMatch(

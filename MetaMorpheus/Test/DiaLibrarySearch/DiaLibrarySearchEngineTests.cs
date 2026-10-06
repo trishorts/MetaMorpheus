@@ -521,7 +521,34 @@ public class DiaLibrarySearchEngineTests
         Assert.That(planted, Is.Not.Empty);
         Assert.That(planted[planted.Length / 2], Is.GreaterThan(0.95));
     }
+
     /// <summary>
+    /// The peak envelope again from tight peaks only (Ms1PeakEnvelopeTight): a second column reading only MS1 peaks within
+    /// 0.6x the MS1 tolerance, so the network sees the envelope at two widths while lookups stay at the full one. 0 unless
+    /// asked for; on, a planted precursor's isotopes sit at their m/z, so its tight envelope also scores near 1.
+    /// </summary>
+    [Test]
+    public void Ms1EnvelopeCanAlsoBeReadFromTightPeaksOnly()
+    {
+        int tight = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1PeakEnvelopeTightCosine");
+        Assert.That(tight, Is.GreaterThanOrEqualTo(0));
+        Assert.That(new DiaLibrarySearchParameters().Ms1PeakEnvelopeTight, Is.False);
+
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(bool on, double ppmOffset = 0) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(Ms1PeakEnvelopeTight: on, Ms1Offset: ppmOffset == 0 ? null : Ms1OffsetModel.Constant(ppmOffset)), new CommonParameters(), [], []).Run();
+        double MedianFor(DiaLibrarySearchResults results)
+        {
+            var values = results.Matches.Where(m => run.PlantedSequences.Contains(m.FullSequence)).Select(m => m.Features[tight]).Order().ToArray();
+            Assert.That(values, Is.Not.Empty);
+            return values[values.Length / 2];
+        }
+
+        Assert.That(SearchWith(false).Matches.Select(m => m.Features[tight]), Has.All.EqualTo(0));
+        Assert.That(MedianFor(SearchWith(true)), Is.GreaterThan(0.95));
+        Assert.That(MedianFor(SearchWith(true, ppmOffset: 4)), Is.LessThan(0.5), "peaks 4 ppm off are outside 3 ppm, though inside 5");
+    }    /// <summary>
     /// The classifier network's hidden layers can be set (null keeps the rescorer's default, DIA-NN 2020's 25-20-15-10-5). A
     /// search with another architecture gives other scores, and a zero-unit layer is refused.
     /// </summary>
