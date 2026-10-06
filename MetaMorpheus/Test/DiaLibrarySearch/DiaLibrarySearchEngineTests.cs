@@ -481,6 +481,26 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// The confident network sample can keep only targets that pass a q-value as positives (null, the default, keeps the top
+    /// half-cap of targets whatever their q). With a training cap small enough for the confident sample to apply, the scores
+    /// change.
+    /// </summary>
+    [Test]
+    public void TheNetworksPositivesCanBeLimitedToPassingTargets()
+    {
+        Assert.That(new DiaLibrarySearchParameters().ClassifierNetworkPositiveQValue, Is.Null);
+
+        var run = SyntheticDiaRun.Build(200, entry => SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(double? cutoff) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(ClassifierNetworkPositiveQValue: cutoff, MaxNetworkTrainingRows: 100, ClassifierNetworkMembers: 3),
+            new CommonParameters(), [], []).Run();
+
+        // Decoys are planted too, so few targets pass a strict cutoff here; a loose one bites
+        Assert.That(SearchWith(0.25).Matches.Select(m => m.Score), Is.Not.EqualTo(SearchWith(null).Matches.Select(m => m.Score)));
+    }
+
+    /// <summary>
     /// A cheap gate before the full features, as DIA-NN's: a scan can be a candidate apex only if at least this many of the
     /// six most intense library fragments are seen there. Noise-only candidates are never scored, so the search scores
     /// fewer of them and still finds what was planted.
