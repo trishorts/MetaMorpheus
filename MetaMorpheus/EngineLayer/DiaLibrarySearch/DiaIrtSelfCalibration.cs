@@ -75,6 +75,12 @@ public static class DiaIrtSelfCalibration
     public static int FirstPassStride(int targetCount, int firstPassTargetCount = FirstPassTargetCount) =>
         Math.Max(1, (int)Math.Ceiling((double)targetCount / firstPassTargetCount));
 
+    /// <summary>
+    /// Calibration's interference rule (<see cref="DiaLibrarySearchParameters.InterferenceExplainedFragments"/>): the main
+    /// search's 3 was benchmarked with calibration at 4.
+    /// </summary>
+    public const int CalibrationInterferenceExplainedFragments = 4;
+
     /// <param name="sampleOffset">
     /// Which of each pass's samples to draw (<see cref="DiaLibrarySearchParameters.PrecursorSampleOffset"/>, taken modulo the
     /// pass's stride). 0 by default; others repeat calibration on a disjoint sample.
@@ -91,7 +97,8 @@ public static class DiaIrtSelfCalibration
     /// anchors and cost HF-X 1.5% on seed 0.
     /// </summary>
     public static DiaLibrarySearchParameters CalibrationParameters(DiaLibrarySearchParameters parameters) =>
-        parameters with { DiaNnFragmentFilter = false, Ms1Offset = null, Ms1TolerancePpm = CalibrationMs1TolerancePpm, DiaNnSignalShare = false };
+        parameters with { DiaNnFragmentFilter = false, Ms1Offset = null, Ms1TolerancePpm = CalibrationMs1TolerancePpm, DiaNnSignalShare = false,
+            InterferenceExplainedFragments = CalibrationInterferenceExplainedFragments };
 
     /// <summary>
     /// MS1 tolerance during calibration, before the run's offset is known: wide enough for an error that drifts up to 3 ppm off

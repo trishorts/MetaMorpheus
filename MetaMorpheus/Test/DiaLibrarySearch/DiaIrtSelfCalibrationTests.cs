@@ -45,8 +45,9 @@ public class DiaIrtSelfCalibrationTests
         var search = new DiaLibrarySearchParameters(DiaNnFragmentFilter: true, TopFragmentCount: 10);
         var calibrationParameters = DiaIrtSelfCalibration.CalibrationParameters(search);
         Assert.That(calibrationParameters.DiaNnFragmentFilter, Is.False);
-        Assert.That(calibrationParameters with { DiaNnFragmentFilter = true, Ms1TolerancePpm = search.Ms1TolerancePpm, DiaNnSignalShare = search.DiaNnSignalShare },
-            Is.EqualTo(search), "nothing else changes but calibration's own MS1 tolerance and the signal share");
+        Assert.That(calibrationParameters with { DiaNnFragmentFilter = true, Ms1TolerancePpm = search.Ms1TolerancePpm, DiaNnSignalShare = search.DiaNnSignalShare,
+                InterferenceExplainedFragments = search.InterferenceExplainedFragments },
+            Is.EqualTo(search), "nothing else changes but calibration's own MS1 tolerance, the signal share and the interference rule");
 
         var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
@@ -70,6 +71,24 @@ public class DiaIrtSelfCalibrationTests
         var on = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(DiaNnSignalShare: true), new CommonParameters());
         var off = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(DiaNnSignalShare: false), new CommonParameters());
         Assert.That(on.Anchors, Is.EqualTo(off.Anchors));
+    }
+
+    /// <summary>
+    /// Calibration removes interference at 4 explained fragments, whatever the search uses: the main search's 3 was
+    /// benchmarked with calibration at 4. Calibration gives the same anchors whichever rule the search sets.
+    /// </summary>
+    [Test]
+    public void CalibrationKeepsItsOwnInterferenceRule()
+    {
+        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters(InterferenceExplainedFragments: 3)).InterferenceExplainedFragments,
+            Is.EqualTo(DiaIrtSelfCalibration.CalibrationInterferenceExplainedFragments));
+        Assert.That(DiaIrtSelfCalibration.CalibrationInterferenceExplainedFragments, Is.EqualTo(4));
+
+        var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0, noisePeaksPerScan: 3000);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        var three = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(InterferenceExplainedFragments: 3), new CommonParameters());
+        var six = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(InterferenceExplainedFragments: 6), new CommonParameters());
+        Assert.That(three.Anchors, Is.EqualTo(six.Anchors));
     }
 
     /// <summary>

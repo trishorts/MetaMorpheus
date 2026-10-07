@@ -24,7 +24,9 @@ namespace EngineLayer.DiaLibrarySearch;
 /// </param>
 /// <param name="InterferenceExplainedFragments">
 /// Interference removal (<see cref="DiaInterferenceRemoval"/>): a match is dropped when a better, co-eluting match explains
-/// at least this many of its six most intense library fragments. 0 turns removal off.
+/// at least this many of its six most intense library fragments. 0 turns removal off. 3 by default: against 4, two-seed
+/// means gained 0.75% (HF-X) and 1.21% (held-out); 6 lost 7.4% / 7.7%. Calibration keeps 4
+/// (<see cref="DiaIrtSelfCalibration.CalibrationInterferenceExplainedFragments"/>).
 /// </param>
 /// <param name="ClassifierNetworkMembers">
 /// Networks in the classifier's ensemble. 12, as DIA-NN, trained 10 epochs each: at a matched entrapment FDP of 1%, +1.6%
@@ -130,7 +132,7 @@ namespace EngineLayer.DiaLibrarySearch;
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
     int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 10, double ClassifierTrainingQValue = 0.01,
     StatisticalModels.RescoreModel ClassifierModel = StatisticalModels.RescoreModel.NeuralNetworkEnsemble,
-    int InterferenceExplainedFragments = 4,
+    int InterferenceExplainedFragments = 3,
     int? MaxNetworkTrainingRows = 250_000,
     bool InterferenceSameMzOnly = false,
     int ClassifierSeed = 0,

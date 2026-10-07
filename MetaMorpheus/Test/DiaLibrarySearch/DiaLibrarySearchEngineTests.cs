@@ -1115,6 +1115,16 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// The main search removes a match once a better co-eluting match explains 3 of its top fragments: against 4, two-seed
+    /// means gained 0.75% on HF-X and 1.21% on the held-out run (6 lost 7.4% / 7.7%).
+    /// </summary>
+    [Test]
+    public void InterferenceRemovalNeedsThreeExplainedFragmentsByDefault()
+    {
+        Assert.That(new DiaLibrarySearchParameters().InterferenceExplainedFragments, Is.EqualTo(3));
+    }
+
+    /// <summary>
     /// The classifier's network can train on a random subsample of each fold (mzLib's maxNetworkTrainingRows): on a
     /// whole-proteome library, training on every row was two thirds of the search. A cap above the row count changes
     /// nothing; a small one reaches the rescorer.
