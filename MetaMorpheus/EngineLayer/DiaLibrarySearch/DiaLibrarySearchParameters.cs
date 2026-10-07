@@ -90,10 +90,6 @@ namespace EngineLayer.DiaLibrarySearch;
 /// How far apart, in cycles, two apexes may be and still co-elute for interference removal; null for
 /// <see cref="ApexHalfWidthScans"/> + 1.
 /// </param>
-/// <param name="Ms1ApexOffset">
-/// A feature: the cycles from the fragment apex to the co-elution window's M0 maximum, capped at
-/// <see cref="DiaLibrarySearchEngine.Ms1ApexOffsetCap"/> (also the value with no M0).
-/// </param>
 /// <param name="Ms1PeakEnvelope">A feature: the MS1 M-1 to M3 envelope summed over the co-elution window's MS1 scans, against the expected pattern with nothing at M-1.</param>
 /// <param name="Ms1TightCorrelation">A feature: MS1 M0 co-elution from peaks within half the MS1 tolerance, as DIA-NN scores MS1 at several tolerances.</param>
 /// <param name="Ms1TolerancePpm">
@@ -179,8 +175,7 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool Ms1Intensity = true,
     bool Ms1PeakSignalFraction = false,
     bool Ms1PeakPoints = false,
-    double? InterferenceRtToleranceCycles = null,
-    bool Ms1ApexOffset = false)
+    double? InterferenceRtToleranceCycles = null)
 {
     /// <summary>
     /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual

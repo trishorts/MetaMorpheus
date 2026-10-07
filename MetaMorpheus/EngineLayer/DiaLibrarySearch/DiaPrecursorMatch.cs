@@ -121,6 +121,5 @@ public sealed record DiaPrecursorMatch(
         "Ms1ToFragmentLogRatio", // that less log10(1 + the fragments' summed peak area) (0 unless Ms1Intensity)
         "Ms1PeakSignalFraction", // share of the window's MS1 M0 signal inside the peak (0 unless Ms1PeakSignalFraction)
         "Ms1PeakPointFraction", // share of the peak's distinct MS1 scans with an M0 found (0 unless Ms1PeakPoints)
-        "Ms1ApexOffsetCycles",  // cycles from the fragment apex to the window's M0 maximum, capped (0 unless Ms1ApexOffset)
     ];
 }
