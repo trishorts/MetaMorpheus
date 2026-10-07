@@ -44,7 +44,7 @@ public class DiaLibrarySearchTask : MetaMorpheusTask
     /// A match as a row of AllDiaPrecursors.tsv (mzLib's <see cref="DiaPrecursorFromTsv"/>, the schema agreed with dataRepo).
     /// The run key is the file name as given; the quantity is empty when not measured.
     /// </summary>
-    internal static DiaPrecursorFromTsv PrecursorRow(DiaPrecursorMatch match, string fileName, MslLibrary library, bool singleRun)
+    internal static DiaPrecursorFromTsv PrecursorRow(DiaPrecursorMatch match, string fileName, MslLibrary library, double globalQValue)
     {
         var entry = library.GetEntry(match.PrecursorIndex);
         return new DiaPrecursorFromTsv
@@ -58,7 +58,7 @@ public class DiaLibrarySearchTask : MetaMorpheusTask
             Label = match.IsDecoy ? "D" : "T",
             Score = match.Score,
             QValuePrecursorRun = match.QValue,
-            QValuePrecursorGlobal = singleRun ? match.QValue : double.NaN,
+            QValuePrecursorGlobal = globalQValue,
             LibraryIrt = match.LibraryIrt.Value,
             ApexIrt = match.ApexIrt.Value,
             ApexRtMin = match.ApexRt.Value,
@@ -70,6 +70,13 @@ public class DiaLibrarySearchTask : MetaMorpheusTask
     /// <summary>The target precursors at or below the q-value threshold, which the headline counts and the table lists; never a decoy.</summary>
     public static IEnumerable<DiaPrecursorMatch> PassingTargets(IEnumerable<DiaPrecursorMatch> matches, double qValueThreshold) =>
         matches.Where(m => !m.IsDecoy && m.QValue <= qValueThreshold);
+
+    /// <summary>
+    /// A run's passing targets that are also reported (PLAN D4): those whose global q-value passes too.
+    /// </summary>
+    public static List<DiaPrecursorMatch> Reported(IEnumerable<DiaPrecursorMatch> runPassing, IReadOnlyDictionary<int, double> globalQValues,
+        double qValueThreshold) =>
+        runPassing.Where(m => globalQValues[m.PrecursorIndex] <= qValueThreshold).ToList();
 
     /// <summary>How many <see cref="PassingTargets"/> there are.</summary>
     public static int CountPassingTargets(IEnumerable<DiaPrecursorMatch> matches, double qValueThreshold) =>
@@ -90,9 +97,9 @@ public class DiaLibrarySearchTask : MetaMorpheusTask
         var parameters = Parameters.ToEngineParameters();
         string threshold = Parameters.QValueThreshold.ToString(CultureInfo.InvariantCulture);
 
-        int total = 0;
-        var perRun = new List<string>();
-        var rows = new List<DiaPrecursorFromTsv>();
+        // Each run's targets passing its own q-value, kept until every run is in and the global q-values are known
+        var passing = new List<(string FileName, List<DiaPrecursorMatch> Matches)>();
+        var bestScores = new DiaPrecursorFdr.BestScores();
         var calibrationLines = new List<string> { "File Name\tAnchorRtMin\tLibraryIrt\tCalibratedIrt\tResidualIrt" };
         foreach (string rawFile in currentRawFileList)
         {
@@ -116,16 +123,27 @@ public class DiaLibrarySearchTask : MetaMorpheusTask
             var results = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(scans, library, calibration.Model, calibration.ApplyTo(parameters),
                 CommonParameters, FileSpecificParameters, ids).Run();
 
-            int count = CountPassingTargets(results.Matches, Parameters.QValueThreshold);
-            total += count;
-            perRun.Add($"{fileName}: {count} target precursors with q-value <= {threshold}");
-            rows.AddRange(PassingTargets(results.Matches, Parameters.QValueThreshold)
-                .Select(m => PrecursorRow(m, fileName, library, singleRun: currentRawFileList.Count == 1)));
+            bestScores.Add(results.Matches);
+            passing.Add((fileName, PassingTargets(results.Matches, Parameters.QValueThreshold).ToList()));
             FinishedDataFile(rawFile, ids);
         }
 
-        // One row per target precursor at the threshold, so the table's rows are the headline. Global q-values across runs
-        // come with several-run searches (design/M7.md slice 3); until then they are written only for a single run.
+        // PLAN D4: a precursor is reported in a run when both its run q-value and its global q-value (best score across the
+        // runs, then target-decoy competition) pass. The headline is the distinct precursors reported; with one run the
+        // global q-value is the run's, so every run-passing target is reported.
+        var global = bestScores.GlobalQValues();
+        var rows = new List<DiaPrecursorFromTsv>();
+        var reported = new HashSet<int>();
+        var perRun = new List<string>();
+        foreach (var (fileName, matches) in passing)
+        {
+            var kept = Reported(matches, global, Parameters.QValueThreshold);
+            rows.AddRange(kept.Select(m => PrecursorRow(m, fileName, library, global[m.PrecursorIndex])));
+            reported.UnionWith(kept.Select(m => m.PrecursorIndex));
+            perRun.Add($"{fileName}: {kept.Count} target precursors with q-value <= {threshold}");
+        }
+        int total = reported.Count;
+
         string tablePath = Path.Combine(OutputFolder, "AllDiaPrecursors.tsv");
         new DiaPrecursorFile(tablePath, rows, contaminantsAssessed: dbFilenameList.Any(db => db.IsContaminant)).WriteResults(tablePath);
         FinishedWritingFile(tablePath, new List<string> { taskId });

@@ -143,6 +143,60 @@ public class DiaLibrarySearchTaskTests
     }
 
     /// <summary>
+    /// Several runs (M7 slice 3, PLAN D4): each row carries its run's q-value and the global one (best score across the runs,
+    /// then target-decoy competition); a row is reported when both pass; the headline counts distinct precursors, not rows.
+    /// </summary>
+    [Test]
+    public void SeveralRunsShareAGlobalQValue()
+    {
+        string folder = Path.Combine(_directory, "tworuns");
+        Directory.CreateDirectory(folder);
+        string WriteRun(string name, Func<Omics.SpectralMatch.MslSpectralLibrary.MslLibraryEntry, bool> plant, out SyntheticDiaRun run)
+        {
+            run = SyntheticDiaRun.Build(300, plant, withMs1: true, noisePeaksPerScan: 1500);
+            string mzml = Path.Combine(folder, name + ".mzML");
+            MzmlMethods.CreateAndWriteMyMzmlWithCalibratedSpectra(new GenericMsDataFile(AsWritten(run.Scans), new SourceFile("no nativeID format", "mzML format", null, null, null)), mzml, false);
+            return mzml;
+        }
+        string a = WriteRun("runA", e => !e.IsDecoy && SyntheticDiaRun.Bucket(e, 4) != 0, out var runA);
+        string b = WriteRun("runB", e => !e.IsDecoy && SyntheticDiaRun.Bucket(e, 3) != 0, out _);
+        string library = runA.WriteLibrary(folder);
+        string output = Path.Combine(folder, "output", "Task1");
+        Directory.CreateDirectory(output);
+
+        new DiaLibrarySearchTask().RunTask(output, [new DbForTask(library, false)], [a, b], "Task1");
+
+        // The same per-run searches by hand, and the global q-values over them
+        using var msl = Readers.SpectralLibrary.MslLibrary.Load(library);
+        var parameters = new DiaLibrarySearchTaskParameters().ToEngineParameters();
+        var byRun = new[] { a, b }.Select(path =>
+        {
+            var scans = DiaLibrarySearchTask.LoadScans(path);
+            var calibration = EngineLayer.DiaLibrarySearch.DiaIrtSelfCalibration.Calibrate(scans, msl, parameters, new CommonParameters());
+            return ((EngineLayer.DiaLibrarySearch.DiaLibrarySearchResults)new EngineLayer.DiaLibrarySearch.DiaLibrarySearchEngine(scans, msl,
+                calibration.Model, calibration.ApplyTo(parameters), new CommonParameters(), [], []).Run()).Matches;
+        }).ToArray();
+        var global = EngineLayer.DiaLibrarySearch.DiaPrecursorFdr.GlobalQValues(byRun);
+
+        var table = new DiaPrecursorFile(Path.Combine(output, "AllDiaPrecursors.tsv"));
+        table.LoadResults();
+        Assert.That(table.Results.Select(r => r.FileName).Distinct(), Is.EquivalentTo(new[] { "runA.mzML", "runB.mzML" }));
+        var expected = new[] { ("runA.mzML", byRun[0]), ("runB.mzML", byRun[1]) }
+            .SelectMany(r => r.Item2.Where(m => !m.IsDecoy && m.QValue <= 0.01 && global[m.PrecursorIndex] <= 0.01)
+                .Select(m => (File: r.Item1, m.FullSequence, m.Charge, Run: m.QValue, Global: global[m.PrecursorIndex])))
+            .ToList();
+        Assert.That(table.Results.Select(r => (File: r.FileName, r.FullSequence, Charge: r.PrecursorCharge, Run: r.QValuePrecursorRun, Global: r.QValuePrecursorGlobal)),
+            Is.EquivalentTo(expected));
+        Assert.That(table.Results.Any(r => r.QValuePrecursorGlobal != r.QValuePrecursorRun), "the global level is not the run's");
+
+        string results = File.ReadAllText(Path.Combine(output, "results.txt"));
+        int distinct = expected.Select(e => (e.FullSequence, e.Charge)).Distinct().Count();
+        Assert.That(distinct, Is.LessThan(expected.Count), "some precursors are reported in both runs");
+        Assert.That(results, Does.Contain("All target precursors with q-value <= 0.01: " + distinct));
+        Assert.That(results, Does.Contain("runA.mzML: " + expected.Count(e => e.File == "runA.mzML") + " target precursors"));
+    }
+
+    /// <summary>
     /// DiaIrtCalibration.tsv (D12): each run's calibration anchors, so a bad fit can be seen. One row per anchor: the run,
     /// its apex in minutes, its library iRT, the calibrated iRT at that apex and the residual; as many rows as anchors.
     /// </summary>
@@ -225,6 +279,18 @@ public class DiaLibrarySearchTaskTests
         Assert.That(DiaLibrarySearchTask.CountPassingTargets(matches, 0.01), Is.EqualTo(2));
         Assert.That(DiaLibrarySearchTask.CountPassingTargets(matches, 0.05), Is.EqualTo(3));
         Assert.That(DiaLibrarySearchTask.PassingTargets(matches, 0.01), Is.EqualTo(new[] { matches[0], matches[1] }), "the table's rows");
+    }
+
+    /// <summary>A run's passing target is reported only when its global q-value passes too (PLAN D4).</summary>
+    [Test]
+    public void ARunsPassingTargetIsReportedOnlyWhenItPassesGlobally()
+    {
+        static EngineLayer.DiaLibrarySearch.DiaPrecursorMatch Match(int index, double q) =>
+            new(index, "PEPTIDE" + index, 2, 400, false, new MzLibUtil.Irt(0), new MzLibUtil.RtMinutes(1), new MzLibUtil.Irt(0), 1, [], q);
+        var runPassing = new[] { Match(1, 0.001), Match(2, 0.005), Match(3, 0.009) };
+        var global = new Dictionary<int, double> { [1] = 0.002, [2] = 0.03, [3] = 0.01 };
+
+        Assert.That(DiaLibrarySearchTask.Reported(runPassing, global, 0.01), Is.EqualTo(new[] { runPassing[0], runPassing[2] }));
     }
 
     /// <summary>
