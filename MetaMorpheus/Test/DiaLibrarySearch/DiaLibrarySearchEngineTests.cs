@@ -1125,6 +1125,41 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// How far apart two apexes may be and still count as co-eluting for interference removal, in cycles: by default the
+    /// apex half-width plus one. The removal pass reports the tolerance it used, in minutes.
+    /// </summary>
+    [Test]
+    public void InterferenceRtToleranceCanBeSet()
+    {
+        Assert.That(new DiaLibrarySearchParameters().InterferenceRtToleranceCycles, Is.Null);
+        var run = SyntheticDiaRun.Build(100, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0);
+        string path = run.WriteLibrary(_directory);
+        double ToleranceMinutes(double? cycles)
+        {
+            string reported = null;
+            EventHandler<StringEventArgs> status = (_, e) => { if (e.S.StartsWith("interference removal:", StringComparison.Ordinal)) reported = e.S; };
+            MetaMorpheusEngine.OutLabelStatusHandler += status;
+            try
+            {
+                using var library = MslLibrary.Load(path);
+                new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+                    new DiaLibrarySearchParameters(InterferenceRtToleranceCycles: cycles), new CommonParameters(), [], []).Run();
+            }
+            finally
+            {
+                MetaMorpheusEngine.OutLabelStatusHandler -= status;
+            }
+            var match = System.Text.RegularExpressions.Regex.Match(reported, @"RT tolerance ([\d.]+) min");
+            return double.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        double oneCycle = ToleranceMinutes(1);
+        Assert.That(oneCycle, Is.GreaterThan(0));
+        Assert.That(ToleranceMinutes(null), Is.EqualTo((new DiaLibrarySearchParameters().ApexHalfWidthScans + 1) * oneCycle).Within(2e-4));
+        Assert.That(ToleranceMinutes(2.5), Is.EqualTo(2.5 * oneCycle).Within(2e-4));
+    }
+
+    /// <summary>
     /// The classifier's network can train on a random subsample of each fold (mzLib's maxNetworkTrainingRows): on a
     /// whole-proteome library, training on every row was two thirds of the search. A cap above the row count changes
     /// nothing; a small one reaches the rescorer.
