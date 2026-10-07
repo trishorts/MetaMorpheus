@@ -1155,6 +1155,16 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// As DIA-NN, only a better match at the same precursor m/z (or with it as its +1 isotope) can explain another: with the
+    /// 3-fragment rule, two-seed means gained 0.61% on HF-X and 0.85% on the held-out run.
+    /// </summary>
+    [Test]
+    public void InterferenceRemovalPairsTheSameMzByDefault()
+    {
+        Assert.That(new DiaLibrarySearchParameters().InterferenceSameMzOnly, Is.True);
+    }
+
+    /// <summary>
     /// How far apart two apexes may be and still count as co-eluting for interference removal, in cycles: by default the
     /// apex half-width plus one. The removal pass reports the tolerance it used, in minutes.
     /// </summary>
