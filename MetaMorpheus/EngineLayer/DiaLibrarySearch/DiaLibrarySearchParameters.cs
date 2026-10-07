@@ -65,7 +65,7 @@ namespace EngineLayer.DiaLibrarySearch;
 /// +2.8% (PXD005573 1 h) at 6, at a matched paired entrapment FDP of 1%; with <see cref="DiaNnScores"/>, +1.4% and +3.6%.
 /// </param>
 /// <param name="DiaNnPeakFindingMs1">With <see cref="DiaNnPeakFinding"/>, add the MS1 trace's correlation with the best fragment to the candidate score, as DIA-NN does.</param>
-/// <param name="DiaNnSignalShare">DIA-NN's pSig: the six core fragments' shares of their window signal, as SignalShare1-6.</param>
+/// <param name="DiaNnSignalShare">DIA-NN's pSig: the six core fragments' shares of their window signal, as SignalShare1-6. On by default (three seeds: +0.9% / +0.6% at matched FDP).</param>
 /// <param name="ClassifierLinearIterations">
 /// Rankings of the training rows before the network: the first by the best single feature, each later one by a refit
 /// linear discriminant, which also picks each precursor's top candidate peak for the network (DIA-NN refits about 8 times).
@@ -146,7 +146,7 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool DiaNnPeakFinding = true,
     bool DiaNnScores = true,
     bool DiaNnPeakFindingMs1 = false,
-    bool DiaNnSignalShare = false,
+    bool DiaNnSignalShare = true,
     int ClassifierLinearIterations = 3,
     int ExtraFragmentCount = 12,
     bool MaxToleranceCoElution = false,

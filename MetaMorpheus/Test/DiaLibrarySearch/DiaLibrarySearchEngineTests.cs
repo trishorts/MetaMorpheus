@@ -293,7 +293,7 @@ public class DiaLibrarySearchEngineTests
         Assert.That(planted, Is.Not.Empty);
         Assert.That(planted.Select(m => shares.Sum(i => m.Features[i])), Has.All.EqualTo(1).Within(1e-9));
         Assert.That(planted.Average(m => m.Features[shares[0]]), Is.GreaterThan(planted.Average(m => m.Features[shares[5]])));
-        Assert.That(new DiaLibrarySearchParameters().DiaNnSignalShare, Is.False);
+        Assert.That(new DiaLibrarySearchParameters().DiaNnSignalShare, Is.True, "on by default since the three-seed A/B");
     }
 
     /// <summary>
