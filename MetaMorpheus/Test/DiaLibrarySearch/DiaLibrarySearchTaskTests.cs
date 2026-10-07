@@ -143,6 +143,43 @@ public class DiaLibrarySearchTaskTests
     }
 
     /// <summary>
+    /// AllDiaPrecursors.tsv (M7 slice 2) is written through mzLib's DiaPrecursorFile, in the schema agreed with dataRepo: one
+    /// row per target precursor at the threshold, so its rows are the headline; the run key verbatim; each row's apex scan,
+    /// retention in minutes and iRT, and quantity; and, with no contaminant database, "contaminants: not assessed".
+    /// </summary>
+    [Test]
+    public void TheTaskWritesThePrecursorTable()
+    {
+        var (count, _, run, matches) = RunTheTask("table");
+        string path = Path.Combine(_directory, "table", "output", "Task1", "AllDiaPrecursors.tsv");
+
+        var table = new DiaPrecursorFile(path);
+        table.LoadResults();
+
+        Assert.That(table.ContaminantsAssessed, Is.False);
+        Assert.That(table.Results.Count, Is.EqualTo(count));
+        var bySequence = matches.Where(m => !m.IsDecoy).ToDictionary(m => (m.FullSequence, m.Charge));
+        foreach (var row in table.Results)
+        {
+            var match = bySequence[(row.FullSequence, row.PrecursorCharge)];
+            Assert.That(row.FileName, Is.EqualTo("table.mzML"));
+            Assert.That(row.Label, Is.EqualTo("T"));
+            Assert.That(row.QValuePrecursorRun, Is.EqualTo(match.QValue).And.LessThanOrEqualTo(0.01));
+            Assert.That(row.QValuePrecursorGlobal, Is.EqualTo(row.QValuePrecursorRun), "one run: global is the run's");
+            Assert.That(row.ApexScanNumber, Is.EqualTo(match.ApexScanNumber).And.GreaterThan(0));
+            Assert.That(row.ApexRtMin, Is.EqualTo(match.ApexRt.Value));
+            Assert.That(row.ApexIrt, Is.EqualTo(match.ApexIrt.Value));
+            Assert.That(row.LibraryIrt, Is.EqualTo(match.LibraryIrt.Value));
+            Assert.That(row.PrecursorMz, Is.EqualTo(match.PrecursorMz));
+            Assert.That(row.Score, Is.EqualTo(match.Score));
+            Assert.That(row.PrecursorQuantity, Is.EqualTo(double.IsNaN(match.Quantity) ? null : match.Quantity));
+            var entry = run.Library.Single(e => e.FullSequence == row.FullSequence && e.ChargeState == row.PrecursorCharge);
+            Assert.That(row.BaseSequence, Is.EqualTo(entry.BaseSequence));
+            Assert.That(row.ProteinAccession, Is.EqualTo(entry.ProteinAccession ?? ""), "no accession is an empty cell");
+        }
+    }
+
+    /// <summary>
     /// The headline counts targets at the q-value threshold, not every target scored, and never a decoy (whose q is NaN).
     /// </summary>
     [Test]
@@ -155,6 +192,7 @@ public class DiaLibrarySearchTaskTests
 
         Assert.That(DiaLibrarySearchTask.CountPassingTargets(matches, 0.01), Is.EqualTo(2));
         Assert.That(DiaLibrarySearchTask.CountPassingTargets(matches, 0.05), Is.EqualTo(3));
+        Assert.That(DiaLibrarySearchTask.PassingTargets(matches, 0.01), Is.EqualTo(new[] { matches[0], matches[1] }), "the table's rows");
     }
 
     /// <summary>
