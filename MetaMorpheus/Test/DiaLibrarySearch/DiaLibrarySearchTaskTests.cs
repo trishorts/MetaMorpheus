@@ -143,6 +143,38 @@ public class DiaLibrarySearchTaskTests
     }
 
     /// <summary>
+    /// DiaIrtCalibration.tsv (D12): each run's calibration anchors, so a bad fit can be seen. One row per anchor: the run,
+    /// its apex in minutes, its library iRT, the calibrated iRT at that apex and the residual; as many rows as anchors.
+    /// </summary>
+    [Test]
+    public void TheTaskWritesEachRunsCalibration()
+    {
+        var (mzml, library, _) = WriteInputs("calibration");
+        string output = Path.Combine(_directory, "calibration", "output", "Task1");
+        Directory.CreateDirectory(output);
+        new DiaLibrarySearchTask().RunTask(output, [new DbForTask(library, false)], [mzml], "Task1");
+
+        var lines = File.ReadAllLines(Path.Combine(output, "DiaIrtCalibration.tsv"));
+        Assert.That(lines[0].Split('\t'), Is.EqualTo(new[] { "File Name", "AnchorRtMin", "LibraryIrt", "CalibratedIrt", "ResidualIrt" }));
+
+        using var msl = Readers.SpectralLibrary.MslLibrary.Load(library);
+        var calibration = EngineLayer.DiaLibrarySearch.DiaIrtSelfCalibration.Calibrate(DiaLibrarySearchTask.LoadScans(mzml), msl,
+            new DiaLibrarySearchTaskParameters().ToEngineParameters(), new CommonParameters());
+        Assert.That(lines.Length - 1, Is.EqualTo(calibration.Anchors.Count).And.GreaterThan(0));
+        for (int i = 0; i < calibration.Anchors.Count; i++)
+        {
+            var cells = lines[i + 1].Split('\t');
+            var (rt, irt) = calibration.Anchors[i];
+            double calibrated = calibration.Model.ToIrt(rt).Value;
+            Assert.That(cells[0], Is.EqualTo("calibration.mzML"));
+            Assert.That(double.Parse(cells[1], System.Globalization.CultureInfo.InvariantCulture), Is.EqualTo(rt.Value));
+            Assert.That(double.Parse(cells[2], System.Globalization.CultureInfo.InvariantCulture), Is.EqualTo(irt.Value));
+            Assert.That(double.Parse(cells[3], System.Globalization.CultureInfo.InvariantCulture), Is.EqualTo(calibrated));
+            Assert.That(double.Parse(cells[4], System.Globalization.CultureInfo.InvariantCulture), Is.EqualTo(irt.Value - calibrated).Within(1e-9));
+        }
+    }
+
+    /// <summary>
     /// AllDiaPrecursors.tsv (M7 slice 2) is written through mzLib's DiaPrecursorFile, in the schema agreed with dataRepo: one
     /// row per target precursor at the threshold, so its rows are the headline; the run key verbatim; each row's apex scan,
     /// retention in minutes and iRT, and quantity; and, with no contaminant database, "contaminants: not assessed".

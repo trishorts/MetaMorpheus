@@ -93,6 +93,7 @@ public class DiaLibrarySearchTask : MetaMorpheusTask
         int total = 0;
         var perRun = new List<string>();
         var rows = new List<DiaPrecursorFromTsv>();
+        var calibrationLines = new List<string> { "File Name\tAnchorRtMin\tLibraryIrt\tCalibratedIrt\tResidualIrt" };
         foreach (string rawFile in currentRawFileList)
         {
             if (GlobalVariables.StopLoops)
@@ -105,6 +106,12 @@ public class DiaLibrarySearchTask : MetaMorpheusTask
             var scans = LoadScans(rawFile);
             Status("Calibrating retention time...", ids);
             var calibration = DiaIrtSelfCalibration.Calibrate(scans, library, parameters, CommonParameters);
+            foreach (var (rt, irt) in calibration.Anchors)
+            {
+                double calibrated = calibration.Model.ToIrt(rt).Value;
+                calibrationLines.Add(string.Join('\t', fileName, rt.Value.ToString("R", CultureInfo.InvariantCulture), irt.Value.ToString("R", CultureInfo.InvariantCulture),
+                    calibrated.ToString("R", CultureInfo.InvariantCulture), (irt.Value - calibrated).ToString("R", CultureInfo.InvariantCulture)));
+            }
             Status("Searching...", ids);
             var results = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(scans, library, calibration.Model, calibration.ApplyTo(parameters),
                 CommonParameters, FileSpecificParameters, ids).Run();
@@ -122,6 +129,11 @@ public class DiaLibrarySearchTask : MetaMorpheusTask
         string tablePath = Path.Combine(OutputFolder, "AllDiaPrecursors.tsv");
         new DiaPrecursorFile(tablePath, rows, contaminantsAssessed: dbFilenameList.Any(db => db.IsContaminant)).WriteResults(tablePath);
         FinishedWritingFile(tablePath, new List<string> { taskId });
+
+        // Each run's calibration anchors (D12), so a bad retention-time fit can be seen
+        string calibrationPath = Path.Combine(OutputFolder, "DiaIrtCalibration.tsv");
+        File.WriteAllLines(calibrationPath, calibrationLines);
+        FinishedWritingFile(calibrationPath, new List<string> { taskId });
 
         MyTaskResults.AddTaskSummaryText($"All target precursors with q-value <= {threshold}: {total}");
         foreach (string line in perRun)
