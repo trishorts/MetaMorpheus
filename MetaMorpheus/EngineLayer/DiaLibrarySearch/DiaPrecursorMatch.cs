@@ -40,6 +40,9 @@ public sealed record DiaPrecursorMatch(
     /// </summary>
     public double Ms1ApexErrorPpm { get; init; } = double.NaN;
 
+    /// <summary>The one-based scan number of the apex MS2 scan, so a match can point at a real spectrum (a USI).</summary>
+    public int ApexScanNumber { get; init; }
+
     /// <summary>What each entry of <see cref="Features"/> measures, in order.</summary>
     public static readonly string[] FeatureNames =
     [

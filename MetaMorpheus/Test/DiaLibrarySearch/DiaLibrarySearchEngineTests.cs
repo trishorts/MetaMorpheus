@@ -501,6 +501,28 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// Each match names its apex MS2 scan (dataRepo 003 point 8: a row can point at a real spectrum through a USI): the
+    /// scan's retention time is the apex's, and it is an MS2 scan whose isolation window holds the precursor.
+    /// </summary>
+    [Test]
+    public void EachMatchNamesItsApexScan()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, withMs1: true);
+        var byNumber = run.Scans.ToDictionary(s => s.OneBasedScanNumber);
+
+        var matches = Search(run).Matches;
+
+        Assert.That(matches, Is.Not.Empty);
+        foreach (var match in matches)
+        {
+            Assert.That(byNumber.TryGetValue(match.ApexScanNumber, out var scan), $"{match.FullSequence}: scan {match.ApexScanNumber}");
+            Assert.That(scan!.MsnOrder, Is.EqualTo(2));
+            Assert.That(scan.RetentionTime, Is.EqualTo(match.ApexRt.Value));
+            Assert.That(scan.IsolationRange.Contains(match.PrecursorMz));
+        }
+    }
+
+    /// <summary>
     /// The peak envelope as a feature (Ms1PeakEnvelope, on by default): 0 when switched off; on, a planted precursor's M0-M3 follow the
     /// expected pattern on every MS1 scan, so its summed envelope scores near 1.
     /// </summary>

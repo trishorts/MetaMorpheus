@@ -806,7 +806,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 apexIrt,
                 cosine * coElution,
                 features,
-                Quantity: areaSum) { Ms1ApexErrorPpm = ms1ApexSignedErrorPpm };
+                Quantity: areaSum) { Ms1ApexErrorPpm = ms1ApexSignedErrorPpm, ApexScanNumber = scans[reachable[apex]].OneBasedScanNumber };
         }
     }
 
