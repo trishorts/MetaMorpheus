@@ -45,13 +45,30 @@ public class DiaIrtSelfCalibrationTests
         var search = new DiaLibrarySearchParameters(DiaNnFragmentFilter: true, TopFragmentCount: 10);
         var calibrationParameters = DiaIrtSelfCalibration.CalibrationParameters(search);
         Assert.That(calibrationParameters.DiaNnFragmentFilter, Is.False);
-        Assert.That(calibrationParameters with { DiaNnFragmentFilter = true, Ms1TolerancePpm = search.Ms1TolerancePpm }, Is.EqualTo(search),
-            "nothing else changes but calibration's own MS1 tolerance");
+        Assert.That(calibrationParameters with { DiaNnFragmentFilter = true, Ms1TolerancePpm = search.Ms1TolerancePpm, DiaNnSignalShare = search.DiaNnSignalShare },
+            Is.EqualTo(search), "nothing else changes but calibration's own MS1 tolerance and the signal share");
 
         var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
         var on = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(DiaNnFragmentFilter: true), new CommonParameters());
         var off = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(DiaNnFragmentFilter: false), new CommonParameters());
+        Assert.That(on.Anchors, Is.EqualTo(off.Anchors));
+    }
+
+    /// <summary>
+    /// Calibration scores without DIA-NN's signal share, whatever the search does: the share was benchmarked in the main search
+    /// only (+0.9% / +0.6%), and switching it on in calibration too moved the anchors and cost HF-X 1.5% on seed 0 (58,284
+    /// against 59,170). Calibration gives the same anchors whichever way the search sets it.
+    /// </summary>
+    [Test]
+    public void CalibrationIgnoresTheSignalShare()
+    {
+        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters(DiaNnSignalShare: true)).DiaNnSignalShare, Is.False);
+
+        var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        var on = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(DiaNnSignalShare: true), new CommonParameters());
+        var off = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(DiaNnSignalShare: false), new CommonParameters());
         Assert.That(on.Anchors, Is.EqualTo(off.Anchors));
     }
 

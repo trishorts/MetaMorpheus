@@ -87,9 +87,11 @@ public static class DiaIrtSelfCalibration
     /// The search's parameters as calibration uses them: every fragment scored, whatever the fragment rule, and MS1 read at
     /// <see cref="CalibrationMs1TolerancePpm"/> with no offset, since calibration is what fits the offset. With the rule in
     /// calibration too, the held-out run (PXD005573 1 h) lost 2.1% (two-seed means at a matched paired entrapment FDP of 1%).
+    /// DIA-NN's signal share stays off as well: it was benchmarked in the main search only, and in calibration it moved the
+    /// anchors and cost HF-X 1.5% on seed 0.
     /// </summary>
     public static DiaLibrarySearchParameters CalibrationParameters(DiaLibrarySearchParameters parameters) =>
-        parameters with { DiaNnFragmentFilter = false, Ms1Offset = null, Ms1TolerancePpm = CalibrationMs1TolerancePpm };
+        parameters with { DiaNnFragmentFilter = false, Ms1Offset = null, Ms1TolerancePpm = CalibrationMs1TolerancePpm, DiaNnSignalShare = false };
 
     /// <summary>
     /// MS1 tolerance during calibration, before the run's offset is known: wide enough for an error that drifts up to 3 ppm off
