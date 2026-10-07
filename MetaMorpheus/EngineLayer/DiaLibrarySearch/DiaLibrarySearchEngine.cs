@@ -35,6 +35,9 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     private readonly IrtCalibrationModel _irtMap;
     private readonly DiaLibrarySearchParameters _parameters;
 
+    /// <summary>The Ms1ApexOffsetCycles feature's ceiling, also its value when the window holds no M0.</summary>
+    public const double Ms1ApexOffsetCap = 10;
+
     /// <summary>The most intense library fragments that define the elution profile.</summary>
     private const int CoreFragmentCount = 6;
 
@@ -677,6 +680,17 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1PeakPointFraction = ms1Scans > 0 ? (double)ms1Seen / ms1Scans : 0;
             }
 
+            // Ms1ApexOffset: how many cycles from the fragment apex the window's M0 trace peaks
+            double ms1ApexOffsetCycles = 0;
+            if (_parameters.Ms1ApexOffset && ms1Mono is not null)
+            {
+                int best = -1;
+                for (int s = from; s <= to; s++)
+                    if (ms1Mono[s] > 0 && (best < 0 || ms1Mono[s] > ms1Mono[best] || (ms1Mono[s] == ms1Mono[best] && Math.Abs(s - apex) < Math.Abs(best - apex))))
+                        best = s;
+                ms1ApexOffsetCycles = best < 0 ? Ms1ApexOffsetCap : Math.Min(Math.Abs(best - apex), Ms1ApexOffsetCap);
+            }
+
             double extraCoElution = 0, extraMatchedFraction = 0, extraWeightedCoElution = 0;
             if (reference is not null && extraTraces.Length > 0)
             {
@@ -793,6 +807,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1ToFragmentLogRatio,
                 ms1PeakSignalFraction,
                 ms1PeakPointFraction,
+                ms1ApexOffsetCycles,
             ];
 
             yield return new DiaPrecursorMatch(

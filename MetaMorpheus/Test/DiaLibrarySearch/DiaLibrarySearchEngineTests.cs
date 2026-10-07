@@ -675,6 +675,36 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// Whether the precursor's MS1 peaks when its fragments do: the distance, in cycles, from the fragment apex to the
+    /// co-elution window's M0 maximum, capped at <see cref="DiaLibrarySearchEngine.Ms1ApexOffsetCap"/> (also the value when
+    /// no M0 is found). Off gives zeros; on, planted precursors' MS1 peaks at their apex, unplanted matches' anywhere.
+    /// </summary>
+    [Test]
+    public void Ms1ApexOffsetCanBeAFeature()
+    {
+        int offset = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1ApexOffsetCycles");
+        Assert.That(offset, Is.GreaterThanOrEqualTo(0));
+        Assert.That(new DiaLibrarySearchParameters().Ms1ApexOffset, Is.False);
+
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults SearchWith(bool on) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(Ms1ApexOffset: on), new CommonParameters(), [], []).Run();
+        static double Median(IEnumerable<double> values)
+        {
+            var sorted = values.Order().ToArray();
+            Assert.That(sorted, Is.Not.Empty);
+            return sorted[sorted.Length / 2];
+        }
+
+        Assert.That(SearchWith(false).Matches.Select(m => m.Features[offset]), Has.All.EqualTo(0));
+        var on = SearchWith(true).Matches;
+        Assert.That(on.Select(m => m.Features[offset]), Has.All.InRange(0, DiaLibrarySearchEngine.Ms1ApexOffsetCap));
+        Assert.That(Median(on.Where(m => run.PlantedSequences.Contains(m.FullSequence)).Select(m => m.Features[offset])), Is.LessThanOrEqualTo(1));
+        Assert.That(Median(on.Where(m => !run.PlantedSequences.Contains(m.FullSequence)).Select(m => m.Features[offset])), Is.GreaterThanOrEqualTo(2));
+    }
+
+    /// <summary>
     /// The classifier network's hidden layers can be set (null keeps the rescorer's default, DIA-NN 2020's 25-20-15-10-5). A
     /// search with another architecture gives other scores, and a zero-unit layer is refused.
     /// </summary>
