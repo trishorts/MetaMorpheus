@@ -261,6 +261,9 @@ namespace MetaMorpheusCommandLine
                 // ("Task{N}AveragingTask"), keeping it consistent with the five above.
                 SpectralAveragingTask averaging = new SpectralAveragingTask();
                 Toml.WriteFile(averaging, Path.Combine(folderLocation, @"AveragingTask.toml"), MetaMorpheusTask.tomlConfig);
+
+                DiaLibrarySearchTask dia = new DiaLibrarySearchTask();
+                Toml.WriteFile(dia, Path.Combine(folderLocation, @"DiaLibrarySearchTask.toml"), MetaMorpheusTask.tomlConfig);
             }
             catch (Exception e)
             {

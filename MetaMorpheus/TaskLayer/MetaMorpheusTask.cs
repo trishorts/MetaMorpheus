@@ -42,7 +42,8 @@ namespace TaskLayer
         Calibrate,
         XLSearch,
         GlycoSearch,
-        Average
+        Average,
+        DiaLibrarySearch
     }
 
     public abstract class MetaMorpheusTask
