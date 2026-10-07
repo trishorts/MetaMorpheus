@@ -98,7 +98,7 @@ public static class DiaIrtSelfCalibration
     /// </summary>
     public static DiaLibrarySearchParameters CalibrationParameters(DiaLibrarySearchParameters parameters) =>
         parameters with { DiaNnFragmentFilter = false, Ms1Offset = null, Ms1TolerancePpm = CalibrationMs1TolerancePpm, DiaNnSignalShare = false,
-            InterferenceExplainedFragments = CalibrationInterferenceExplainedFragments, InterferenceSameMzOnly = false };
+            InterferenceExplainedFragments = CalibrationInterferenceExplainedFragments };
 
     /// <summary>
     /// MS1 tolerance during calibration, before the run's offset is known: wide enough for an error that drifts up to 3 ppm off

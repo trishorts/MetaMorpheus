@@ -46,7 +46,7 @@ public class DiaIrtSelfCalibrationTests
         var calibrationParameters = DiaIrtSelfCalibration.CalibrationParameters(search);
         Assert.That(calibrationParameters.DiaNnFragmentFilter, Is.False);
         Assert.That(calibrationParameters with { DiaNnFragmentFilter = true, Ms1TolerancePpm = search.Ms1TolerancePpm, DiaNnSignalShare = search.DiaNnSignalShare,
-                InterferenceExplainedFragments = search.InterferenceExplainedFragments, InterferenceSameMzOnly = search.InterferenceSameMzOnly },
+                InterferenceExplainedFragments = search.InterferenceExplainedFragments},
             Is.EqualTo(search), "nothing else changes but calibration's own MS1 tolerance, the signal share and the interference rule");
 
         var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
@@ -83,8 +83,8 @@ public class DiaIrtSelfCalibrationTests
         Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters(InterferenceExplainedFragments: 3)).InterferenceExplainedFragments,
             Is.EqualTo(DiaIrtSelfCalibration.CalibrationInterferenceExplainedFragments));
         Assert.That(DiaIrtSelfCalibration.CalibrationInterferenceExplainedFragments, Is.EqualTo(4));
-        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters(InterferenceSameMzOnly: true)).InterferenceSameMzOnly, Is.False,
-            "the same-m/z pairing was benchmarked in the main search only");
+        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters(InterferenceSameMzOnly: true)).InterferenceSameMzOnly, Is.True,
+            "the same-m/z pairing was benchmarked with calibration pairing the same way");
 
         var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0, noisePeaksPerScan: 3000);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));

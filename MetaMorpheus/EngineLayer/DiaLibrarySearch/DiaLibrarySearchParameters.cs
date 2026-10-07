@@ -126,7 +126,7 @@ namespace EngineLayer.DiaLibrarySearch;
 /// <param name="InterferenceSameMzOnly">
 /// As DIA-NN, interference removal drops a match only for a better match with the same precursor m/z (or with it as the +1
 /// isotope); false lets any co-eluting match in the same or a neighbouring window explain it. On by default: with the
-/// 3-fragment rule, two-seed means gained 0.61% (HF-X) and 0.85% (held-out). Calibration keeps it off.
+/// 3-fragment rule, two-seed means gained 0.61% (HF-X) and 0.85% (held-out), with calibration pairing the same way.
 /// </param>
 /// <param name="MaxNetworkTrainingRows">
 /// When set, the classifier's network trains on a random subsample of at most this many rows per fold (every row is still
