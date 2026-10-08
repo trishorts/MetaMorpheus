@@ -98,6 +98,10 @@ namespace EngineLayer.DiaLibrarySearch;
 /// Scans on either side of an apex over which its co-elution features are measured; null for
 /// <see cref="ApexHalfWidthScans"/>, which still finds and spaces the candidate apexes.
 /// </param>
+/// <param name="ClassifierNetworkTargetFraction">
+/// The confident network sample's share of targets (the top targets by the linear model), the rest the top decoys; one half
+/// by default.
+/// </param>
 /// <param name="Ms1CorrelationHalfWidthScans">
 /// Scans on either side of the apex over which the MS1 M0 and M+1 traces are correlated with the fragment profile, as
 /// DIA-NN correlates MS1 over its whole scan window; null for the co-elution window.
@@ -192,7 +196,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool ExtraFragmentFallback = false,
     int? CoElutionHalfWidthScans = null,
     bool LibraryIrtFeature = false,
-    int? Ms1CorrelationHalfWidthScans = null)
+    int? Ms1CorrelationHalfWidthScans = null,
+    double ClassifierNetworkTargetFraction = 0.5)
 {
     /// <summary>
     /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual

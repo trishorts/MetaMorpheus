@@ -1163,6 +1163,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 normalizationGroups: _parameters.ClassifierNormalizationGroups,
                 networkLayers: _parameters.ClassifierNetworkLayers,
                 networkPositiveQValue: _parameters.ClassifierNetworkPositiveQValue,
+                networkTargetFraction: _parameters.ClassifierNetworkTargetFraction,
                 candidateGroups: matches.Select(m => m.PrecursorIndex).ToList());
             if (rescored.Scores.All(double.IsFinite))
                 matches = matches.Select((m, i) => m with { Score = rescored.Scores[i] }).ToList();

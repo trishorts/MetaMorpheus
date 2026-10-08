@@ -818,6 +818,27 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// The confident network sample's share of targets can be set (one half by default). With a training cap small enough for
+    /// the confident sample to apply, another share gives other scores, and the default share repeats the default search.
+    /// </summary>
+    [Test]
+    public void TheNetworksTargetShareCanBeSet()
+    {
+        Assert.That(new DiaLibrarySearchParameters().ClassifierNetworkTargetFraction, Is.EqualTo(0.5));
+
+        var run = SyntheticDiaRun.Build(200, entry => SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        List<double> ScoresWith(double? share) => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            (share is double s ? new DiaLibrarySearchParameters(ClassifierNetworkTargetFraction: s, MaxNetworkTrainingRows: 100, ClassifierNetworkMembers: 3)
+                : new DiaLibrarySearchParameters(MaxNetworkTrainingRows: 100, ClassifierNetworkMembers: 3)),
+            new CommonParameters(), [], []).Run()).Matches.Select(m => m.Score).ToList();
+
+        var standard = ScoresWith(null);
+        Assert.That(ScoresWith(0.5), Is.EqualTo(standard));
+        Assert.That(ScoresWith(0.8), Is.Not.EqualTo(standard));
+    }
+
+    /// <summary>
     /// MS1 evidence across the peak rather than at the apex: the M0 mass error averaged over the co-elution window, weighted by
     /// intensity, and the M+2 isotope trace's correlation with the fragment profile. Both 0 unless asked for; on, a planted
     /// precursor's M0 sits at its library m/z (small mass error) and its M+2 co-elutes.
