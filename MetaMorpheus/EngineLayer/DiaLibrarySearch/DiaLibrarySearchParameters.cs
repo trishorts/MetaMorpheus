@@ -138,6 +138,8 @@ namespace EngineLayer.DiaLibrarySearch;
 /// </param>
 /// <param name="ClassifierNetworkPasses">
 /// Network training passes: the second learns from the candidate peaks the first network picked, as DIA-NN trains twice.
+/// Two by default: with the pooled training sample, two-seed means gained 2.82% (PXD022589 HF-X) and 2.00% (PXD005573 1 h)
+/// at a matched entrapment FDP of 1% over one pass, as the first network ranks real faint targets into the sample.
 /// </param>
 /// <param name="ClassifierSeed">
 /// The classifier's random seed. 0 is the default; other values give the run-to-run noise a result must exceed.
@@ -163,7 +165,7 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     int ClassifierSeed = 0,
     int ClassifierNetworkMembers = 12,
     int ClassifierNetworkEpochs = StatisticalModels.TargetDecoyRescorer.NetworkEpochs,
-    int ClassifierNetworkPasses = 1,
+    int ClassifierNetworkPasses = 2,
     StatisticalModels.NetworkTrainingSample ClassifierNetworkTrainingSample = StatisticalModels.NetworkTrainingSample.ConfidentPooled,
     bool SiblingTopCandidateOnly = true,
     int MinimumApexFragments = 0,

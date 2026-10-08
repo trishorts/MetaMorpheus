@@ -171,6 +171,15 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// The network trains twice by default. With the pooled training sample, two-seed means at a matched entrapment FDP of 1%
+    /// gained 2.82% on PXD022589 (HF-X) and 2.00% on PXD005573 1 h (held-out) over one pass: the first network ranks real faint
+    /// targets into the pooled sample where the linear model ranked them out.
+    /// </summary>
+    [Test]
+    public void TheClassifierNetworkTrainsTwiceByDefault() =>
+        Assert.That(new DiaLibrarySearchParameters().ClassifierNetworkPasses, Is.EqualTo(2));
+
+    /// <summary>
     /// The classifier's network can train on the most confident rows rather than a random sample, as DIA-NN trains after
     /// removing low-confidence identifications. The setting reaches the classifier: with a cap below the rows, the scores change.
     /// </summary>
