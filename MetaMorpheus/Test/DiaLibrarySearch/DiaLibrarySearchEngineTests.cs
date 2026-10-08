@@ -701,6 +701,35 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// The MS1 correlations (M0 and M+1 against the fragment profile) can be measured over their own window, as DIA-NN
+    /// correlates MS1 over its whole scan window; null keeps the co-elution window. Nothing else changes.
+    /// </summary>
+    [Test]
+    public void TheMs1CorrelationWindowCanBeSet()
+    {
+        Assert.That(new DiaLibrarySearchParameters().Ms1CorrelationHalfWidthScans, Is.Null);
+        int Column(string name) => Array.IndexOf(DiaPrecursorMatch.FeatureNames, name);
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        Dictionary<(int, double), double[]> SearchWith(int? window) => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(Ms1CorrelationHalfWidthScans: window), new CommonParameters(), [], []).Run()).Matches
+            .ToDictionary(m => (m.PrecursorIndex, m.ApexRt.Value), m => m.Features);
+
+        var standard = SearchWith(null);
+        Assert.That(SearchWith(3), Is.EqualTo(standard));
+        // Scores change with the features, so interference removal can keep slightly different matches: compare those in both
+        var wide = SearchWith(6);
+        var shared = wide.Keys.Where(standard.ContainsKey).ToList();
+        Assert.That(shared.Count, Is.GreaterThan(standard.Count * 9 / 10));
+        Assert.That(shared.Count(k => wide[k][Column("Ms1Correlation")] != standard[k][Column("Ms1Correlation")]), Is.GreaterThan(0));
+        Assert.That(shared.Count(k => wide[k][Column("Ms1IsotopeCorrelation")] != standard[k][Column("Ms1IsotopeCorrelation")]), Is.GreaterThan(0));
+        var others = Enumerable.Range(0, DiaPrecursorMatch.FeatureNames.Length)
+            .Where(c => c != Column("Ms1Correlation") && c != Column("Ms1IsotopeCorrelation")).ToList();
+        var changed = others.Where(c => shared.Any(k => wide[k][c] != standard[k][c])).Select(c => DiaPrecursorMatch.FeatureNames[c]);
+        Assert.That(changed, Is.Empty, "only the MS1 correlations change");
+    }
+
+    /// <summary>
     /// DIA-NN's pRT: the precursor's library iRT as a feature, so the classifier can weigh the RT error by where on the
     /// gradient it falls. 0 when off.
     /// </summary>

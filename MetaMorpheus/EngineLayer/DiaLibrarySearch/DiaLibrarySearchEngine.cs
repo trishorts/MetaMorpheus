@@ -548,7 +548,13 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             double ms1Correlation = 0, ms1IsotopeCorrelation = 0, ms1TightCorrelation = 0, ms1PeakMassError = 0, ms1Isotope2Correlation = 0;
             if (reference is not null && ms1Mono is not null && ms1Isotope is not null)
             {
-                ms1Correlation = FragmentCoElution.CorrelationsTo([ms1Mono], reference, from, to)[0];
+                int ms1From = from, ms1To = to;
+                if (_parameters.Ms1CorrelationHalfWidthScans is int ms1HalfWidth)
+                {
+                    ms1From = Math.Max(0, apex - ms1HalfWidth);
+                    ms1To = Math.Min(reachable.Length - 1, apex + ms1HalfWidth);
+                }
+                ms1Correlation = FragmentCoElution.CorrelationsTo([ms1Mono], reference, ms1From, ms1To)[0];
                 if (ms1MonoTight is not null)
                     ms1TightCorrelation = FragmentCoElution.CorrelationsTo([ms1MonoTight], reference, from, to)[0];
                 if (ms1MonoPpm is not null && ms1Isotope2 is not null)
@@ -564,7 +570,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                     ms1PeakMassError = weights > 0 ? weighted / weights : Ms1Tolerance.Value;
                     ms1Isotope2Correlation = FragmentCoElution.CorrelationsTo([ms1Isotope2], reference, from, to)[0];
                 }
-                ms1IsotopeCorrelation = FragmentCoElution.CorrelationsTo([ms1Isotope], reference, from, to)[0];
+                ms1IsotopeCorrelation = FragmentCoElution.CorrelationsTo([ms1Isotope], reference, ms1From, ms1To)[0];
             }
 
             // MS1 evidence that stands without the fragments, at the MS1 scan nearest the apex: the M0-M3 envelope against the
