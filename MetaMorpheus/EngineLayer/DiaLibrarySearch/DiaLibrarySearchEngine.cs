@@ -801,6 +801,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1ToFragmentLogRatio,
                 ms1PeakSignalFraction,
                 ms1PeakPointFraction,
+                _parameters.LibraryIrtFeature ? candidate.Irt : 0,
             ];
 
             yield return new DiaPrecursorMatch(

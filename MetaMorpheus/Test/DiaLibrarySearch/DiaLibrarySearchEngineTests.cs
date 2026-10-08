@@ -701,6 +701,26 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// DIA-NN's pRT: the precursor's library iRT as a feature, so the classifier can weigh the RT error by where on the
+    /// gradient it falls. 0 when off.
+    /// </summary>
+    [Test]
+    public void TheLibraryIrtCanBeAFeature()
+    {
+        Assert.That(new DiaLibrarySearchParameters().LibraryIrtFeature, Is.False);
+        int column = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "LibraryIrt");
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        List<DiaPrecursorMatch> SearchWith(bool on) => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(LibraryIrtFeature: on), new CommonParameters(), [], []).Run()).Matches;
+
+        Assert.That(SearchWith(false).Select(m => m.Features[column]), Has.All.EqualTo(0));
+        var on = SearchWith(true);
+        Assert.That(on.Select(m => m.Features[column]), Is.EqualTo(on.Select(m => m.LibraryIrt.Value)));
+        Assert.That(on.Select(m => m.Features[column]).Distinct().Count(), Is.GreaterThan(1));
+    }
+
+    /// <summary>
     /// The co-elution features' window can be set apart from <see cref="DiaLibrarySearchParameters.ApexHalfWidthScans"/>,
     /// which still finds and spaces the candidate apexes (null uses it for both). With the window at 2 and apex finding at 3,
     /// the apexes are the 3/3 search's, and a peak at the same apex in the 2/2 search has the same co-elution.
