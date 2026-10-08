@@ -324,9 +324,10 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         }
         // The extra fragments, the unfragmented precursor and the isotope shadows enter only through correlations over a
         // candidate's co-elution window (and its apex), so they are read only there: the same scores, far fewer lookups
+        int coElutionHalfWidth = _parameters.CoElutionHalfWidthScans ?? _parameters.ApexHalfWidthScans;
         var inWindow = new bool[reachable.Length];
         foreach (int apex in apexes)
-            for (int k = Math.Max(0, apex - _parameters.ApexHalfWidthScans); k <= Math.Min(reachable.Length - 1, apex + _parameters.ApexHalfWidthScans); k++)
+            for (int k = Math.Max(0, apex - coElutionHalfWidth); k <= Math.Min(reachable.Length - 1, apex + coElutionHalfWidth); k++)
                 inWindow[k] = true;
         var extraTraces = extraFragments.Select(_ => new double[reachable.Length]).ToArray();
         if (extraTraces.Length > 0)
@@ -379,8 +380,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             double[] apexIntensities = traces.Select(trace => trace[apex]).ToArray();
             // Co-elution against the best of the six most intense library fragments, smoothed: one reliable profile rather
             // than an average that an interfered fragment drags along (DIA-NN's approach, Demichev et al. 2020)
-            int from = Math.Max(0, apex - _parameters.ApexHalfWidthScans);
-            int to = Math.Min(reachable.Length - 1, apex + _parameters.ApexHalfWidthScans);
+            int from = Math.Max(0, apex - coElutionHalfWidth);
+            int to = Math.Min(reachable.Length - 1, apex + coElutionHalfWidth);
             double coElution = 0, tightCoElution = 0, remainingCoElution = 0, maxToleranceCoElution = 0, sqrtCoElution = 0;
             var fragmentCorrelations = new double[CoreFragmentCount];
             double[]? reference = null;

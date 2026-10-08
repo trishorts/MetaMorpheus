@@ -701,6 +701,33 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// The co-elution features' window can be set apart from <see cref="DiaLibrarySearchParameters.ApexHalfWidthScans"/>,
+    /// which still finds and spaces the candidate apexes (null uses it for both). With the window at 2 and apex finding at 3,
+    /// the apexes are the 3/3 search's, and a peak at the same apex in the 2/2 search has the same co-elution.
+    /// </summary>
+    [Test]
+    public void TheCoElutionWindowCanBeSetApartFromApexFinding()
+    {
+        Assert.That(new DiaLibrarySearchParameters().CoElutionHalfWidthScans, Is.Null);
+        int coElution = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "CoElution");
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        Dictionary<(int, double), double> SearchWith(int apex, int? window) => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(ApexHalfWidthScans: apex, CoElutionHalfWidthScans: window), new CommonParameters(), [], []).Run()).Matches
+            .ToDictionary(m => (m.PrecursorIndex, m.ApexRt.Value), m => m.Features[coElution]);
+
+        var wide = SearchWith(3, null);
+        var split = SearchWith(3, 2);
+        var narrow = SearchWith(2, null);
+        Assert.That(split.Keys, Is.EquivalentTo(wide.Keys), "apex finding is unchanged");
+        Assert.That(split.Keys.Count(k => split[k] != wide[k]), Is.GreaterThan(0), "the window changes co-elution");
+        var shared = split.Keys.Where(narrow.ContainsKey).ToList();
+        Assert.That(shared, Is.Not.Empty);
+        Assert.That(shared.Select(k => split[k]), Is.EqualTo(shared.Select(k => narrow[k])));
+        Assert.That(SearchWith(3, 3), Is.EqualTo(wide));
+    }
+
+    /// <summary>
     /// The classifier network's hidden layers can be set (null keeps the rescorer's default, DIA-NN 2020's 25-20-15-10-5). A
     /// search with another architecture gives other scores, and a zero-unit layer is refused.
     /// </summary>
