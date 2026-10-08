@@ -675,6 +675,32 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// A precursor with no fragments beyond the top N has nothing to read as extras; its extra features were 0, the same as
+    /// extras that do not co-elute at all, and short peptides DIA-NN finds were scored low for it. With the fallback, such a
+    /// precursor's extra features repeat the main fragments' co-elution, matched fraction and weighted co-elution.
+    /// </summary>
+    [Test]
+    public void PrecursorsWithoutExtraFragmentsCanFallBackToTheMainOnes()
+    {
+        Assert.That(new DiaLibrarySearchParameters().ExtraFragmentFallback, Is.False);
+        int Column(string name) => Array.IndexOf(DiaPrecursorMatch.FeatureNames, name);
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        List<DiaPrecursorMatch> SearchWith(bool fallback) => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(TopFragmentCount: 1000, ExtraFragmentFallback: fallback), new CommonParameters(), [], []).Run()).Matches;
+
+        var off = SearchWith(false);
+        Assert.That(off, Is.Not.Empty);
+        Assert.That(off.Select(m => m.Features[Column("ExtraCoElution")]), Has.All.EqualTo(0));
+
+        var on = SearchWith(true);
+        Assert.That(on.Select(m => m.Features[Column("ExtraCoElution")]), Is.EqualTo(on.Select(m => m.Features[Column("CoElution")])));
+        Assert.That(on.Select(m => m.Features[Column("ExtraMatchedFraction")]), Is.EqualTo(on.Select(m => m.Features[Column("MatchedFraction")])));
+        Assert.That(on.Select(m => m.Features[Column("ExtraWeightedCoElution")]), Is.EqualTo(on.Select(m => m.Features[Column("WeightedCoElution")])));
+        Assert.That(on.Select(m => m.Features[Column("CoElution")]), Has.Some.GreaterThan(0));
+    }
+
+    /// <summary>
     /// The classifier network's hidden layers can be set (null keeps the rescorer's default, DIA-NN 2020's 25-20-15-10-5). A
     /// search with another architecture gives other scores, and a zero-unit layer is refused.
     /// </summary>

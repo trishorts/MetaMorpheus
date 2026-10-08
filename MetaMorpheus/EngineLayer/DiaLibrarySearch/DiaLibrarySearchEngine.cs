@@ -686,6 +686,13 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 double weight = extraFragments.Sum(f => (double)f.Intensity);
                 extraWeightedCoElution = weight > 0 ? extraFragments.Select((f, x) => f.Intensity * correlations[x]).Sum() / weight : 0;
             }
+            else if (_parameters.ExtraFragmentFallback && extraTraces.Length == 0)
+            {
+                // No fragments beyond the top N: repeat the main fragments' evidence rather than zeros that read as failure
+                extraCoElution = coElution;
+                extraMatchedFraction = (double)ppmErrors.Count / fragments.Count;
+                extraWeightedCoElution = weightedCoElution;
+            }
 
             double minCorr = 0, nfCorr = 0, shadowCorr = 0;
             if (reference is not null && unfragmented is not null && shadows is not null && spikeSuppressed is not null)
