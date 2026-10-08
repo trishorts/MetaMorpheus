@@ -7,6 +7,7 @@ using Omics.Fragmentation;
 using Omics.Modifications;
 using Proteomics;
 using Proteomics.ProteolyticDigestion;
+using Quantification;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -286,6 +287,62 @@ namespace Test
                 false, false, true, commonParameters, null, new List<string>()).Run();
             Assert.That(scored.SortedAndScoredProteinGroups.Count(p => !p.IsDecoy), Is.EqualTo(5));
             Assert.That(scored.SortedAndScoredProteinGroups.All(p => p.AllPsmsBelowOnePercentFDR.Count == 1), Is.True);
+        }
+
+        [Test]
+        [TestCase(QuantifiedPsmTier.PepQValue, FilterType.PepQValue)]
+        [TestCase(QuantifiedPsmTier.QValueNotch, FilterType.QValueNotch)]
+        [TestCase(QuantifiedPsmTier.QValue, FilterType.QValue)]
+        public static void MzLibTiersMapOneToOneOntoFilterTypes(QuantifiedPsmTier tier, FilterType filterType)
+        {
+            Assert.That(IdentificationFilter.ToFilterType(tier), Is.EqualTo(filterType));
+            Assert.That(IdentificationFilter.ToTier(filterType), Is.EqualTo(tier));
+        }
+
+        [Test]
+        public static void EveryMzLibTierAndFilterTypeIsMapped()
+        {
+            foreach (QuantifiedPsmTier tier in System.Enum.GetValues<QuantifiedPsmTier>())
+            {
+                Assert.That(IdentificationFilter.ToTier(IdentificationFilter.ToFilterType(tier)), Is.EqualTo(tier));
+            }
+            foreach (FilterType filterType in System.Enum.GetValues<FilterType>())
+            {
+                Assert.That(IdentificationFilter.ToFilterType(IdentificationFilter.ToTier(filterType)), Is.EqualTo(filterType));
+            }
+        }
+
+        [Test]
+        public static void TheTierIsMzLibsChoice()
+        {
+            // The tier Resolve picks is the one QuantifiedPsmRule.ChooseTier picks from the same values.
+            var cases = new List<List<SpectralMatch>>
+            {
+                Matches(20, pepTrained: true),
+                Matches(20, pepTrained: false),
+                Matches(20, pepTrained: false, pepWhenUntrained: 0, pepQWhenUntrained: 0.001),
+                Enumerable.Range(0, 10).Select(i => MakeMatch(i, false, q: 0.001, notch: 2, pep: 0, pepQ: 2)).ToList(),
+            };
+            foreach (var matches in cases)
+            {
+                QuantifiedPsmTier expected = QuantifiedPsmRule.ChooseTier(
+                    matches.Select(m => m.PsmFdrInfo.PEP_QValue),
+                    matches.Select(m => m.PsmFdrInfo.QValueNotch),
+                    matches.Select(m => m.PsmFdrInfo.PEP));
+                Assert.That(IdentificationFilter.Resolve(matches, false, 0.01).FilterType,
+                    Is.EqualTo(IdentificationFilter.ToFilterType(expected)));
+            }
+        }
+
+        [Test]
+        public static void OneMatchCannotShowThatPepWasTrained()
+        {
+            // mzLib #1425: a single PEP value cannot show that PEP was trained, so the notch decides.
+            // (MetaMorpheus's own copy of the rule, before it called mzLib, used the PEP q-value here.)
+            var matches = new List<SpectralMatch> { MakeMatch(0, false, q: 0.001, notch: 0.001, pep: 0.001, pepQ: 0.001) };
+            var tier = IdentificationFilter.Resolve(matches, false, 0.01);
+            Assert.That(tier.FilterType, Is.EqualTo(FilterType.QValueNotch));
+            Assert.That(tier.FallbackReason, Is.EqualTo("PEP training failed: every PEP is 0.001"));
         }
     }
 }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using EngineLayer.FdrAnalysis;
+using Quantification;
 
 namespace EngineLayer.SpectrumMatch
 {
@@ -24,8 +25,11 @@ namespace EngineLayer.SpectrumMatch
     /// The choice depends on what was computed, never on how many matches there are, and a tier always filters.
     /// Every tier is a strict comparison: value &lt; threshold.</para>
     ///
-    /// <para>The same tier order and strict comparison are mzLib's <c>Quantification.QuantifiedPsmRule</c>
-    /// (smith-chem-wisc/mzLib#1425). Once a mzLib release with it is pinned, this class should delegate to it.</para>
+    /// <para>The rule itself (tier order, what makes PEP or the notch usable, the strict comparison) is mzLib's
+    /// <see cref="QuantifiedPsmRule"/>: <see cref="QuantifiedPsmRule.ChooseTier"/> picks the tier and
+    /// <see cref="QuantifiedPsmRule.PassesConfidence"/> judges each match. This class decides what mzLib does not:
+    /// whether tiered mode is on, the threshold, which level (PSM or peptide) and which matches the tier is chosen
+    /// from, and the words results.txt uses to say which tier decided and why.</para>
     /// </summary>
     public static class IdentificationFilter
     {
@@ -66,19 +70,41 @@ namespace EngineLayer.SpectrumMatch
                 .Where(m => m?.GetFdrInfo(peptideLevel) != null)
                 .ToList();
 
-            string pepReason = PepNotUsableReason(withFdr, peptideLevel);
-            if (pepReason == null)
+            // PEP q-values: targets only, so decoys alone never make PEP look trained.
+            // PEP itself lives on the PSM-level FdrInfo, whichever level is being filtered.
+            List<double> pepQValues = withFdr.Where(m => !m.IsDecoy).Select(m => m.GetFdrInfo(peptideLevel).PEP_QValue).ToList();
+            List<double> notchQValues = withFdr.Select(m => m.GetFdrInfo(peptideLevel).QValueNotch).ToList();
+            List<double> peps = withFdr.Where(m => m.PsmFdrInfo != null).Select(m => m.PsmFdrInfo.PEP).ToList();
+
+            FilterType filterType = ToFilterType(QuantifiedPsmRule.ChooseTier(pepQValues, notchQValues, peps));
+            if (filterType == FilterType.PepQValue)
             {
                 return new IdentificationTier(FilterType.PepQValue, threshold, peptideLevel, null);
             }
 
-            if (withFdr.Any(m => IsComputed(m.GetFdrInfo(peptideLevel).QValueNotch)))
-            {
-                return new IdentificationTier(FilterType.QValueNotch, threshold, peptideLevel, pepReason);
-            }
-
-            return new IdentificationTier(FilterType.QValue, threshold, peptideLevel, pepReason + "; no q-value notch was computed");
+            string pepReason = PepNotUsableReason(withFdr, pepQValues, peps, peptideLevel);
+            return filterType == FilterType.QValueNotch
+                ? new IdentificationTier(FilterType.QValueNotch, threshold, peptideLevel, pepReason)
+                : new IdentificationTier(FilterType.QValue, threshold, peptideLevel, pepReason + "; no q-value notch was computed");
         }
+
+        /// <summary>The MetaMorpheus filter type for mzLib's tier: each tier names the same value.</summary>
+        public static FilterType ToFilterType(QuantifiedPsmTier tier) => tier switch
+        {
+            QuantifiedPsmTier.PepQValue => FilterType.PepQValue,
+            QuantifiedPsmTier.QValueNotch => FilterType.QValueNotch,
+            QuantifiedPsmTier.QValue => FilterType.QValue,
+            _ => throw new ArgumentOutOfRangeException(nameof(tier), tier, null)
+        };
+
+        /// <summary>mzLib's tier for a MetaMorpheus filter type: the inverse of <see cref="ToFilterType"/>.</summary>
+        public static QuantifiedPsmTier ToTier(FilterType filterType) => filterType switch
+        {
+            FilterType.PepQValue => QuantifiedPsmTier.PepQValue,
+            FilterType.QValueNotch => QuantifiedPsmTier.QValueNotch,
+            FilterType.QValue => QuantifiedPsmTier.QValue,
+            _ => throw new ArgumentOutOfRangeException(nameof(filterType), filterType, null)
+        };
 
         /// <summary>
         /// The value a tier compares against its threshold for one set of FDR values.
@@ -91,26 +117,24 @@ namespace EngineLayer.SpectrumMatch
         };
 
         /// <summary>
-        /// The tiered rule for one set of FDR values: the tier's value strictly below the threshold.
+        /// The tiered rule for one set of FDR values: mzLib's <see cref="QuantifiedPsmRule.PassesConfidence"/>, the
+        /// tier's value strictly below the threshold. FdrInfo starts every value at 2, so a value that was never
+        /// computed never passes.
         /// </summary>
         public static bool Passes(FdrInfo fdrInfo, FilterType filterType, double threshold) =>
-            fdrInfo != null && GetValue(fdrInfo, filterType) < threshold;
+            fdrInfo != null
+            && QuantifiedPsmRule.PassesConfidence(ToTier(filterType), fdrInfo.QValue, fdrInfo.QValueNotch, fdrInfo.PEP_QValue, threshold);
 
         /// <summary>
-        /// A q-value, notch q-value or PEP q-value is real when it lies in [0, 1]. FdrInfo starts every one of
-        /// them at 2, and that 2 survives wherever the calculation never ran.
+        /// Why <see cref="QuantifiedPsmRule.PepIsUsable"/> said no, in words for results.txt. Either no target
+        /// carries a PEP q-value in [0, 1] (PEP was not trained), or the PEP values are all one value (a failed
+        /// training run: PEPAnalysisEngine returns early, every PEP stays 0, and the FDR engine still computes a PEP
+        /// q-value that is only a score ranking).
         /// </summary>
-        internal static bool IsComputed(double value) => value >= 0 && value <= 1;
-
-        /// <summary>
-        /// Null when PEP was trained for this level; otherwise why not, in words for results.txt.
-        /// PEP counts as trained when some target carries a PEP q-value in [0, 1] AND the PEP values are not
-        /// all identical. The second condition catches a failed training run (PEPAnalysisEngine returns early,
-        /// every PEP stays 0, and the FDR engine still computes a PEP q-value that is only a score ranking).
-        /// </summary>
-        private static string PepNotUsableReason(List<SpectralMatch> withFdr, bool peptideLevel)
+        private static string PepNotUsableReason(List<SpectralMatch> withFdr, List<double> targetPepQValues,
+            List<double> peps, bool peptideLevel)
         {
-            if (!withFdr.Any(m => !m.IsDecoy && IsComputed(m.GetFdrInfo(peptideLevel).PEP_QValue)))
+            if (!QuantifiedPsmRule.PepIsUsable(targetPepQValues))
             {
                 int count = peptideLevel
                     ? withFdr.Select(m => m.FullSequence).Distinct().Count()
@@ -121,31 +145,8 @@ namespace EngineLayer.SpectrumMatch
                 return $"PEP not trained: {count} {unit}";
             }
 
-            // PEP itself lives on the PSM-level FdrInfo, whichever level is being filtered.
-            // A single match cannot show that its PEPs are "all identical", so one PEP q-value is enough there.
-            double? first = null;
-            int examined = 0;
-            foreach (SpectralMatch match in withFdr)
-            {
-                if (match.PsmFdrInfo == null)
-                {
-                    continue;
-                }
-                examined++;
-                double pep = match.PsmFdrInfo.PEP;
-                if (first == null)
-                {
-                    first = pep;
-                }
-                else if (pep != first.Value)
-                {
-                    return null;
-                }
-            }
-
-            return examined < 2
-                ? null
-                : $"PEP training failed: every PEP is {first.Value.ToString(CultureInfo.InvariantCulture)}";
+            double onlyPep = peps.First(double.IsFinite);
+            return $"PEP training failed: every PEP is {onlyPep.ToString(CultureInfo.InvariantCulture)}";
         }
     }
 
