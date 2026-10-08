@@ -191,12 +191,17 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
-    /// The confident training sample is the default: at a matched entrapment FDP of 1% it found 9.4% more precursors on
-    /// PXD022589 (HF-X) and 9.9% more on PXD005573 1 h than a random sample, at no extra time.
+    /// By default the network trains on the 180,000 rows per fold the linear model ranks highest, targets and decoys under
+    /// one score threshold. Against the half-and-half confident sample at 250,000, two-seed means at a matched entrapment
+    /// FDP of 1% gained 3.58% on PXD022589 (HF-X) and 2.23% on PXD005573 1 h (held-out).
     /// </summary>
     [Test]
-    public void TheNetworkTrainsOnItsMostConfidentRowsByDefault() =>
-        Assert.That(new DiaLibrarySearchParameters().ClassifierNetworkTrainingSample, Is.EqualTo(StatisticalModels.NetworkTrainingSample.Confident));
+    public void TheNetworkTrainsOnItsMostConfidentRowsByDefault()
+    {
+        var parameters = new DiaLibrarySearchParameters();
+        Assert.That(parameters.ClassifierNetworkTrainingSample, Is.EqualTo(StatisticalModels.NetworkTrainingSample.ConfidentPooled));
+        Assert.That(parameters.MaxNetworkTrainingRows, Is.EqualTo(180_000));
+    }
 
     /// <summary>
     /// A precursor's other candidate peaks are kept, with their apex and score, so that a miss where another engine chose a
@@ -810,7 +815,7 @@ public class DiaLibrarySearchEngineTests
         var run = SyntheticDiaRun.Build(200, entry => SyntheticDiaRun.Bucket(entry, 4) != 0);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
         DiaLibrarySearchResults SearchWith(double? cutoff) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
-            new DiaLibrarySearchParameters(ClassifierNetworkPositiveQValue: cutoff, MaxNetworkTrainingRows: 100, ClassifierNetworkMembers: 3),
+            new DiaLibrarySearchParameters(ClassifierNetworkTrainingSample: StatisticalModels.NetworkTrainingSample.Confident, ClassifierNetworkPositiveQValue: cutoff, MaxNetworkTrainingRows: 100, ClassifierNetworkMembers: 3),
             new CommonParameters(), [], []).Run();
 
         // Decoys are planted too, so few targets pass a strict cutoff here; a loose one bites
@@ -829,8 +834,8 @@ public class DiaLibrarySearchEngineTests
         var run = SyntheticDiaRun.Build(200, entry => SyntheticDiaRun.Bucket(entry, 4) != 0);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
         List<double> ScoresWith(double? share) => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
-            (share is double s ? new DiaLibrarySearchParameters(ClassifierNetworkTargetFraction: s, MaxNetworkTrainingRows: 100, ClassifierNetworkMembers: 3)
-                : new DiaLibrarySearchParameters(MaxNetworkTrainingRows: 100, ClassifierNetworkMembers: 3)),
+            (share is double s ? new DiaLibrarySearchParameters(ClassifierNetworkTrainingSample: StatisticalModels.NetworkTrainingSample.Confident, ClassifierNetworkTargetFraction: s, MaxNetworkTrainingRows: 100, ClassifierNetworkMembers: 3)
+                : new DiaLibrarySearchParameters(ClassifierNetworkTrainingSample: StatisticalModels.NetworkTrainingSample.Confident, MaxNetworkTrainingRows: 100, ClassifierNetworkMembers: 3)),
             new CommonParameters(), [], []).Run()).Matches.Select(m => m.Score).ToList();
 
         var standard = ScoresWith(null);

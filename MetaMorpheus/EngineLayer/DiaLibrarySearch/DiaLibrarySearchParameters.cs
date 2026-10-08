@@ -35,9 +35,11 @@ namespace EngineLayer.DiaLibrarySearch;
 /// <param name="ClassifierNetworkEpochs">Training epochs per network (DIA-NN uses 1).</param>
 /// <param name="ClassifierNetworkTrainingSample">
 /// Which rows train the network when a fold has more than <see cref="MaxNetworkTrainingRows"/>: a random sample, or the
-/// highest-ranked targets and decoys (half each), as DIA-NN trains after removing low-confidence identifications. Confident
-/// by default: at a matched entrapment FDP of 1%, +9.4% (PXD022589 HF-X) and +9.9% (PXD005573 1 h) over a random sample,
-/// at no extra time. A random sample holds about one real target in twenty on a whole-proteome library.
+/// highest-ranked targets and decoys (half each), as DIA-NN trains after removing low-confidence identifications, or the
+/// highest-ranked rows whatever their label (one score threshold). Half-and-half over random: +9.4% (PXD022589 HF-X) and
+/// +9.9% (PXD005573 1 h) at a matched entrapment FDP of 1%. A random sample holds about one real target in twenty on a
+/// whole-proteome library. Pooled by default: the half-and-half cutoffs leave a faint band trained on decoys only; pooled at
+/// 180,000 rows gained 3.58% (HF-X) and 2.23% (1 h) in two-seed means over half-and-half at 250,000.
 /// </param>
 /// <param name="SiblingTopCandidateOnly">
 /// Sibling support (SiblingCoElution, SiblingApexDeltaMinutes) from each other charge state's top candidate peak only,
@@ -147,21 +149,22 @@ namespace EngineLayer.DiaLibrarySearch;
 /// </param>
 /// <param name="MaxNetworkTrainingRows">
 /// When set, the classifier's network trains on a random subsample of at most this many rows per fold (every row is still
-/// scored). Null trains on all. Default 250,000, about DIA-NN's training size: on the whole-proteome library it took the
-/// classifier from 10:10 to 7:03 and changed precursors at 1% from 23,200 to 23,721; smaller libraries never reach it.
+/// scored). Null trains on all. 250,000, about DIA-NN's training size, took the whole-proteome classifier from 10:10 to
+/// 7:03. Default 180,000 with the pooled sample: a larger pooled sample admits decoy-like false targets (375,000 lost 5.3%
+/// on PXD005573 1 h). Smaller libraries never reach it.
 /// </param>
 /// <param name="ClassifierModel">The model the rescorer fits in each fold: a linear discriminant, or a small neural-network ensemble (DIA-NN's approach).</param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
     int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 10, double ClassifierTrainingQValue = 0.01,
     StatisticalModels.RescoreModel ClassifierModel = StatisticalModels.RescoreModel.NeuralNetworkEnsemble,
     int InterferenceExplainedFragments = 3,
-    int? MaxNetworkTrainingRows = 250_000,
+    int? MaxNetworkTrainingRows = 180_000,
     bool InterferenceSameMzOnly = true,
     int ClassifierSeed = 0,
     int ClassifierNetworkMembers = 12,
     int ClassifierNetworkEpochs = StatisticalModels.TargetDecoyRescorer.NetworkEpochs,
     int ClassifierNetworkPasses = 1,
-    StatisticalModels.NetworkTrainingSample ClassifierNetworkTrainingSample = StatisticalModels.NetworkTrainingSample.Confident,
+    StatisticalModels.NetworkTrainingSample ClassifierNetworkTrainingSample = StatisticalModels.NetworkTrainingSample.ConfidentPooled,
     bool SiblingTopCandidateOnly = true,
     int MinimumApexFragments = 0,
     bool FragmentApexCandidate = false,
