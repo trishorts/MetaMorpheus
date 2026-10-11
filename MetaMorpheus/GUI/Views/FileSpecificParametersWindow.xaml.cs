@@ -212,7 +212,7 @@ namespace MetaMorpheusGUI
             var defaultParams = new CommonParameters();
             IDigestionParams digestionParams = GuiGlobalParamsViewModel.Instance.IsRnaMode
                 ? new RnaDigestionParams("RNase T1")
-                : new DigestionParams("trypsin");
+                : new DigestionParams(CommonParameters.DefaultProteaseName);
 
             DigestionAgent tempProtease = digestionParams.DigestionAgent;
             int tempMinPeptideLength = digestionParams.MinLength;
