@@ -1100,7 +1100,7 @@ namespace Test
 
                 var protein = new Protein("PEPTIDEKPEPTIDER", "PROTEINA", "ORGANISM");
                 var peptides = protein
-                    .Digest(new DigestionParams(), new List<Modification>(), new List<Modification>())
+                    .Digest(new DigestionParams("trypsin/P"), new List<Modification>(), new List<Modification>())
                     .Cast<IBioPolymerWithSetMods>()
                     .ToList();
                 var withReporters = peptides.First(p => p.BaseSequence == "PEPTIDEK");

@@ -711,7 +711,7 @@ namespace Test
             CommonParameters commonParameters = new();
 
             var protein = new Protein("PEPTIDEKPEPTIDER", "ACC_DIRECT");
-            var digestionParams = new DigestionParams(protease: "trypsin", minPeptideLength: 1);
+            var digestionParams = new DigestionParams(protease: "trypsin/P", minPeptideLength: 1);
             var resolved = (PeptideWithSetModifications)protein
                 .Digest(digestionParams, new List<Modification>(), new List<Modification>())
                 .First(p => p.BaseSequence == "PEPTIDER");
@@ -805,7 +805,7 @@ namespace Test
 
             string mzmlPath = Path.Combine(outputFolder, "fake.mzML");
             var protein = new Protein("PEPTIDEKPEPTIDERPEPTIDEK", "ACC_QUANT");
-            var digestionParams = new DigestionParams(protease: "trypsin", minPeptideLength: 1);
+            var digestionParams = new DigestionParams(protease: "trypsin/P", minPeptideLength: 1);
             var digestionProducts = protein.Digest(digestionParams, new List<Modification>(), new List<Modification>())
                 .Cast<PeptideWithSetModifications>().ToList();
 
@@ -1031,7 +1031,7 @@ namespace Test
             // GeneratehUnlabeledProteinsForSilac is what puts the light form into the SILAC list
             // alongside the labeled clone, so the run has something left to quantify once the clone is
             // dropped -- which is the behaviour under test, not merely that nothing threw.
-            var digestionParams = new DigestionParams(protease: "trypsin", minPeptideLength: 1,
+            var digestionParams = new DigestionParams(protease: "trypsin/P", minPeptideLength: 1,
                 generateUnlabeledProteinsForSilac: true);
             var digestionProducts = protein.Digest(digestionParams, new List<Modification>(), new List<Modification>())
                 .Cast<PeptideWithSetModifications>().ToList();

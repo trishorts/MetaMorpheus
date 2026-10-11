@@ -172,7 +172,7 @@ namespace MetaMorpheusGUI
                 {
                     ProteaseComboBox.Items.Add(protease);
                 }
-                Protease trypsin = ProteaseDictionary.Dictionary["trypsin"];
+                Protease trypsin = ProteaseDictionary.Dictionary[CommonParameters.DefaultProteaseName];
                 ProteaseComboBox.SelectedItem = trypsin;
 
                 foreach (string initiatior_methionine_behavior in Enum.GetNames(typeof(InitiatorMethionineBehavior)))
@@ -981,11 +981,11 @@ namespace MetaMorpheusGUI
                     case "Arg-C":
                         if (UpdateGUISettings.UseArgCRecommendedSettings())
                         {
-                            ProteaseComboBox.SelectedItem = ProteaseDictionary.Dictionary["trypsin"];
+                            ProteaseComboBox.SelectedItem = ProteaseDictionary.Dictionary[CommonParameters.DefaultProteaseName];
                         }
                         break;
-                    case "chymotrypsin (don't cleave before proline)":
-                    case "chymotrypsin (cleave before proline)":
+                    case "chymotrypsin":
+                    case "chymotrypsin/P":
                         {
                             if (UpdateGUISettings.UseChymotrypsinRecommendedSettings())
                             {
@@ -1007,7 +1007,7 @@ namespace MetaMorpheusGUI
                         {
                             if (UpdateGUISettings.UseSemiTrypsinRecommendedSettings())
                             {
-                                ProteaseComboBox.SelectedItem = ProteaseDictionary.Dictionary["trypsin"];
+                                ProteaseComboBox.SelectedItem = ProteaseDictionary.Dictionary[CommonParameters.DefaultProteaseName];
                                 SemiSpecificSearchRadioButton.IsChecked = true;
                             }
                         }

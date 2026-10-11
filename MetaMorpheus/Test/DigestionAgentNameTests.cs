@@ -95,7 +95,8 @@ namespace Test
         /// non-specific clones and this name all read it.
         /// </summary>
         [Test]
-        [TestCase("chymotrypsin|P", CleavageSpecificity.Full)]
+        [TestCase("chymotrypsin", CleavageSpecificity.Full)]
+        [TestCase("trypsin/P", CleavageSpecificity.Full)]
         [TestCase("StcE-trypsin", CleavageSpecificity.Full)]
         [TestCase("Glu-C", CleavageSpecificity.None)]
         public static void ASavedTaskReloadsWithItsProtease(string protease, CleavageSpecificity specificity)

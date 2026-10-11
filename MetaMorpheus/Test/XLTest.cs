@@ -405,7 +405,7 @@ namespace Test
 
             //Generate parameters
             var commonParameters = new CommonParameters(doPrecursorDeconvolution: false, dissociationType: DissociationType.HCD,
-                scoreCutoff: 1, digestionParams: new DigestionParams(minPeptideLength: 5), precursorMassTolerance: new PpmTolerance(10), maxThreadsToUsePerFile: 1);
+                scoreCutoff: 1, digestionParams: new DigestionParams("trypsin/P", minPeptideLength: 5), precursorMassTolerance: new PpmTolerance(10), maxThreadsToUsePerFile: 1);
 
             var xlSearchParameters = new XlSearchParameters
             {
@@ -452,7 +452,7 @@ namespace Test
             }
 
             MyFileManager myFileManager = new MyFileManager(true);
-            CommonParameters commonParameters2 = new CommonParameters(digestionParams: new DigestionParams(), maxThreadsToUsePerFile: 1);
+            CommonParameters commonParameters2 = new CommonParameters(digestionParams: new DigestionParams("trypsin/P"), maxThreadsToUsePerFile: 1);
 
             var fsp = new List<(string fileName, CommonParameters fileSpecificParameters)>();
             fsp.Add((Path.GetFileName(newFileName), commonParameters2));
