@@ -1567,11 +1567,11 @@ namespace TaskLayer
         /// and carry on with whatever proteins remained, returning a plausible index silently built
         /// from a subset of the database; the write side already throws on the first oligo.
         /// </summary>
-        private static List<IBioPolymerWithSetMods> ReadPeptideIndex(string peptideIndexFileName, IEnumerable<IBioPolymer> allKnownBioPolymers)
-            => ReadPeptideIndex(peptideIndexFileName, allKnownBioPolymers.Cast<Protein>().ToList())
+        private static List<IBioPolymerWithSetMods> ReadPeptideIndex(string peptideIndexFileName, IEnumerable<IBioPolymer> allKnownBioPolymers, int maxThreads)
+            => ReadPeptideIndex(peptideIndexFileName, allKnownBioPolymers.Cast<Protein>().ToList(), maxThreads)
                 .Cast<IBioPolymerWithSetMods>().ToList();
 
-        private static List<PeptideWithSetModifications> ReadPeptideIndex(string peptideIndexFileName, List<Protein> allKnownProteins)
+        private static List<PeptideWithSetModifications> ReadPeptideIndex(string peptideIndexFileName, List<Protein> allKnownProteins, int maxThreads)
         {
             var messageTypes = GetSubclassesAndItself(typeof(List<PeptideWithSetModifications>));
             var ser = new NetSerializer.Serializer(messageTypes);
@@ -1599,9 +1599,44 @@ namespace TaskLayer
             var storedDigestParams = GetDigestionParamsFromFile(Path.Combine(Path.GetDirectoryName(peptideIndexFileName), "DigestionParameters.toml"));
 
             // get non-serialized information for the peptides (proteins, mod info)
-            foreach (var peptide in peptideIndex)
+            //
+            // Each peptide is restored from its own fields and three lookups that nothing writes to from here on, so the peptides are
+            // independent of each other and the result does not depend on how they are shared out between threads. Restoring them on
+            // one thread was about half of reading back an index: 7 of 13 s for the bottom-up nightly's 9.25 M peptides, all on one
+            // core. A peptide that cannot be restored stops the read with the exception the one-thread loop threw, the one at the
+            // lowest position, so a stale or damaged cache is reported exactly as before.
+            if (peptideIndex.Count > 0)
             {
-                peptide.SetNonSerializedPeptideInfo(GlobalVariables.AllModsKnownDictionary, proteinDictionary, storedDigestParams);
+                int firstFailedPosition = int.MaxValue;
+                Exception firstFailure = null;
+                object failureLock = new object();
+                Parallel.ForEach(Partitioner.Create(0, peptideIndex.Count), new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, maxThreads) }, range =>
+                {
+                    for (int i = range.Item1; i < range.Item2; i++)
+                    {
+                        try
+                        {
+                            peptideIndex[i].SetNonSerializedPeptideInfo(GlobalVariables.AllModsKnownDictionary, proteinDictionary, storedDigestParams);
+                        }
+                        catch (Exception e)
+                        {
+                            lock (failureLock)
+                            {
+                                if (i < firstFailedPosition)
+                                {
+                                    firstFailedPosition = i;
+                                    firstFailure = e;
+                                }
+                            }
+                            return; // nothing later in this range can be the first failure
+                        }
+                    }
+                });
+
+                if (firstFailure != null)
+                {
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(firstFailure).Throw();
+                }
             }
 
             return peptideIndex;
@@ -1959,7 +1994,7 @@ namespace TaskLayer
                 try
                 {
                     Status("Reading peptide index...", new List<string> { taskId });
-                    peptideIndex = ReadPeptideIndex(Path.Combine(pathToFolderWithIndices, PeptideIndexFileName), allKnownProteins);
+                    peptideIndex = ReadPeptideIndex(Path.Combine(pathToFolderWithIndices, PeptideIndexFileName), allKnownProteins, indexEngine.CommonParameters.MaxThreadsToUsePerFile);
 
                     Status("Reading fragment index...", new List<string> { taskId });
                     fragmentIndex = ReadFragmentIndex(Path.Combine(pathToFolderWithIndices, FragmentIndexFileName));
@@ -2035,7 +2070,7 @@ namespace TaskLayer
                 try
                 {
                     Status("Reading peptide index...", new List<string> { taskId });
-                    peptideIndex = ReadPeptideIndex(Path.Combine(pathToFolderWithIndices, PeptideIndexFileName), allKnownProteins);
+                    peptideIndex = ReadPeptideIndex(Path.Combine(pathToFolderWithIndices, PeptideIndexFileName), allKnownProteins, indexEngine.CommonParameters.MaxThreadsToUsePerFile);
 
                     if (indexEngine.GeneratePrecursorIndex)
                     {
