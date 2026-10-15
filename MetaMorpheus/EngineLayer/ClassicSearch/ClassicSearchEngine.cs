@@ -32,12 +32,14 @@ namespace EngineLayer.ClassicSearch
         private readonly bool WriteSpectralLibrary;
         private readonly bool WriteDigestionCounts;
         private readonly object[] Locks;
+        private ClassicSearchDigestionCache DigestionCache;
         public readonly ConcurrentDictionary<(string Accession, string BaseSequence), int> DigestionCountDictionary; // Used to track the amount of digestion products from each protein when the option is enabled.
 
         public ClassicSearchEngine(SpectralMatch[] globalPsms, Ms2ScanWithSpecificMass[] arrayOfSortedMS2Scans,
             List<Modification> variableModifications, List<Modification> fixedModifications, List<SilacLabel> silacLabels, SilacLabel startLabel, SilacLabel endLabel,
             List<IBioPolymer> proteinList, MassDiffAcceptor searchMode, CommonParameters commonParameters, List<(string FileName, CommonParameters Parameters)> fileSpecificParameters,
-            SpectralLibrary spectralLibrary, List<string> nestedIds, bool writeSpectralLibrary, bool writeDigestionCounts = false)
+            SpectralLibrary spectralLibrary, List<string> nestedIds, bool writeSpectralLibrary, bool writeDigestionCounts = false,
+            ClassicSearchDigestionCache digestionCache = null)
             : base(commonParameters, fileSpecificParameters, nestedIds)
         {
             SpectralMatches = globalPsms;
@@ -74,6 +76,13 @@ namespace EngineLayer.ClassicSearch
             // we have to generate the reverse peptides instead of the usual reverse proteins because we generate decoy spectral
             // library spectra from their corresponding paired target peptides
             Proteins = spectralLibrary == null ? proteinList : proteinList.Where(p => !p.IsDecoy).ToList();
+
+            // Products kept by an earlier search of the same proteins with the same digestion, if the cache serves these
+            // inputs. A spectral-library search sets PairedTargetDecoySequence on its targets, so it never shares them.
+            DigestionCache = spectralLibrary == null && digestionCache != null
+                && digestionCache.Serves(proteinList, commonParameters.DigestionParams, fixedModifications, variableModifications, silacLabels, TurnoverLabels)
+                ? digestionCache
+                : null;
         }
 
         // Override for constructing from Protein
@@ -146,7 +155,10 @@ namespace EngineLayer.ClassicSearch
                         if (GlobalVariables.StopLoops) { return; }
 
                         // digest each protein into peptides and search for each peptide in all spectra within precursor mass tolerance
-                        foreach (var specificBioPolymer in Proteins[i].Digest(CommonParameters.DigestionParams, FixedModifications, VariableModifications, SilacLabels, TurnoverLabels))
+                        IEnumerable<IBioPolymerWithSetMods> products = DigestionCache != null
+                            ? DigestionCache.Digest(i, CommonParameters.DigestionParams)
+                            : Proteins[i].Digest(CommonParameters.DigestionParams, FixedModifications, VariableModifications, SilacLabels, TurnoverLabels);
+                        foreach (var specificBioPolymer in products)
                         {
                             if (WriteDigestionCounts)
                                 DigestionCountDictionary.Increment((specificBioPolymer.Parent.Accession, specificBioPolymer.BaseSequence));
@@ -229,6 +241,9 @@ namespace EngineLayer.ClassicSearch
                     }
                 });
             }
+
+            // the task decides how long the cache lives; this engine's results must not keep it
+            DigestionCache = null;
 
             foreach (SpectralMatch psm in SpectralMatches.Where(p => p != null))
             {

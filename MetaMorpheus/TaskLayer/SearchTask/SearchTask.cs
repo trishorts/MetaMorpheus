@@ -285,6 +285,9 @@ namespace TaskLayer
             Dictionary<string, int[]> numMs2SpectraPerFile = new Dictionary<string, int[]>(); // key is filename, value is an int array of length 2, where the first element is the number of MS2 spectra in the file, and the second element is the number of different deconvoluted precursors assigned to those scans
             bool collectedDigestionInformation = false;
             IDictionary<(string Accession, string BaseSequence), int> digestionCountDictionary = null;
+            // a Classic search digests the whole database for every file; keep the products for the next file
+            ClassicSearchDigestionCache digestionCache = null;
+            bool digestionCacheDecided = false;
             int numNotches = 0;
             for (int spectraFileIndex = 0; spectraFileIndex < currentRawFileList.Count; spectraFileIndex++)
             {
@@ -549,8 +552,17 @@ namespace TaskLayer
                 else
                 {
                     Status("Starting search...", thisId);
+                    if (!digestionCacheDecided)
+                    {
+                        digestionCacheDecided = true;
+                        digestionCache = spectralLibrary == null
+                            ? ClassicSearchDigestionCache.Create(bioPolymerList, combinedParams.DigestionParams, fixedModifications, variableModifications,
+                                currentRawFileList.Count, SearchParameters.SilacLabels, SearchParameters.StartTurnoverLabel, SearchParameters.EndTurnoverLabel)
+                            : null;
+                    }
                     var newClassicSearchEngine = new ClassicSearchEngine(fileSpecificPsms, arrayOfMs2ScansSortedByMass, variableModifications, fixedModifications, SearchParameters.SilacLabels,
-                       SearchParameters.StartTurnoverLabel, SearchParameters.EndTurnoverLabel, bioPolymerList, massDiffAcceptor, combinedParams, this.FileSpecificParameters, spectralLibrary, thisId, SearchParameters.WriteSpectralLibrary, SearchParameters.WriteDigestionProductCountFile);
+                       SearchParameters.StartTurnoverLabel, SearchParameters.EndTurnoverLabel, bioPolymerList, massDiffAcceptor, combinedParams, this.FileSpecificParameters, spectralLibrary, thisId, SearchParameters.WriteSpectralLibrary, SearchParameters.WriteDigestionProductCountFile,
+                       digestionCache);
                     var result = newClassicSearchEngine.Run();
 
                     // The same proteins (all of them) get digested with each classic search engine, therefor we only need to calculate this for the first file that runs
@@ -591,6 +603,11 @@ namespace TaskLayer
             // The modern search's last index cache may still be being written. Finish it, and fail here if it failed, before any
             // results are worked out or written: the cache is then complete for the next task, and its index can be collected.
             FinishWritingIndexCache();
+
+            // the searches are done: let the kept digestion products go before post-search analysis and PEP (Release, because
+            // this method's frame may keep the cache object itself reachable until the task ends)
+            digestionCache?.Release();
+            digestionCache = null;
 
             if (spectralLibrary != null && SearchParameters.UpdateSpectralLibrary == false)
             {

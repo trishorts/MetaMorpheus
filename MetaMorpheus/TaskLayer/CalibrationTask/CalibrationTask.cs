@@ -55,6 +55,10 @@ namespace TaskLayer
         private string _taskId;
         private List<IBioPolymer> _proteinList;
         private Task<MetaMorpheusEngineResults> _databaseLoadingTask;
+        // every round of every file searches the whole database; its digestion products are kept for the next search
+        private ClassicSearchDigestionCache _digestionCache;
+        private bool _digestionCacheDecided;
+        private int _filesToCalibrate;
         private List<Modification> _variableModifications;
         private List<Modification> _fixedModifications;
         private MyFileManager _myFileManager;
@@ -68,6 +72,7 @@ namespace TaskLayer
         protected override MyTaskResults RunSpecific(string outputFolder, List<DbForTask> dbFilenameList, List<string> currentRawFileList, string taskId, FileSpecificParameters[] fileSettingsList)
         {
             Initialize(taskId, dbFilenameList);
+            _filesToCalibrate = currentRawFileList.Count;
             Status("Calibrating...", new List<string> { _taskId });
 
             // each calibrated file is written while the next one is calibrated; disposing waits for a write still
@@ -196,6 +201,10 @@ namespace TaskLayer
             // a task none of whose files could be calibrated still loads the database and writes its prose
             WaitForDatabase();
 
+            // the searches are done: let the kept digestion products go
+            _digestionCache?.Release();
+            _digestionCache = null;
+
             // re-write experimental design (if it has been defined) with new calibrated file names
             UpdateExperimentalDesignFile(currentRawFileList, outputFolder);
 
@@ -254,8 +263,15 @@ namespace TaskLayer
 
             if (CalibrationParameters.SearchType == SearchType.Classic)
             {
+                if (!_digestionCacheDecided)
+                {
+                    _digestionCacheDecided = true;
+                    // at least three rounds for every file
+                    _digestionCache = ClassicSearchDigestionCache.Create(_proteinList, combinedParameters.DigestionParams, _fixedModifications, _variableModifications,
+                        3 * _filesToCalibrate);
+                }
                 _ = new ClassicSearchEngine(allPsmsArray, listOfSortedms2Scans, _variableModifications, _fixedModifications, null, null, null, _proteinList, searchMode, combinedParameters,
-                    FileSpecificParameters, null, new List<string> { _taskId, "Individual Spectra Files", fileNameWithoutExtension }, false).Run();
+                    FileSpecificParameters, null, new List<string> { _taskId, "Individual Spectra Files", fileNameWithoutExtension }, false, digestionCache: _digestionCache).Run();
             }
             else // Modern Search
             {
@@ -335,6 +351,9 @@ namespace TaskLayer
             var dbLoader = new DatabaseLoadingEngine(CommonParameters, this.FileSpecificParameters, [taskId], dbFilenameList, taskId, DecoyType.Reverse, true, localizeableModificationTypes);
             _proteinList = null;
             _databaseLoadingTask = dbLoader.RunAsync();
+            _digestionCache?.Release();
+            _digestionCache = null;
+            _digestionCacheDecided = false;
 
             _myFileManager = new MyFileManager(true);
             _unsuccessfullyCalibratedFilePaths = new List<string>();
