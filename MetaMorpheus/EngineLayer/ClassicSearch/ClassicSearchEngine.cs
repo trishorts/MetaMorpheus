@@ -27,6 +27,8 @@ namespace EngineLayer.ClassicSearch
         private readonly SpectralMatch[] SpectralMatches;
         private readonly Ms2ScanWithSpecificMass[] ArrayOfSortedMS2Scans;
         private readonly double[] MyScanPrecursorMasses;
+        private readonly SortedMassIndex ScanMassIndex;
+        private readonly DotMassDiffAcceptor DotSearchMode; // the search mode, when it is exactly a DotMassDiffAcceptor
         private readonly bool WriteSpectralLibrary;
         private readonly bool WriteDigestionCounts;
         private readonly object[] Locks;
@@ -53,6 +55,8 @@ namespace EngineLayer.ClassicSearch
             }
 
             SearchMode = searchMode;
+            ScanMassIndex = new SortedMassIndex(MyScanPrecursorMasses);
+            DotSearchMode = searchMode != null && searchMode.GetType() == typeof(DotMassDiffAcceptor) ? (DotMassDiffAcceptor)searchMode : null;
             SpectralLibrary = spectralLibrary;
             WriteSpectralLibrary = writeSpectralLibrary;
             WriteDigestionCounts = writeDigestionCounts;
@@ -114,6 +118,7 @@ namespace EngineLayer.ClassicSearch
                     (range, loopState) =>
                 {
                     var fragmentMatchScratch = new FragmentMatchScratch();
+                    var acceptableScans = new List<ScanWithIndexAndNotchInfo>();
                     var targetFragmentsForEachDissociationType = new Dictionary<DissociationType, List<Product>>();
                     var decoyFragmentsForEachDissociationType = new Dictionary<DissociationType, List<Product>>();
                     var sortedMassesForEachDissociationType = new Dictionary<DissociationType, SortedProductMasses>();
@@ -162,7 +167,8 @@ namespace EngineLayer.ClassicSearch
                             }
 
                             // score each scan that has an acceptable precursor mass
-                            foreach (ScanWithIndexAndNotchInfo scan in GetAcceptableScans(specificBioPolymer.MonoisotopicMass, SearchMode))
+                            FindAcceptableScans(specificBioPolymer.MonoisotopicMass, acceptableScans);
+                            foreach (ScanWithIndexAndNotchInfo scan in acceptableScans)
                             {
                                 Ms2ScanWithSpecificMass theScan = ArrayOfSortedMS2Scans[scan.ScanIndex];
                                 var dissociationType = CommonParameters.DissociationType == DissociationType.Autodetect ?
@@ -282,39 +288,50 @@ namespace EngineLayer.ClassicSearch
             }
         }
 
-        private IEnumerable<ScanWithIndexAndNotchInfo> GetAcceptableScans(double peptideMonoisotopicMass, MassDiffAcceptor searchMode)
+        /// <summary>
+        /// Fills <paramref name="acceptableScans"/> with every scan whose precursor mass lies in one of the search mode's allowed
+        /// intervals around <paramref name="peptideMonoisotopicMass"/>, as (notch, scan index): interval by interval in the order
+        /// the search mode gives them, and scans in mass order within each, the order they are scored in. Filled up front
+        /// rather than yielded one at a time; nothing scoring does changes the search mode or the scans' masses.
+        /// </summary>
+        internal void FindAcceptableScans(double peptideMonoisotopicMass, List<ScanWithIndexAndNotchInfo> acceptableScans)
         {
-            foreach (AllowedIntervalWithNotch allowedIntervalWithNotch in searchMode.GetAllowedPrecursorMassIntervalsFromTheoreticalMass(peptideMonoisotopicMass))
+            acceptableScans.Clear();
+            if (DotSearchMode != null)
             {
-                int scanIndex = GetFirstScanWithMassOverOrEqual(allowedIntervalWithNotch.Minimum);
-                if (scanIndex < ArrayOfSortedMS2Scans.Length)
+                // the same intervals GetAllowedPrecursorMassIntervalsFromTheoreticalMass yields, without an object for each
+                for (int j = 0; j < DotSearchMode.IntervalCount; j++)
                 {
-                    var scanMass = MyScanPrecursorMasses[scanIndex];
-                    while (scanMass <= allowedIntervalWithNotch.Maximum)
-                    {
-                        yield return new ScanWithIndexAndNotchInfo(allowedIntervalWithNotch.Notch, scanIndex);
-                        scanIndex++;
-                        if (scanIndex == ArrayOfSortedMS2Scans.Length)
-                        {
-                            break;
-                        }
-
-                        scanMass = MyScanPrecursorMasses[scanIndex];
-                    }
+                    DotSearchMode.GetAllowedPrecursorMassInterval(peptideMonoisotopicMass, j, out double minimum, out double maximum, out int notch);
+                    AddScansInInterval(minimum, maximum, notch, acceptableScans);
                 }
+                return;
+            }
+
+            foreach (AllowedIntervalWithNotch allowedIntervalWithNotch in SearchMode.GetAllowedPrecursorMassIntervalsFromTheoreticalMass(peptideMonoisotopicMass))
+            {
+                AddScansInInterval(allowedIntervalWithNotch.Minimum, allowedIntervalWithNotch.Maximum, allowedIntervalWithNotch.Notch, acceptableScans);
             }
         }
 
-        private int GetFirstScanWithMassOverOrEqual(double minimum)
+        private void AddScansInInterval(double minimum, double maximum, int notch, List<ScanWithIndexAndNotchInfo> acceptableScans)
         {
-            int index = Array.BinarySearch(MyScanPrecursorMasses, minimum);
-            if (index < 0)
+            int scanIndex = ScanMassIndex.FirstAtOrAbove(minimum);
+            if (scanIndex < ArrayOfSortedMS2Scans.Length)
             {
-                index = ~index;
-            }
+                var scanMass = MyScanPrecursorMasses[scanIndex];
+                while (scanMass <= maximum)
+                {
+                    acceptableScans.Add(new ScanWithIndexAndNotchInfo(notch, scanIndex));
+                    scanIndex++;
+                    if (scanIndex == ArrayOfSortedMS2Scans.Length)
+                    {
+                        break;
+                    }
 
-            // index of the first element that is larger than value
-            return index;
+                    scanMass = MyScanPrecursorMasses[scanIndex];
+                }
+            }
         }
     }
 }
