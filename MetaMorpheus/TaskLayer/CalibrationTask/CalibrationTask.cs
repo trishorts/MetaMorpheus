@@ -271,10 +271,19 @@ namespace TaskLayer
 
             //get the deconvoluted ms2scans for the good identifications
             List<Ms2ScanWithSpecificMass> goodScans = new List<Ms2ScanWithSpecificMass>();
-            List<SpectralMatch> unfilteredPsms = allPsmsArray.ToList();
+            // A PSM's slot in allPsmsArray is the index of its scan. Looking each slot up in a map, built with the same
+            // equality List.IndexOf uses and keeping the first slot as IndexOf would, replaces a linear scan per PSM.
+            var slotOfPsm = new Dictionary<SpectralMatch, int>();
+            for (int slot = 0; slot < allPsmsArray.Length; slot++)
+            {
+                if (allPsmsArray[slot] != null)
+                {
+                    slotOfPsm.TryAdd(allPsmsArray[slot], slot);
+                }
+            }
             foreach (SpectralMatch psm in goodIdentifications)
             {
-                goodScans.Add(listOfSortedms2Scans[unfilteredPsms.IndexOf(psm)]);
+                goodScans.Add(listOfSortedms2Scans[slotOfPsm[psm]]);
             }
 
             DataPointAquisitionResults currentResult = (DataPointAquisitionResults)new DataPointAcquisitionEngine(
