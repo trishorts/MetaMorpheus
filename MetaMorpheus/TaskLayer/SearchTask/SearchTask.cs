@@ -18,6 +18,7 @@ using Proteomics;
 using Proteomics.ProteolyticDigestion;
 using Readers;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -801,56 +802,71 @@ namespace TaskLayer
 
         public static void MatchInternalFragmentIons(SpectralMatch[] fileSpecificPsms, Ms2ScanWithSpecificMass[] arrayOfMs2ScansSortedByMass, CommonParameters combinedParams, int minInternalFragmentLength)
         {
-            //for each PSM with an ID
-            for (int index = 0; index < fileSpecificPsms.Length; index++)
+            if (fileSpecificPsms.Length == 0)
             {
-                SpectralMatch psm = fileSpecificPsms[index];
-                if (psm != null && psm.BestMatchingBioPolymersWithSetMods.Count() > 0)
+                return;
+            }
+
+            // Each PSM is independent: it reads its own scan and the peptides (shared between PSMs, but only read here),
+            // and writes only its own hypotheses and their matched-ion lists. Small ranges, because the array is sorted
+            // by precursor mass and a PSM costs roughly the square of its sequence length, so a few large ranges would
+            // leave the heaviest end of the array to one thread.
+            Parallel.ForEach(Partitioner.Create(0, fileSpecificPsms.Length, 16),
+                new ParallelOptions { MaxDegreeOfParallelism = combinedParams.MaxThreadsToUsePerFile },
+                range =>
                 {
-                    //Get the scan
-                    Ms2ScanWithSpecificMass scanForThisPsm = arrayOfMs2ScansSortedByMass[index];
-                    DissociationType dissociationType = combinedParams.DissociationType == DissociationType.Autodetect ?
-                    scanForThisPsm.TheScan.DissociationType.Value : combinedParams.DissociationType;
-
-                    //Get the theoretical peptides
-                    List<int> notches = new List<int>();
-                    var ambiguousPeptides = psm.BestMatchingBioPolymersWithSetMods.ToList();
-
-                    //get matched ions for each peptide
-                    List<List<MatchedFragmentIon>> matchedIonsForAllAmbiguousPeptides = new List<List<MatchedFragmentIon>>();
                     List<Product> internalFragments = new List<Product>();
-                    foreach (IBioPolymerWithSetMods peptide in ambiguousPeptides.Select(p => p.SpecificBioPolymer))
+                    for (int index = range.Item1; index < range.Item2; index++)
                     {
-                        internalFragments.Clear();
-                        peptide.FragmentInternally(dissociationType, minInternalFragmentLength, internalFragments);
-                        //TODO: currently, internal and terminal ions can match to the same observed peaks (much like how b- and y-ions can match to the same peaks). Investigate if we should change that...                        
-                        matchedIonsForAllAmbiguousPeptides.Add(MetaMorpheusEngine.MatchFragmentIons(scanForThisPsm, internalFragments, combinedParams));
+                        MatchInternalFragmentIons(fileSpecificPsms[index], arrayOfMs2ScansSortedByMass[index], combinedParams, minInternalFragmentLength, internalFragments);
                     }
+                });
+        }
 
-                    //Find the max number of matched ions
-                    int maxNumMatchedIons = matchedIonsForAllAmbiguousPeptides.Max(x => x.Count);
+        private static void MatchInternalFragmentIons(SpectralMatch psm, Ms2ScanWithSpecificMass scanForThisPsm, CommonParameters combinedParams, int minInternalFragmentLength, List<Product> internalFragments)
+        {
+            //for each PSM with an ID
+            if (psm != null && psm.BestMatchingBioPolymersWithSetMods.Count() > 0)
+            {
+                DissociationType dissociationType = combinedParams.DissociationType == DissociationType.Autodetect ?
+                scanForThisPsm.TheScan.DissociationType.Value : combinedParams.DissociationType;
 
-                    //remove peptides if they have fewer than max-1 matched ions, thus requiring at least two internal ions to disambiguate an ID
-                    //if not removed, then add the matched internal ions
-                    HashSet<IBioPolymerWithSetMods> PeptidesToMatchingInternalFragments = new HashSet<IBioPolymerWithSetMods>();
-                    for (int peptideIndex = 0; peptideIndex < ambiguousPeptides.Count; peptideIndex++)
+                //Get the theoretical peptides
+                var ambiguousPeptides = psm.BestMatchingBioPolymersWithSetMods.ToList();
+
+                //get matched ions for each peptide
+                List<List<MatchedFragmentIon>> matchedIonsForAllAmbiguousPeptides = new List<List<MatchedFragmentIon>>();
+                foreach (IBioPolymerWithSetMods peptide in ambiguousPeptides.Select(p => p.SpecificBioPolymer))
+                {
+                    internalFragments.Clear();
+                    peptide.FragmentInternally(dissociationType, minInternalFragmentLength, internalFragments);
+                    //TODO: currently, internal and terminal ions can match to the same observed peaks (much like how b- and y-ions can match to the same peaks). Investigate if we should change that...
+                    matchedIonsForAllAmbiguousPeptides.Add(MetaMorpheusEngine.MatchFragmentIons(scanForThisPsm, internalFragments, combinedParams));
+                }
+
+                //Find the max number of matched ions
+                int maxNumMatchedIons = matchedIonsForAllAmbiguousPeptides.Max(x => x.Count);
+
+                //remove peptides if they have fewer than max-1 matched ions, thus requiring at least two internal ions to disambiguate an ID
+                //if not removed, then add the matched internal ions
+                HashSet<IBioPolymerWithSetMods> PeptidesToMatchingInternalFragments = new HashSet<IBioPolymerWithSetMods>();
+                for (int peptideIndex = 0; peptideIndex < ambiguousPeptides.Count; peptideIndex++)
+                {
+                    var thisPeptide = ambiguousPeptides[peptideIndex];
+                    //if we should remove the theoretical, remove it
+                    if (matchedIonsForAllAmbiguousPeptides[peptideIndex].Count + 1 < maxNumMatchedIons)
                     {
-                        var thisPeptide = ambiguousPeptides[peptideIndex];
-                        //if we should remove the theoretical, remove it
-                        if (matchedIonsForAllAmbiguousPeptides[peptideIndex].Count + 1 < maxNumMatchedIons)
+                        psm.RemoveThisAmbiguousPeptide(thisPeptide);
+                    }
+                    // otherwise add the matched internal ions to the total ions
+                    else
+                    {
+                        IBioPolymerWithSetMods currentPwsm = thisPeptide.SpecificBioPolymer;
+                        //check that we haven't already added the matched ions for this peptide
+                        if (!PeptidesToMatchingInternalFragments.Contains(currentPwsm))
                         {
-                            psm.RemoveThisAmbiguousPeptide(thisPeptide);
-                        }
-                        // otherwise add the matched internal ions to the total ions
-                        else
-                        {
-                            IBioPolymerWithSetMods currentPwsm = thisPeptide.SpecificBioPolymer;
-                            //check that we haven't already added the matched ions for this peptide
-                            if (!PeptidesToMatchingInternalFragments.Contains(currentPwsm))
-                            {
-                                PeptidesToMatchingInternalFragments.Add(currentPwsm); //record that we've seen this peptide
-                                thisPeptide.MatchedIons.AddRange(matchedIonsForAllAmbiguousPeptides[peptideIndex]); //add the matched ions
-                            }
+                            PeptidesToMatchingInternalFragments.Add(currentPwsm); //record that we've seen this peptide
+                            thisPeptide.MatchedIons.AddRange(matchedIonsForAllAmbiguousPeptides[peptideIndex]); //add the matched ions
                         }
                     }
                 }
