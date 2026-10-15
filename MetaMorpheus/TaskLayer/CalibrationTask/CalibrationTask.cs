@@ -17,6 +17,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using EngineLayer.DatabaseLoading;
 using UsefulProteomicsDatabases;
 
@@ -53,6 +54,7 @@ namespace TaskLayer
         private List<string> _unsuccessfullyCalibratedFilePaths;
         private string _taskId;
         private List<IBioPolymer> _proteinList;
+        private Task<MetaMorpheusEngineResults> _databaseLoadingTask;
         private List<Modification> _variableModifications;
         private List<Modification> _fixedModifications;
         private MyFileManager _myFileManager;
@@ -107,6 +109,9 @@ namespace TaskLayer
                 // file manager and then read every scan again, unfiltered, into the same object, which is the state it kept.
                 Status("Loading spectra file...", new List<string> { _taskId, "Individual Spectra Files" });
                 MsDataFile myMsDataFile = MsDataFileReader.GetDataFile(originalUncalibratedFilePath).LoadAllStaticData();
+
+                // the database has been loading while the first file was read
+                WaitForDatabase();
 
                 // First round of calibration
                 Status("Acquiring calibration data points...", new List<string> { _taskId, "Individual Spectra Files" });
@@ -187,6 +192,9 @@ namespace TaskLayer
 
             // every calibrated file is complete, and reported, before the task goes on
             calibratedFileWrite.Finish();
+
+            // a task none of whose files could be calibrated still loads the database and writes its prose
+            WaitForDatabase();
 
             // re-write experimental design (if it has been defined) with new calibrated file names
             UpdateExperimentalDesignFile(currentRawFileList, outputFolder);
@@ -310,8 +318,9 @@ namespace TaskLayer
 
 
         /// <summary>
-        /// Writes prose settings and initializes the following private fields used by the calibration engine:
-        /// _taskId, _variableModifications, _fixedModifications, _proteinList, _myFileManager, _unsuccessfullyCalibratedFilePaths
+        /// Initializes the following private fields used by the calibration engine, and starts loading the database:
+        /// _taskId, _variableModifications, _fixedModifications, _myFileManager, _unsuccessfullyCalibratedFilePaths.
+        /// <see cref="WaitForDatabase"/> sets _proteinList and writes the prose settings.
         /// </summary>
         private void Initialize(string taskId, List<DbForTask> dbFilenameList)
         {
@@ -322,10 +331,10 @@ namespace TaskLayer
             };
             _taskId = taskId;
             LoadModifications(_taskId, out _variableModifications, out _fixedModifications, out var localizeableModificationTypes);
-            // load proteins
+            // start loading proteins in the background, while the first spectra file is read
             var dbLoader = new DatabaseLoadingEngine(CommonParameters, this.FileSpecificParameters, [taskId], dbFilenameList, taskId, DecoyType.Reverse, true, localizeableModificationTypes);
-            var loadingResults = dbLoader.Run() as DatabaseLoadingEngineResults;
-            _proteinList = loadingResults!.BioPolymers;
+            _proteinList = null;
+            _databaseLoadingTask = dbLoader.RunAsync();
 
             _myFileManager = new MyFileManager(true);
             _unsuccessfullyCalibratedFilePaths = new List<string>();
@@ -334,6 +343,23 @@ namespace TaskLayer
             // Reset indexes for Modern Search (will be generated on first use)
             _peptideIndex = null;
             _fragmentIndex = null;
+        }
+
+        /// <summary>
+        /// Waits, the first time it is called, for the database <see cref="Initialize"/> started loading, then sets
+        /// _proteinList and writes the prose settings, which name the database. Nothing else writes prose in between,
+        /// so the prose is the same as when the database was loaded before the first file.
+        /// </summary>
+        private void WaitForDatabase()
+        {
+            if (_proteinList != null)
+            {
+                return;
+            }
+
+            // GetResult rather than Result, so a failed load throws its own exception, as it did when loaded synchronously
+            var loadingResults = _databaseLoadingTask.GetAwaiter().GetResult() as DatabaseLoadingEngineResults;
+            _proteinList = loadingResults!.BioPolymers;
 
             // write prose settings
             WriteProse(_fixedModifications, _variableModifications, _proteinList);
