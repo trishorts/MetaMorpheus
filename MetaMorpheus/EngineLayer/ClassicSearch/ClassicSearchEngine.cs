@@ -116,6 +116,7 @@ namespace EngineLayer.ClassicSearch
                     var fragmentMatchScratch = new FragmentMatchScratch();
                     var targetFragmentsForEachDissociationType = new Dictionary<DissociationType, List<Product>>();
                     var decoyFragmentsForEachDissociationType = new Dictionary<DissociationType, List<Product>>();
+                    var sortedMassesForEachDissociationType = new Dictionary<DissociationType, SortedProductMasses>();
 
                     // check if we're supposed to autodetect dissociation type from the scan header or not
                     if (CommonParameters.DissociationType == DissociationType.Autodetect)
@@ -124,12 +125,14 @@ namespace EngineLayer.ClassicSearch
                         {
                             targetFragmentsForEachDissociationType.Add(item.Value, new List<Product>());
                             decoyFragmentsForEachDissociationType.Add(item.Value, new List<Product>());
+                            sortedMassesForEachDissociationType.Add(item.Value, new SortedProductMasses());
                         }
                     }
                     else
                     {
                         targetFragmentsForEachDissociationType.Add(CommonParameters.DissociationType, new List<Product>());
                         decoyFragmentsForEachDissociationType.Add(CommonParameters.DissociationType, new List<Product>());
+                        sortedMassesForEachDissociationType.Add(CommonParameters.DissociationType, new SortedProductMasses());
                     }
 
                     for (int i = range.Item1; i < range.Item2; i++)
@@ -172,9 +175,13 @@ namespace EngineLayer.ClassicSearch
                                 }
 
                                 // check if we've already generated theoretical fragments for this peptide+dissociation type
+                                var sortedProductMasses = sortedMassesForEachDissociationType[dissociationType];
                                 if (peptideTheorProducts.Count == 0)
                                 {
                                     specificBioPolymer.Fragment(dissociationType, CommonParameters.DigestionParams.FragmentationTerminus, peptideTheorProducts, CommonParameters.FragmentationParameters);
+
+                                    // sorted once per peptide, so that each scan below matches all of them in one walk of its masses
+                                    sortedProductMasses.Build(peptideTheorProducts);
                                 }
 
                                 List<MatchedFragmentIon> matchedIons;
@@ -182,8 +189,8 @@ namespace EngineLayer.ClassicSearch
                                 if (scoreBeforeMatching[scan.ScanIndex])
                                 {
                                     // the same score; the ions are built only if the score reaches the cutoff (null below it)
-                                    thisScore = ScoreFragmentIons(theScan, peptideTheorProducts, CommonParameters, CommonParameters.ScoreCutoff,
-                                        fragmentMatchScratch, out matchedIons);
+                                    thisScore = ScoreFragmentIons(theScan, peptideTheorProducts, sortedProductMasses, CommonParameters,
+                                        CommonParameters.ScoreCutoff, fragmentMatchScratch, out matchedIons);
                                 }
                                 else
                                 {

@@ -285,6 +285,19 @@ namespace EngineLayer
         public static double ScoreFragmentIons(Ms2ScanWithSpecificMass scan, List<Product> theoreticalProducts, CommonParameters commonParameters,
             double minimumScoreForIons, FragmentMatchScratch scratch, out List<MatchedFragmentIon> matchedIons)
         {
+            return ScoreFragmentIons(scan, theoreticalProducts, null, commonParameters, minimumScoreForIons, scratch, out matchedIons);
+        }
+
+        /// <summary>
+        /// <see cref="ScoreFragmentIons(Ms2ScanWithSpecificMass, List{Product}, CommonParameters, double, FragmentMatchScratch, out List{MatchedFragmentIon})"/>,
+        /// with every product's closest envelope found in one forward walk of the scan's mass array, using the peptide's
+        /// product masses sorted once by <paramref name="sortedProductMasses"/> (built from these products; null, or built from
+        /// a list of another length, finds them one binary search at a time). Same score, same ions: each product's closest
+        /// envelope is the same index either way, and the score is still summed in product order.
+        /// </summary>
+        public static double ScoreFragmentIons(Ms2ScanWithSpecificMass scan, List<Product> theoreticalProducts, SortedProductMasses sortedProductMasses,
+            CommonParameters commonParameters, double minimumScoreForIons, FragmentMatchScratch scratch, out List<MatchedFragmentIon> matchedIons)
+        {
             var productMassTolerance = commonParameters.ProductMassTolerance;
             int productCount = theoreticalProducts.Count;
             scratch.EnsureCapacity(productCount);
@@ -293,16 +306,31 @@ namespace EngineLayer
             int matchedCount = 0;
             double score = 0;
 
-            // the same matching as MatchFragmentIons' deconvoluted path, remembering indices instead of building ions
+            int[] closestIndexByProduct = null;
+            if (sortedProductMasses != null && sortedProductMasses.ProductCount == productCount)
+            {
+                closestIndexByProduct = scratch.ClosestIndexByProduct;
+                int[] sortedClosestIndices = scratch.SortedClosestIndices;
+                scan.GetClosestFragmentMasses(sortedProductMasses.Masses, sortedProductMasses.Count, sortedClosestIndices);
+                for (int k = 0; k < sortedProductMasses.Count; k++)
+                {
+                    closestIndexByProduct[sortedProductMasses.ProductIndices[k]] = sortedClosestIndices[k];
+                }
+            }
+
+            // the same matching as MatchFragmentIons' deconvoluted path, in product order, remembering indices instead of
+            // building ions
             for (int i = 0; i < productCount; i++)
             {
                 var product = theoreticalProducts[i];
                 if (double.IsNaN(product.NeutralMass))
                 {
-                    continue;
+                    continue; // (NaN products are not among the sorted masses either)
                 }
 
-                int closestIndex = scan.GetClosestExperimentalIsotopicEnvelopeIndex(product.NeutralMass);
+                int closestIndex = closestIndexByProduct != null
+                    ? closestIndexByProduct[i]
+                    : scan.GetClosestExperimentalIsotopicEnvelopeIndex(product.NeutralMass);
                 if (closestIndex < 0 || !productMassTolerance.Within(scan.GetDeconvolutedMonoisotopicMass(closestIndex), product.NeutralMass))
                 {
                     continue;

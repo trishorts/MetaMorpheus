@@ -261,6 +261,53 @@ namespace EngineLayer
         }
 
         /// <summary>
+        /// For each of the first <paramref name="count"/> entries of <paramref name="ascendingMasses"/>, the index
+        /// <see cref="GetClosestFragmentMass"/> returns for it (-1 when the scan has no deconvoluted fragments), written to the
+        /// same position of <paramref name="closestIndices"/>. When the masses ascend, as a peptide's sorted product masses do,
+        /// the lower bounds are found in one forward walk of the scan's mass array: a sequential read the processor can fetch
+        /// ahead, where a binary search per product waits on one cache miss after another. The lower bound of a mass does not
+        /// depend on how it was found, and exact hits, NaN, masses out of order and arrays that are not ascending numbers all
+        /// go to <see cref="GetClosestFragmentMass"/> itself, so every index is the one it would return.
+        /// </summary>
+        public void GetClosestFragmentMasses(double[] ascendingMasses, int count, int[] closestIndices)
+        {
+            double[] masses = DeconvolutedMonoisotopicMasses;
+            if (!MassesAreAscendingNumbers)
+            {
+                for (int k = 0; k < count; k++)
+                {
+                    closestIndices[k] = GetClosestFragmentMass(ascendingMasses[k]); // -1 for an empty array
+                }
+                return;
+            }
+
+            int lo = 0;
+            double previous = double.NegativeInfinity;
+            for (int k = 0; k < count; k++)
+            {
+                double mass = ascendingMasses[k];
+                if (double.IsNaN(mass))
+                {
+                    closestIndices[k] = GetClosestFragmentMass(mass);
+                    continue;
+                }
+                if (mass < previous)
+                {
+                    lo = 0; // out of order: walk again from the start rather than assume
+                }
+                previous = mass;
+
+                while (lo < masses.Length && masses[lo] < mass)
+                {
+                    lo++;
+                }
+                closestIndices[k] = lo < masses.Length && masses[lo] == mass
+                    ? GetClosestFragmentMass(mass)
+                    : ClosestOfNeighbours(masses, mass, lo);
+            }
+        }
+
+        /// <summary>
         /// Given the index of the first mass larger than <paramref name="mass"/> (masses.Length if none), the index of the
         /// closer of it and the mass before it; a tie goes to the one before.
         /// </summary>
