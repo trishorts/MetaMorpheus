@@ -99,12 +99,21 @@ namespace EngineLayer.ClassicSearch
                 // the last few run alone for a long tail; proteins differ widely in digestion cost, top-down most of all.
                 int rangeSize = Math.Max(1, Proteins.Count / (64 * Math.Max(1, maxThreadsPerFile)));
                 var proteinPartioner = Partitioner.Create(0, Proteins.Count, rangeSize);
-                
+
+                // The scans whose candidates can be scored before their ions are built (see ScoreFragmentIons), decided once
+                // here: asking for every candidate would read two more objects from a scan that is usually not in cache.
+                bool[] scoreBeforeMatching = new bool[ArrayOfSortedMS2Scans.Length];
+                for (int i = 0; i < scoreBeforeMatching.Length; i++)
+                {
+                    scoreBeforeMatching[i] = CanScoreBeforeMatching(ArrayOfSortedMS2Scans[i], CommonParameters, matchAllCharges: WriteSpectralLibrary);
+                }
+
                 Parallel.ForEach(
                     proteinPartioner,
                     new ParallelOptions { MaxDegreeOfParallelism = maxThreadsPerFile },
                     (range, loopState) =>
                 {
+                    var fragmentMatchScratch = new FragmentMatchScratch();
                     var targetFragmentsForEachDissociationType = new Dictionary<DissociationType, List<Product>>();
                     var decoyFragmentsForEachDissociationType = new Dictionary<DissociationType, List<Product>>();
 
@@ -168,12 +177,23 @@ namespace EngineLayer.ClassicSearch
                                     specificBioPolymer.Fragment(dissociationType, CommonParameters.DigestionParams.FragmentationTerminus, peptideTheorProducts, CommonParameters.FragmentationParameters);
                                 }
 
-                                // match theoretical target ions to spectrum
-                                List<MatchedFragmentIon> matchedIons = MatchFragmentIons(theScan, peptideTheorProducts, CommonParameters,
-                                        matchAllCharges: WriteSpectralLibrary);
+                                List<MatchedFragmentIon> matchedIons;
+                                double thisScore;
+                                if (scoreBeforeMatching[scan.ScanIndex])
+                                {
+                                    // the same score; the ions are built only if the score reaches the cutoff (null below it)
+                                    thisScore = ScoreFragmentIons(theScan, peptideTheorProducts, CommonParameters, CommonParameters.ScoreCutoff,
+                                        fragmentMatchScratch, out matchedIons);
+                                }
+                                else
+                                {
+                                    // match theoretical target ions to spectrum
+                                    matchedIons = MatchFragmentIons(theScan, peptideTheorProducts, CommonParameters,
+                                            matchAllCharges: WriteSpectralLibrary);
 
-                                // calculate the peptide's score
-                                double thisScore = CalculatePeptideScore(theScan.TheScan, matchedIons, fragmentsCanHaveDifferentCharges: WriteSpectralLibrary);
+                                    // calculate the peptide's score
+                                    thisScore = CalculatePeptideScore(theScan.TheScan, matchedIons, fragmentsCanHaveDifferentCharges: WriteSpectralLibrary);
+                                }
 
                                 AddPeptideCandidateToPsm(scan, thisScore, specificBioPolymer, matchedIons);
 
@@ -224,6 +244,9 @@ namespace EngineLayer.ClassicSearch
             AddPeptideCandidateToPsm(scan, decoyScore, reversedOnTheFlyDecoy, decoyMatchedIons);
         }
 
+        /// <summary>
+        /// <paramref name="matchedIons"/> is only read when the score meets the cutoff, and may be null below it.
+        /// </summary>
         private void AddPeptideCandidateToPsm(ScanWithIndexAndNotchInfo scan, double thisScore, IBioPolymerWithSetMods peptide, List<MatchedFragmentIon> matchedIons)
         {
             bool meetsScoreCutoff = thisScore >= CommonParameters.ScoreCutoff;

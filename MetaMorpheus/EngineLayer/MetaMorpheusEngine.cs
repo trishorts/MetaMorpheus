@@ -257,7 +257,87 @@ namespace EngineLayer
 
             return matchedFragmentIons;
         }
-        
+
+        /// <summary>
+        /// Whether <see cref="ScoreFragmentIons"/> gives, for this scan, exactly the score and ions that
+        /// CalculatePeptideScore(scan.TheScan, MatchFragmentIons(scan, products, commonParameters, matchAllCharges)) gives:
+        /// true on the plain path, where the scan is not XCorr-processed, no complementary ions are added and each fragment
+        /// is matched at one charge only.
+        /// </summary>
+        public static bool CanScoreBeforeMatching(Ms2ScanWithSpecificMass scan, CommonParameters commonParameters, bool matchAllCharges)
+        {
+            return !matchAllCharges && !commonParameters.AddCompIons && !scan.TheScan.MassSpectrum.XcorrProcessed;
+        }
+
+        /// <summary>
+        /// The score CalculatePeptideScore gives the ions MatchFragmentIons finds, computed without building those ions.
+        /// <paramref name="matchedIons"/> is built - the same ions, in the same order, as MatchFragmentIons returns - only when
+        /// the score reaches <paramref name="minimumScoreForIons"/>, and is null below it. A search scores every candidate
+        /// peptide against every scan in its precursor window and keeps almost none of them (in the nightly bottom-up searches
+        /// 0.2% to 0.5% reach the score cutoff), so building a list and its ions for every candidate only fed the garbage
+        /// collector.
+        /// <para>
+        /// Only valid where <see cref="CanScoreBeforeMatching"/> is true. The score is summed term for term in the order and
+        /// with the arithmetic CalculatePeptideScore uses (1 + intensity / TIC for each matched ion that is not diagnostic), so
+        /// it is the same double.
+        /// </para>
+        /// </summary>
+        public static double ScoreFragmentIons(Ms2ScanWithSpecificMass scan, List<Product> theoreticalProducts, CommonParameters commonParameters,
+            double minimumScoreForIons, FragmentMatchScratch scratch, out List<MatchedFragmentIon> matchedIons)
+        {
+            var productMassTolerance = commonParameters.ProductMassTolerance;
+            int productCount = theoreticalProducts.Count;
+            scratch.EnsureCapacity(productCount);
+            int[] productIndices = scratch.ProductIndices;
+            int[] envelopeIndices = scratch.EnvelopeIndices;
+            int matchedCount = 0;
+            double score = 0;
+
+            // the same matching as MatchFragmentIons' deconvoluted path, remembering indices instead of building ions
+            for (int i = 0; i < productCount; i++)
+            {
+                var product = theoreticalProducts[i];
+                if (double.IsNaN(product.NeutralMass))
+                {
+                    continue;
+                }
+
+                int closestIndex = scan.GetClosestExperimentalIsotopicEnvelopeIndex(product.NeutralMass);
+                if (closestIndex < 0 || !productMassTolerance.Within(scan.GetDeconvolutedMonoisotopicMass(closestIndex), product.NeutralMass))
+                {
+                    continue;
+                }
+                var closestExperimentalMass = scan.ExperimentalFragments[closestIndex];
+                if (Math.Abs(closestExperimentalMass.Charge) > Math.Abs(scan.PrecursorCharge))
+                {
+                    continue;
+                }
+
+                productIndices[matchedCount] = i;
+                envelopeIndices[matchedCount] = closestIndex;
+                matchedCount++;
+
+                // CalculatePeptideScore's Morpheus score, in the same order: diagnostic ions count for nothing
+                if (product.ProductType != ProductType.D)
+                {
+                    score += 1 + closestExperimentalMass.Peaks.First().intensity / scan.TheScan.TotalIonCurrent;
+                }
+            }
+
+            matchedIons = null;
+            if (score >= minimumScoreForIons)
+            {
+                matchedIons = new List<MatchedFragmentIon>(matchedCount);
+                for (int k = 0; k < matchedCount; k++)
+                {
+                    var closestExperimentalMass = scan.ExperimentalFragments[envelopeIndices[k]];
+                    matchedIons.Add(new MatchedFragmentIon(theoreticalProducts[productIndices[k]], closestExperimentalMass.MonoisotopicMass.ToMz(closestExperimentalMass.Charge),
+                        closestExperimentalMass.Peaks.First().intensity, closestExperimentalMass.Charge));
+                }
+            }
+            return score;
+        }
+
         //Used only when user wants to generate spectral library.
         //Normal search only looks for one match ion for one fragment, and if it accepts it then it doesn't try to look for different charge states of that same fragment. 
         //But for library generation, we need find all the matched peaks with all the different charges.
