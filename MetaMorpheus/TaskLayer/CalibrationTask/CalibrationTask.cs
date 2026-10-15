@@ -97,9 +97,10 @@ namespace TaskLayer
                     : fileSettingsList[spectraFileIndex].Clone();
                 CommonParameters combinedParams = SetAllFileSpecificCommonParams(CommonParameters, fileSpecificParams);
 
-                // load the file
+                // load the file. Calibration works on the unfiltered spectra: this used to read the file filtered through the
+                // file manager and then read every scan again, unfiltered, into the same object, which is the state it kept.
                 Status("Loading spectra file...", new List<string> { _taskId, "Individual Spectra Files" });
-                MsDataFile myMsDataFile = _myFileManager.LoadFile(originalUncalibratedFilePath, combinedParams).LoadAllStaticData();
+                MsDataFile myMsDataFile = MsDataFileReader.GetDataFile(originalUncalibratedFilePath).LoadAllStaticData();
 
                 // First round of calibration
                 Status("Acquiring calibration data points...", new List<string> { _taskId, "Individual Spectra Files" });
