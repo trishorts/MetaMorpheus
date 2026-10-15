@@ -94,7 +94,11 @@ namespace EngineLayer.ClassicSearch
             if (Proteins.Any())
             {
                 int maxThreadsPerFile = CommonParameters.MaxThreadsToUsePerFile;
-                var proteinPartioner = Partitioner.Create(0, Proteins.Count);
+                // Many small ranges, sized from the threads actually used. The default cuts 3 ranges per processor
+                // whatever MaxThreadsToUsePerFile is, so on an ordinary 16-thread machine 11 threads share 48 ranges and
+                // the last few run alone for a long tail; proteins differ widely in digestion cost, top-down most of all.
+                int rangeSize = Math.Max(1, Proteins.Count / (64 * Math.Max(1, maxThreadsPerFile)));
+                var proteinPartioner = Partitioner.Create(0, Proteins.Count, rangeSize);
                 
                 Parallel.ForEach(
                     proteinPartioner,
