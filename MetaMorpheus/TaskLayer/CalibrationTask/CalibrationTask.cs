@@ -57,6 +57,7 @@ namespace TaskLayer
         private List<Modification> _fixedModifications;
         private MyFileManager _myFileManager;
         private List<DbForTask> _dbFilenameList;
+        private OnePendingFileWrite _calibratedFileWrite;
 
         // Modern Search indexing fields
         private List<IBioPolymerWithSetMods> _peptideIndex;
@@ -66,6 +67,11 @@ namespace TaskLayer
         {
             Initialize(taskId, dbFilenameList);
             Status("Calibrating...", new List<string> { _taskId });
+
+            // each calibrated file is written while the next one is calibrated; disposing waits for a write still
+            // running if the task leaves by an exception
+            using var calibratedFileWrite = new OnePendingFileWrite();
+            _calibratedFileWrite = calibratedFileWrite;
 
             for (int spectraFileIndex = 0; spectraFileIndex < currentRawFileList.Count; spectraFileIndex++)
             {
@@ -172,13 +178,15 @@ namespace TaskLayer
 
                 // write toml settings for the calibrated file
                 string calibratedTomlFilename = Path.Combine(outputFolder, originalUncalibratedFilenameWithoutExtension + CalibSuffix + ".toml");
-                CalibrationOutput(myMsDataFile, calibratedNewFullFilePath, fileSpecificParams, calibratedTomlFilename, taskId, originalUncalibratedFilenameWithoutExtension);
+                CalibrationOutput(myMsDataFile, calibratedNewFullFilePath, fileSpecificParams, calibratedTomlFilename, taskId, originalUncalibratedFilenameWithoutExtension,
+                    originalUncalibratedFilePath);
 
-                // finished calibrating this file
+                // finished calibrating this file; it is reported done once its calibrated file is written
                 _myFileManager.DoneWithFile(originalUncalibratedFilePath);
-                FinishedDataFile(originalUncalibratedFilePath, new List<string> { taskId, "Individual Spectra Files", originalUncalibratedFilePath });
-                ReportProgress(new ProgressEventArgs(100, "Done!", new List<string> { taskId, "Individual Spectra Files", originalUncalibratedFilenameWithoutExtension }));
             }
+
+            // every calibrated file is complete, and reported, before the task goes on
+            calibratedFileWrite.Finish();
 
             // re-write experimental design (if it has been defined) with new calibrated file names
             UpdateExperimentalDesignFile(currentRawFileList, outputFolder);
@@ -476,6 +484,9 @@ namespace TaskLayer
         private void WriteUncalibratedFile(string originalUncalibratedFilePath, string uncalibratedNewFullFilePath, List<string> unsuccessfullyCalibratedFilePaths,
             DataPointAquisitionResults acquisitionResults, string taskId)
         {
+            // the file before this one is reported done first, as it was when its write happened in the loop
+            _calibratedFileWrite?.Finish();
+
             // if we didn't calibrate, write the uncalibrated file to the output folder as an mzML
             File.Copy(originalUncalibratedFilePath, uncalibratedNewFullFilePath, true);
             // and add it to the list of all unsuccessfully calibrated files
@@ -560,14 +571,26 @@ namespace TaskLayer
             }
         }
 
-        private void CalibrationOutput(MsDataFile msDataFile, string mzFilePath, FileSpecificParameters fileParams, string tomlName, string taskId, string mzFilenameNoExtension)
+        /// <summary>
+        /// Writes the calibrated file in the background and, once it is complete, its toml, and reports both and the
+        /// spectra file as done - in the same order as when the write happened here.
+        /// </summary>
+        private void CalibrationOutput(MsDataFile msDataFile, string mzFilePath, FileSpecificParameters fileParams, string tomlName, string taskId, string mzFilenameNoExtension,
+            string originalUncalibratedFilePath)
         {
-            msDataFile.ExportAsMzML(mzFilePath, CalibrationParameters.WriteIndexedMzml);
-            MyTaskResults.NewSpectra.Add(mzFilePath);
-            Toml.WriteFile(fileParams, tomlName, tomlConfig);
-            FinishedWritingFile(tomlName, new List<string> { taskId, "Individual Spectra Files", mzFilenameNoExtension });
-            FinishedWritingFile(mzFilePath, new List<string> { taskId, "Individual Spectra Files", mzFilenameNoExtension });
-            MyTaskResults.NewFileSpecificTomls.Add(tomlName);
+            _calibratedFileWrite.Start(
+                () => msDataFile.ExportAsMzML(mzFilePath, CalibrationParameters.WriteIndexedMzml),
+                () =>
+                {
+                    MyTaskResults.NewSpectra.Add(mzFilePath);
+                    Toml.WriteFile(fileParams, tomlName, tomlConfig);
+                    FinishedWritingFile(tomlName, new List<string> { taskId, "Individual Spectra Files", mzFilenameNoExtension });
+                    FinishedWritingFile(mzFilePath, new List<string> { taskId, "Individual Spectra Files", mzFilenameNoExtension });
+                    MyTaskResults.NewFileSpecificTomls.Add(tomlName);
+
+                    FinishedDataFile(originalUncalibratedFilePath, new List<string> { taskId, "Individual Spectra Files", originalUncalibratedFilePath });
+                    ReportProgress(new ProgressEventArgs(100, "Done!", new List<string> { taskId, "Individual Spectra Files", mzFilenameNoExtension }));
+                });
         }
 
         private static void WriteNewExperimentalDesignFile(string pathToOldExperDesign, string outputFolder, List<string> originalUncalibratedFileNamesWithExtension,
