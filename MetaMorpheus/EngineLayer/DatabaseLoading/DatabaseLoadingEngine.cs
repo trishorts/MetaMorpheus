@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using Omics.Digestion;
 using Transcriptomics;
 using UsefulProteomicsDatabases;
@@ -53,7 +54,7 @@ public class DatabaseLoadingEngine(
             Warn(error);
 
         if (bioPolymers.Any(p => p.IsDecoy))
-            scrambled = ScrambleHomologousDecoys(bioPolymers, CommonParameters.DigestionParams);
+            scrambled = ScrambleHomologousDecoys(bioPolymers, CommonParameters.DigestionParams, CommonParameters.MaxThreadsToUsePerFile);
 
         (removed, renamed) = SanitizeBioPolymerDatabase(bioPolymers, TcAmbiguity, out errors);
         foreach (var error in errors)
@@ -280,36 +281,58 @@ public class DatabaseLoadingEngine(
     /// <summary>
     /// Handles Decoy-Target sequence collisions. If a decoy produces any peptides that are identical to target peptides, the decoy sequence is scrambled until no collisions remain.   
     /// </summary>
-    public static int ScrambleHomologousDecoys<TBioPolymer>(List<TBioPolymer> bioPolymers, IDigestionParams digestionParams) where TBioPolymer : IBioPolymer
+    /// <remarks>
+    /// Digestion runs on up to <paramref name="maxThreads"/> threads. Each target's sequences go to that target's own slot
+    /// and are added to the set in database order afterwards, and each decoy's replacement goes to its own slot and is
+    /// applied in database order afterwards, so the outcome does not depend on the thread count: the set is only read
+    /// while decoys are checked, and ScrambleDecoyBioPolymer seeds its own Random for every decoy.
+    /// </remarks>
+    public static int ScrambleHomologousDecoys<TBioPolymer>(List<TBioPolymer> bioPolymers, IDigestionParams digestionParams, int maxThreads = 1) where TBioPolymer : IBioPolymer
     {
         // Sanitize the decoys
         // TODO: Fix this so that it accounts for multi-protease searches. Currently, we only consider the first protease
         // when looking for target/decoy collisions
         // When thinking about decoy collisions, we can ignore modifications, so digest without enumerating them.
         IDigestionParams collisionParams = GetCollisionDigestionParams(digestionParams);
-        HashSet<string> targetPeptideSequences = new();
-        foreach (var bioPolymer in bioPolymers.Where(p => !p.IsDecoy))
+        var options = new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, maxThreads) };
+
+        // Digestion may add the digestion agent's own modification to the lists it is given, so every call gets its own.
+        var targetSequences = new List<string>?[bioPolymers.Count];
+        Parallel.For(0, bioPolymers.Count, options, i =>
         {
-            foreach (var peptide in bioPolymer.Digest(collisionParams, new List<Modification>(), new List<Modification>()))
+            if (bioPolymers[i].IsDecoy)
+                return;
+            var sequences = new List<string>();
+            foreach (var peptide in bioPolymers[i].Digest(collisionParams, new List<Modification>(), new List<Modification>()))
             {
-                targetPeptideSequences.Add(peptide.BaseSequence);
+                sequences.Add(peptide.BaseSequence);
+            }
+            targetSequences[i] = sequences;
+        });
+
+        HashSet<string> targetPeptideSequences = new();
+        foreach (var sequences in targetSequences)
+        {
+            if (sequences is null)
+                continue;
+            foreach (var sequence in sequences)
+            {
+                targetPeptideSequences.Add(sequence);
             }
         }
 
-        var variable = new List<Modification>();
-        var fixedM = new List<Modification>();
-        int scrambled = 0;
-
         // Now, we iterate through the decoys and scramble the sequences that correspond to target peptides
-        for (int i = 0; i < bioPolymers.Count; i++)
+        var replacements = new TBioPolymer[bioPolymers.Count];
+        var replaced = new bool[bioPolymers.Count];
+        Parallel.For(0, bioPolymers.Count, options, i =>
         {
             var bioPolymer = bioPolymers[i];
             if (!bioPolymer.IsDecoy)
-                continue;
+                return;
 
             // Use a pooled list to avoid repeated allocations in tight loops
-            List<string> peptidesToReplace = null;
-            foreach (var peptide in bioPolymer.Digest(collisionParams, variable, fixedM))
+            List<string>? peptidesToReplace = null;
+            foreach (var peptide in bioPolymer.Digest(collisionParams, new List<Modification>(), new List<Modification>()))
             {
                 if (targetPeptideSequences.Contains(peptide.BaseSequence))
                 {
@@ -320,14 +343,23 @@ public class DatabaseLoadingEngine(
 
             if (peptidesToReplace is { Count: > 0 })
             {
-                bioPolymers[i] = DecoySequenceValidator.ScrambleDecoyBioPolymer(
+                replacements[i] = DecoySequenceValidator.ScrambleDecoyBioPolymer(
                     bioPolymer,
                     digestionParams,
                     forbiddenSequences: targetPeptideSequences,
                     peptidesToReplace);
+                replaced[i] = true;
                 SequencePool.Return(peptidesToReplace);
-                scrambled++;
             }
+        });
+
+        int scrambled = 0;
+        for (int i = 0; i < bioPolymers.Count; i++)
+        {
+            if (!replaced[i])
+                continue;
+            bioPolymers[i] = replacements[i];
+            scrambled++;
         }
         return scrambled;
     }

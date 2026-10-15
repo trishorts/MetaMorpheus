@@ -22,7 +22,7 @@ namespace Test.DatabaseTests
     /// those decoys. It digests without enumerating modified forms, since only base sequences are compared. These tests
     /// hold it to the previous implementation, kept verbatim below: the same decoys replaced, by equal objects - same
     /// sequence, accession and modification dictionaries in the same key order holding the same modification objects -
-    /// and every other entry left as the very same object.
+    /// and every other entry left as the very same object, on one thread or several.
     /// </summary>
     [TestFixture]
     internal static class ScrambleHomologousDecoysEquivalenceTest
@@ -163,11 +163,15 @@ namespace Test.DatabaseTests
             var expected = new List<IBioPolymer>(database);
             int expectedScrambled = ScrambleHomologousDecoysBefore(expected, digestionParams);
 
-            var actual = new List<IBioPolymer>(database);
-            int actualScrambled = DatabaseLoadingEngine.ScrambleHomologousDecoys(actual, digestionParams);
+            // one thread, and several: the outcome must not depend on how the work is divided
+            foreach (int threads in new[] { 1, 3, 8 })
+            {
+                var actual = new List<IBioPolymer>(database);
+                int actualScrambled = DatabaseLoadingEngine.ScrambleHomologousDecoys(actual, digestionParams, threads);
 
-            Assert.That(actualScrambled, Is.EqualTo(expectedScrambled));
-            AssertSameDatabase(database, expected, actual);
+                Assert.That(actualScrambled, Is.EqualTo(expectedScrambled), $"{threads} threads");
+                AssertSameDatabase(database, expected, actual);
+            }
             return expectedScrambled;
         }
 
