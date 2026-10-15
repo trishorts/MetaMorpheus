@@ -1977,8 +1977,14 @@ namespace TaskLayer
             peptideIndex = bioPolymerIndex?.Cast<PeptideWithSetModifications>().ToList();
         }
 
-        public void GenerateIndexes(IndexingEngine indexEngine, List<DbForTask> dbFilenameList, ref List<IBioPolymerWithSetMods> peptideIndex, ref FragmentIndex fragmentIndex, ref List<int>[] precursorIndex, IEnumerable<IBioPolymer> allKnownProteins, string taskId)
+        /// <param name="writeCacheInBackground">Return as soon as the index is built and write its cache on another thread; see
+        /// <see cref="FinishWritingIndexCache"/>, which a caller passing true must reach before its task's results are written.</param>
+        public void GenerateIndexes(IndexingEngine indexEngine, List<DbForTask> dbFilenameList, ref List<IBioPolymerWithSetMods> peptideIndex, ref FragmentIndex fragmentIndex, ref List<int>[] precursorIndex, IEnumerable<IBioPolymer> allKnownProteins, string taskId,
+            bool writeCacheInBackground = false)
         {
+            // a cache still being written cannot be found yet, so it would be built and written again
+            FinishWritingIndexCache();
+
             bool successfullyReadIndices = false;
 
             // The on-disk peptide index only round-trips peptides: OligoWithSetMods is neither
@@ -2039,29 +2045,91 @@ namespace TaskLayer
                 fragmentIndex = indexResults.FragmentIndex;
                 precursorIndex = indexResults.PrecursorIndex;
 
-                Status("Writing peptide index...", new List<string> { taskId });
-                //ShrinkPeptideIndex(peptideIndex);
-                var peptideIndexFile = Path.Combine(output_folderForIndices, PeptideIndexFileName);
-                WritePeptideIndex(peptideIndex, peptideIndexFile);
-                FinishedWritingFile(peptideIndexFile, new List<string> { taskId });
+                // the write may outlive this call, and a ref parameter cannot be captured
+                List<IBioPolymerWithSetMods> peptidesToWrite = peptideIndex;
+                FragmentIndex fragmentsToWrite = fragmentIndex;
+                List<int>[] precursorsToWrite = precursorIndex;
 
-                Status("Writing fragment index...", new List<string> { taskId });
-                var fragmentIndexFile = Path.Combine(output_folderForIndices, FragmentIndexFileName);
-                WriteFragmentIndex(fragmentIndex, fragmentIndexFile);
-                FinishedWritingFile(fragmentIndexFile, new List<string> { taskId });
-
-                if (indexEngine.GeneratePrecursorIndex) //If a precursor index is specified (used for speedy semi and non-specific searches)
+                void WriteIndexCache()
                 {
-                    Status("Writing precursor index...", new List<string> { taskId });
-                    var precursorIndexFile = Path.Combine(output_folderForIndices, PrecursorIndexFileName);
-                    WritePrecursorIndex(precursorIndex, precursorIndexFile);
-                    FinishedWritingFile(precursorIndexFile, new List<string> { taskId });
+                    Status("Writing peptide index...", new List<string> { taskId });
+                    //ShrinkPeptideIndex(peptideIndex);
+                    var peptideIndexFile = Path.Combine(output_folderForIndices, PeptideIndexFileName);
+                    WritePeptideIndex(peptidesToWrite, peptideIndexFile);
+                    FinishedWritingFile(peptideIndexFile, new List<string> { taskId });
+
+                    Status("Writing fragment index...", new List<string> { taskId });
+                    var fragmentIndexFile = Path.Combine(output_folderForIndices, FragmentIndexFileName);
+                    WriteFragmentIndex(fragmentsToWrite, fragmentIndexFile);
+                    FinishedWritingFile(fragmentIndexFile, new List<string> { taskId });
+
+                    if (indexEngine.GeneratePrecursorIndex) //If a precursor index is specified (used for speedy semi and non-specific searches)
+                    {
+                        Status("Writing precursor index...", new List<string> { taskId });
+                        var precursorIndexFile = Path.Combine(output_folderForIndices, PrecursorIndexFileName);
+                        WritePrecursorIndex(precursorsToWrite, precursorIndexFile);
+                        FinishedWritingFile(precursorIndexFile, new List<string> { taskId });
+                    }
+                }
+
+                if (writeCacheInBackground)
+                {
+                    StartWritingIndexCache(WriteIndexCache);
+                }
+                else
+                {
+                    WriteIndexCache();
                 }
             }
         }
 
+        /// <summary>
+        /// The index cache write that GenerateIndexes left running on another thread, or null.
+        /// </summary>
+        private Task _indexCacheWrite;
+
+        /// <summary>
+        /// Writes an index cache on another thread, so the search can use the index while it is written.
+        ///
+        /// The write is the cost of keeping the index for a later task or run, and nothing in this task needs it. It is several
+        /// gigabytes for a mammalian proteome: the bottom-up nightly's mouse database writes 3.5 GB, which took 151 s on a busy
+        /// hard disk and 11 to 16 s on an NVMe drive, all of it before the first spectrum was searched.
+        ///
+        /// The files written are the ones a write on the calling thread makes. The index is not changed while it is searched,
+        /// and nothing the search computes is part of the cache. A write still goes through a temporary file that is moved into
+        /// place only once it is complete, so a write cut short leaves nothing under the real name. An earlier write still
+        /// running is finished first.
+        /// </summary>
+        internal void StartWritingIndexCache(Action write)
+        {
+            FinishWritingIndexCache();
+            _indexCacheWrite = Task.Run(write);
+        }
+
+        /// <summary>
+        /// Waits for the index cache write left running on another thread, if there is one. If the write failed, this rethrows
+        /// its exception as itself, not wrapped, and only once: the failure a write on the calling thread would have thrown,
+        /// reported later. Every method that looks for a cache folder calls this first, because a cache still being written
+        /// cannot be found. A task that writes in the background calls it before working out its results, so by then the cache
+        /// is complete and the index it was writing can be collected.
+        /// </summary>
+        protected internal void FinishWritingIndexCache()
+        {
+            Task write = _indexCacheWrite;
+            if (write == null)
+            {
+                return;
+            }
+
+            _indexCacheWrite = null;
+            write.GetAwaiter().GetResult();
+        }
+
         public void GenerateIndexes_PeptideOnly(IndexingEngine indexEngine, List<DbForTask> dbFilenameList, ref List<PeptideWithSetModifications> peptideIndex, ref List<int>[] precursorIndex, List<Protein> allKnownProteins, string taskId)
         {
+            // a cache still being written cannot be found yet
+            FinishWritingIndexCache();
+
             bool successfullyReadIndices = false;
             string pathToFolderWithIndices = GetExistingFolderWithIndices(indexEngine, dbFilenameList);
 
@@ -2099,6 +2167,9 @@ namespace TaskLayer
 
         public void GenerateSecondIndexes(IndexingEngine indexEngine, IndexingEngine secondIndexEngine, List<DbForTask> dbFilenameList, ref FragmentIndex secondFragmentIndex, List<Protein> allKnownProteins, string taskId)
         {
+            // a cache still being written cannot be found yet
+            FinishWritingIndexCache();
+
             string pathToFolderWithIndices = GetExistingFolderWithIndices(indexEngine, dbFilenameList);
             if (!File.Exists(Path.Combine(pathToFolderWithIndices, SecondFragmentIndexFileName))) //if no indexes exist
             {

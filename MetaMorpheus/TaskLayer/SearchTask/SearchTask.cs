@@ -409,7 +409,9 @@ namespace TaskLayer
 
                         lock (indexLock)
                         {
-                            GenerateIndexes(indexEngine, dbFilenameList, ref peptideIndex, ref fragmentIndex, ref precursorIndex, bioPolymerList, taskId);
+                            // the cache is written while this partition is searched; the next lookup, for the next file or partition, waits for it
+                            GenerateIndexes(indexEngine, dbFilenameList, ref peptideIndex, ref fragmentIndex, ref precursorIndex, bioPolymerList, taskId,
+                                writeCacheInBackground: true);
                         }
 
                         Status("Searching files...", taskId);
@@ -585,6 +587,10 @@ namespace TaskLayer
                 FinishedDataFile(origDataFile, new List<string> { taskId, "Individual Spectra Files", origDataFile });
                 ReportProgress(new ProgressEventArgs(completedFiles / currentRawFileList.Count, "Searching...", new List<string> { taskId, "Individual Spectra Files" }));
             }
+
+            // The modern search's last index cache may still be being written. Finish it, and fail here if it failed, before any
+            // results are worked out or written: the cache is then complete for the next task, and its index can be collected.
+            FinishWritingIndexCache();
 
             if (spectralLibrary != null && SearchParameters.UpdateSpectralLibrary == false)
             {
