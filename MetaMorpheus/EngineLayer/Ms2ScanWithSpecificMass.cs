@@ -193,6 +193,26 @@ namespace EngineLayer
             return ExperimentalFragments[GetClosestFragmentMass(theoreticalNeutralMass)];
         }
 
+        /// <summary>
+        /// The index into <see cref="ExperimentalFragments"/> of the envelope <see cref="GetClosestExperimentalIsotopicEnvelope"/>
+        /// would return, or -1 when the scan has no deconvoluted fragments (where that method returns null).
+        /// </summary>
+        public int GetClosestExperimentalIsotopicEnvelopeIndex(double theoreticalNeutralMass)
+        {
+            if (DeconvolutedMonoisotopicMasses.Length == 0)
+            {
+                return -1;
+            }
+            return GetClosestFragmentMass(theoreticalNeutralMass);
+        }
+
+        /// <summary>
+        /// The monoisotopic mass of <see cref="ExperimentalFragments"/>[<paramref name="index"/>], read from the scan's own
+        /// sorted mass array. Lets a caller reject a fragment match on mass error without dereferencing the envelope -
+        /// in a search nearly every theoretical product is rejected, and touching the envelope to do it costs a cache miss.
+        /// </summary>
+        public double GetDeconvolutedMonoisotopicMass(int index) => DeconvolutedMonoisotopicMasses[index];
+
         public int GetClosestFragmentMass(double mass)
         {
             int index = Array.BinarySearch(DeconvolutedMonoisotopicMasses, mass);

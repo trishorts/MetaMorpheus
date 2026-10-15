@@ -182,12 +182,16 @@ namespace EngineLayer
                 }
 
                 // get the closest peak in the spectrum to the theoretical peak
-                var closestExperimentalMass = scan.GetClosestExperimentalIsotopicEnvelope(product.NeutralMass);
+                int closestIndex = scan.GetClosestExperimentalIsotopicEnvelopeIndex(product.NeutralMass);
 
-                // is the mass error acceptable?
-                if (closestExperimentalMass != null
-                    && productMassTolerance.Within(closestExperimentalMass.MonoisotopicMass, product.NeutralMass)
-                    && Math.Abs(closestExperimentalMass.Charge) <= Math.Abs(scan.PrecursorCharge))
+                // is the mass error acceptable? Checked on the scan's mass array first: almost every product
+                // misses, and the envelope object is only worth reading once the mass has passed.
+                if (closestIndex < 0 || !productMassTolerance.Within(scan.GetDeconvolutedMonoisotopicMass(closestIndex), product.NeutralMass))
+                {
+                    continue;
+                }
+                var closestExperimentalMass = scan.ExperimentalFragments[closestIndex];
+                if (Math.Abs(closestExperimentalMass.Charge) <= Math.Abs(scan.PrecursorCharge))
                 {
                     if (includeExperimentalEnvelope)
                     {
@@ -222,10 +226,15 @@ namespace EngineLayer
                         double compIonMass = scan.PrecursorMass + protonMassShift - product.NeutralMass;
 
                         // get the closest peak in the spectrum to the theoretical peak
-                        IsotopicEnvelope closestExperimentalMass = scan.GetClosestExperimentalIsotopicEnvelope(compIonMass);
+                        int closestIndex = scan.GetClosestExperimentalIsotopicEnvelopeIndex(compIonMass);
 
-                        // is the mass error acceptable?
-                        if (closestExperimentalMass != null && productMassTolerance.Within(closestExperimentalMass.MonoisotopicMass, compIonMass) && closestExperimentalMass.Charge <= scan.PrecursorCharge)
+                        // is the mass error acceptable? (mass array first, as above)
+                        if (closestIndex < 0 || !productMassTolerance.Within(scan.GetDeconvolutedMonoisotopicMass(closestIndex), compIonMass))
+                        {
+                            continue;
+                        }
+                        IsotopicEnvelope closestExperimentalMass = scan.ExperimentalFragments[closestIndex];
+                        if (closestExperimentalMass.Charge <= scan.PrecursorCharge)
                         {
                             //found the peak, but we don't want to save that m/z because it's the complementary of the observed ion that we "added". Need to create a fake ion instead.
                             double mz = (scan.PrecursorMass + protonMassShift - closestExperimentalMass.MonoisotopicMass).ToMz(closestExperimentalMass.Charge);
