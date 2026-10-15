@@ -285,11 +285,12 @@ public class DatabaseLoadingEngine(
         // Sanitize the decoys
         // TODO: Fix this so that it accounts for multi-protease searches. Currently, we only consider the first protease
         // when looking for target/decoy collisions
+        // When thinking about decoy collisions, we can ignore modifications, so digest without enumerating them.
+        IDigestionParams collisionParams = GetCollisionDigestionParams(digestionParams);
         HashSet<string> targetPeptideSequences = new();
         foreach (var bioPolymer in bioPolymers.Where(p => !p.IsDecoy))
         {
-            // When thinking about decoy collisions, we can ignore modifications
-            foreach (var peptide in bioPolymer.Digest(digestionParams, new List<Modification>(), new List<Modification>()))
+            foreach (var peptide in bioPolymer.Digest(collisionParams, new List<Modification>(), new List<Modification>()))
             {
                 targetPeptideSequences.Add(peptide.BaseSequence);
             }
@@ -308,7 +309,7 @@ public class DatabaseLoadingEngine(
 
             // Use a pooled list to avoid repeated allocations in tight loops
             List<string> peptidesToReplace = null;
-            foreach (var peptide in bioPolymer.Digest(digestionParams, variable, fixedM))
+            foreach (var peptide in bioPolymer.Digest(collisionParams, variable, fixedM))
             {
                 if (targetPeptideSequences.Contains(peptide.BaseSequence))
                 {
@@ -329,6 +330,35 @@ public class DatabaseLoadingEngine(
             }
         }
         return scrambled;
+    }
+
+    /// <summary>
+    /// The digestion parameters the collision check digests with: <paramref name="digestionParams"/> with no modified forms.
+    /// </summary>
+    /// <remarks>
+    /// The check compares base sequences only. Digestion yields every modified form of a digestion product with that
+    /// product's base sequence, and always yields the unmodified form first (the zero-modification pattern is the first
+    /// one <c>GetVariableModificationPatterns</c> produces, and it is never filtered). So with MaxMods = 0 a database
+    /// digests to exactly the same base sequences, in the same order of first appearance, as with the search's MaxMods -
+    /// one form per digestion product instead of every combination of the database's localized modifications. A
+    /// top-down human database averages 19 forms per product, so this is most of the cost of loading it.
+    /// <para>
+    /// Except with <see cref="DigestionParams.RespectCleavageBlockingModifications"/> on: digestion then enumerates up to
+    /// MaxMods extra missed cleavages and keeps such a product only in a form whose cleavage-blocking modifications
+    /// discount them, so a product can be yielded with no unmodified form at all, and MaxMods = 0 would miss its base
+    /// sequence. The parameters are returned unchanged.
+    /// </para>
+    /// </remarks>
+    public static IDigestionParams GetCollisionDigestionParams(IDigestionParams digestionParams)
+    {
+        if (digestionParams is DigestionParams { RespectCleavageBlockingModifications: true })
+        {
+            return digestionParams;
+        }
+
+        IDigestionParams collisionParams = digestionParams.Clone();
+        collisionParams.MaxMods = 0;
+        return collisionParams;
     }
 }
 
