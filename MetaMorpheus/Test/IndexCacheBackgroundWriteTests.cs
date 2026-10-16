@@ -233,6 +233,40 @@ namespace Test
         }
 
         /// <summary>
+        /// A modern search task waits for its index cache write only when it ends, after post-search, and still leaves the cache
+        /// complete for the next task: the next task finds and reads it rather than building another, and no partial file is
+        /// left. Two spectra files, so the first task's second file reads back the index its first file built.
+        /// </summary>
+        [Test]
+        public static void AModernSearchTaskEndsWithItsCacheCompleteForTheNextTask()
+        {
+            var (folder, databases, _) = NewDatabaseFolder();
+            try
+            {
+                string spectra = Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData", "SmallCalibratible_Yeast.mzML");
+                string secondSpectra = Path.Combine(folder, "SmallCalibratible_Yeast_copy.mzML");
+                File.Copy(spectra, secondSpectra);
+                SearchTask Modern() => new SearchTask
+                {
+                    SearchParameters = new SearchParameters { SearchType = SearchType.Modern },
+                    CommonParameters = new CommonParameters(digestionParams: new DigestionParams(protease: "trypsin", minPeptideLength: 7)),
+                };
+                string output = Path.Combine(folder, "out");
+                new EverythingRunnerEngine(new List<(string, MetaMorpheusTask)> { ("first", Modern()), ("second", Modern()) },
+                    new List<string> { spectra, secondSpectra }, databases, output).Run();
+
+                string cache = OnlyCacheFolder(folder);
+                Assert.That(Directory.GetFiles(cache, "*.partial"), Is.Empty, "no write left unfinished");
+                Assert.That(File.ReadAllLines(Path.Combine(output, "first", "AllPSMs.psmtsv")), Has.Length.GreaterThan(1));
+                Assert.That(File.ReadAllLines(Path.Combine(output, "second", "AllPSMs.psmtsv")), Has.Length.GreaterThan(1));
+            }
+            finally
+            {
+                Directory.Delete(folder, true);
+            }
+        }
+
+        /// <summary>
         /// A write that fails in the background fails the task where the write is waited for: the next GenerateIndexes, before
         /// it looks for or builds anything, or the explicit wait. It fails with the exception itself, not one wrapped around it, and
         /// only once. The real writer still cleans up its partial file.

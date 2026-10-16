@@ -600,9 +600,9 @@ namespace TaskLayer
                 ReportProgress(new ProgressEventArgs(completedFiles / currentRawFileList.Count, "Searching...", new List<string> { taskId, "Individual Spectra Files" }));
             }
 
-            // The modern search's last index cache may still be being written. Finish it, and fail here if it failed, before any
-            // results are worked out or written: the cache is then complete for the next task, and its index can be collected.
-            FinishWritingIndexCache();
+            // The modern search's last index cache may still be being written. Nothing from here on reads it, so the write goes on
+            // through post-search and is finished when the task ends (below); only the index kept for the next file is let go.
+            LetGoOfIndexBeingCached();
 
             // the searches are done: let the kept digestion products go before post-search analysis and PEP (Release, because
             // this method's frame may keep the cache object itself reachable until the task ends)
@@ -656,7 +656,28 @@ namespace TaskLayer
                 CommonParameters = CommonParameters,
                 DigestionCountDictionary = digestionCountDictionary
             };
-            MyTaskResults postSearchResults = postProcessing.Run();
+            MyTaskResults postSearchResults;
+            try
+            {
+                postSearchResults = postProcessing.Run();
+            }
+            catch
+            {
+                // post-search failed, and that is the failure to report; the cache write still ends before the task does
+                try
+                {
+                    FinishWritingIndexCache();
+                }
+                catch
+                {
+                }
+                throw;
+            }
+
+            // The cache is complete for the next task, which looks for it, and a failed write fails the task here, with its own
+            // exception, after the results are written rather than before them. On a hard disk the write of a mammalian index
+            // outlasted the searches of a two-file run: post-search waited 40 s for it on the bottom-up nightly's files.
+            FinishWritingIndexCache();
 
             // Hand the resolved, FDR'd PSM set to a downstream TruncationSearchTask via the shared
             // in-memory task-chain context (decision #1). The consumer dedups to proteoform level, applies

@@ -1986,7 +1986,7 @@ namespace TaskLayer
         }
 
         /// <param name="writeCacheInBackground">Return as soon as the index is built and write its cache on another thread; see
-        /// <see cref="FinishWritingIndexCache"/>, which a caller passing true must reach before its task's results are written.</param>
+        /// <see cref="FinishWritingIndexCache"/>, which a caller passing true must reach before its task ends.</param>
         public void GenerateIndexes(IndexingEngine indexEngine, List<DbForTask> dbFilenameList, ref List<IBioPolymerWithSetMods> peptideIndex, ref FragmentIndex fragmentIndex, ref List<int>[] precursorIndex, IEnumerable<IBioPolymer> allKnownProteins, string taskId,
             bool writeCacheInBackground = false)
         {
@@ -2211,11 +2211,20 @@ namespace TaskLayer
         }
 
         /// <summary>
+        /// Stops keeping the index built for the task's next lookup (<see cref="TryReadIndexBeingCached"/>), without waiting for
+        /// its cache write. For a task whose lookups are done and whose write may go on.
+        /// </summary>
+        protected internal void LetGoOfIndexBeingCached()
+        {
+            _indexBeingCached = null;
+        }
+
+        /// <summary>
         /// Waits for the index cache write left running on another thread, if there is one. If the write failed, this rethrows
         /// its exception as itself, not wrapped, and only once: the failure a write on the calling thread would have thrown,
         /// reported later. Every method that looks for a cache folder calls this first, because a cache still being written
-        /// cannot be found. A task that writes in the background calls it before working out its results, so by then the cache
-        /// is complete and the index it was writing can be collected.
+        /// cannot be found. A task that writes in the background calls it before the task ends, so the cache is complete for
+        /// the next task.
         /// </summary>
         protected internal void FinishWritingIndexCache()
         {
