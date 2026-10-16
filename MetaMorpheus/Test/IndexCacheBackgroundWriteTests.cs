@@ -45,10 +45,10 @@ namespace Test
             return (folder, new List<DbForTask> { new DbForTask(fasta, false) }, proteins);
         }
 
-        private static IndexingEngine MakeEngine(List<Protein> proteins, List<DbForTask> databases, bool generatePrecursorIndex)
+        private static IndexingEngine MakeEngine(List<Protein> proteins, List<DbForTask> databases, bool generatePrecursorIndex, int maxMissedCleavages = 2)
         {
             var parameters = new CommonParameters(maxThreadsToUsePerFile: 4,
-                digestionParams: new DigestionParams(protease: "trypsin", maxMissedCleavages: 2, minPeptideLength: 7));
+                digestionParams: new DigestionParams(protease: "trypsin", maxMissedCleavages: maxMissedCleavages, minPeptideLength: 7));
             var variable = GlobalVariables.AllModsKnown.Where(m => m.ModificationType == "Common Variable" && m.IdWithMotif == "Oxidation on M").ToList();
             var fixedMods = GlobalVariables.AllModsKnown.Where(m => m.ModificationType == "Common Fixed" && m.IdWithMotif == "Carbamidomethyl on C").ToList();
             return new IndexingEngine(proteins, variable, fixedMods, null, null, null, 0, DecoyType.Reverse, parameters,
@@ -112,8 +112,8 @@ namespace Test
         }
 
         /// <summary>
-        /// The next GenerateIndexes waits for the write before it looks for the folder. So it finds the cache the write left,
-        /// reads it, and does not build and write the same index a second time.
+        /// The next GenerateIndexes reads the cache the write is leaving, and does not build and write the same index a second
+        /// time.
         /// </summary>
         [Test]
         public static void TheNextLookupWaitsForTheWriteAndReadsWhatItWrote()
@@ -136,6 +136,95 @@ namespace Test
                 Assert.That(read, Is.Not.SameAs(built), "the second call must read the cache, not build again");
                 Assert.That(read.Select(p => p.FullSequence), Is.EqualTo(built.Select(p => p.FullSequence)));
                 Assert.That(readFragments.PeptideIds, Is.EqualTo(builtFragments.PeptideIds));
+            }
+            finally
+            {
+                Directory.Delete(folder, true);
+            }
+        }
+
+        /// <summary>
+        /// Everything a peptide brings to a search and to the results written from it, modifications in their dictionary order
+        /// and the mass to the bit, so two indexes compare equal only if no output could tell them apart.
+        /// </summary>
+        private static List<string> Describe(List<IBioPolymerWithSetMods> peptides)
+            => peptides.Cast<PeptideWithSetModifications>().Select(p => string.Join("|",
+                p.FullSequence, p.BaseSequence, BitConverter.DoubleToInt64Bits(p.MonoisotopicMass), p.Parent.Accession, p.Parent.IsDecoy,
+                p.OneBasedStartResidue, p.OneBasedEndResidue, p.MissedCleavages, p.CleavageSpecificityForFdrCategory, p.PreviousResidue,
+                p.NextResidue, p.NumFixedMods, p.DigestionParams.DigestionAgent.Name,
+                string.Join(";", p.AllModsOneIsNterminus.Select(m => m.Key + "=" + m.Value.IdWithMotif)))).ToList();
+
+        /// <summary>
+        /// The file after the first gets, without waiting for the whole cache to be written, exactly what a lookup of the finished
+        /// cache returns: the peptides read from the cache's peptide file, not the built ones (whose modifications can be in a
+        /// different order), and the fragment index the cache holds, which is the built one.
+        /// </summary>
+        [Test]
+        public static void TheNextFileGetsWhatALookupOfTheFinishedCacheReturns()
+        {
+            var (folder, databases, proteins) = NewDatabaseFolder();
+            try
+            {
+                var task = new IndexProbeTask();
+                List<IBioPolymerWithSetMods> built = null, next = null, lookedUp = null;
+                FragmentIndex builtFragments = null, nextFragments = null, lookedUpFragments = null;
+                List<int>[] builtPrecursors = null, nextPrecursors = null, lookedUpPrecursors = null;
+
+                task.GenerateIndexes(MakeEngine(proteins, databases, false), databases, ref built, ref builtFragments, ref builtPrecursors, proteins, "first",
+                    writeCacheInBackground: true);
+                task.GenerateIndexes(MakeEngine(proteins, databases, false), databases, ref next, ref nextFragments, ref nextPrecursors, proteins, "second",
+                    writeCacheInBackground: true);
+                task.FinishWritingIndexCache();
+
+                // the lookup the second call stands in for, on a task with nothing kept
+                new IndexProbeTask().GenerateIndexes(MakeEngine(proteins, databases, false), databases, ref lookedUp, ref lookedUpFragments,
+                    ref lookedUpPrecursors, proteins, "lookup", writeCacheInBackground: true);
+
+                OnlyCacheFolder(folder);
+                Assert.That(next, Is.Not.SameAs(built), "the peptides come from the cache file");
+                Assert.That(next.Zip(built, ReferenceEquals).Any(same => same), Is.False, "none of them is a built peptide");
+                Assert.That(Describe(next), Is.EqualTo(Describe(lookedUp)));
+                Assert.That(nextFragments, Is.SameAs(builtFragments), "the fragment index is not read back");
+                Assert.That(nextFragments.BinStart, Is.EqualTo(lookedUpFragments.BinStart));
+                Assert.That(nextFragments.PeptideIds, Is.EqualTo(lookedUpFragments.PeptideIds));
+                Assert.That(nextPrecursors, Is.Null);
+            }
+            finally
+            {
+                Directory.Delete(folder, true);
+            }
+        }
+
+        /// <summary>
+        /// The built index is kept only for a lookup that would find the folder being written: one with the same settings, without
+        /// a precursor index, before the write has been waited for. Otherwise the lookup goes to disk, as before, and never returns
+        /// the kept fragment index.
+        /// </summary>
+        [Test]
+        public static void TheBuiltIndexIsKeptOnlyForALookupThatWouldFindIt([Values("other settings", "precursor index", "after the wait")] string change)
+        {
+            var (folder, databases, proteins) = NewDatabaseFolder();
+            try
+            {
+                var task = new IndexProbeTask();
+                bool precursors = change == "precursor index";
+                List<IBioPolymerWithSetMods> built = null, next = null;
+                FragmentIndex builtFragments = null, nextFragments = null;
+                List<int>[] builtPrecursors = null, nextPrecursors = null;
+
+                task.GenerateIndexes(MakeEngine(proteins, databases, precursors), databases, ref built, ref builtFragments, ref builtPrecursors, proteins, "first",
+                    writeCacheInBackground: true);
+                if (change == "after the wait")
+                {
+                    task.FinishWritingIndexCache();
+                }
+                task.GenerateIndexes(MakeEngine(proteins, databases, precursors, change == "other settings" ? 1 : 2), databases, ref next, ref nextFragments,
+                    ref nextPrecursors, proteins, "second", writeCacheInBackground: true);
+                task.FinishWritingIndexCache();
+
+                Assert.That(nextFragments, Is.Not.SameAs(builtFragments));
+                Assert.That(Directory.GetDirectories(Path.Combine(folder, "DatabaseIndex")),
+                    Has.Length.EqualTo(change == "other settings" ? 2 : 1), "other settings build their own cache; the same settings read the first one");
             }
             finally
             {
