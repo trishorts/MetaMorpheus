@@ -67,6 +67,20 @@ namespace EngineLayer.Util
         /// </summary>
         public int FirstAtOrAbove(double value)
         {
+            // Beyond either end of the table no mass is equal, so BinarySearch's answer is its complement of the insertion point:
+            // the length above (every mass is below TableEnd), 0 below (every mass is non-negative). Common, not an edge case:
+            // the G-PTM-D search shifts every peptide's mass by each of its notches (66 in the bottom-up nightly's), and for a
+            // heavy peptide many of the shifted intervals start above the heaviest precursor. Those fell through to
+            // Array.BinarySearch over every scan.
+            if (BucketStarts != null && value >= TableEnd)
+            {
+                return Masses.Length;
+            }
+            if (BucketStarts != null && value < 0)
+            {
+                return 0;
+            }
+
             if (BucketStarts != null && value >= 0 && value < TableEnd)
             {
                 // The answer lies between the start of the value's bucket and the start of the next one.
