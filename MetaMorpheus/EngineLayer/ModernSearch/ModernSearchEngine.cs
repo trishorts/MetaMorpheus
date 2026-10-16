@@ -120,10 +120,12 @@ namespace EngineLayer.ModernSearch
 
             // The window as one range of peptide ids for the whole scan, so each bin below is cut to it by searching the bin's own
             // ids instead of reading a peptide's mass at every probe; null on an index out of mass order. See PeptideIdWindowOf.
+            // A bin holding one of the few peptides out of order in an index read back from its cache is still cut by mass.
             (int FirstId, int LastId)? peptideIdWindow = PeptideIdWindowOf(lowestMassPeptideToLookFor, highestMassPeptideToLookFor);
+            ulong[] binsHoldingOutOfOrder = peptideIdWindow == null ? null : BinsHoldingOutOfOrderPeptides();
 
-            // no peptide is heavy enough and light enough at once, so no bin has anything to score
-            if (peptideIdWindow is (int firstIdInWindow, int lastIdInWindow) && firstIdInWindow > lastIdInWindow)
+            // no peptide is heavy enough and light enough at once, so no bin has anything to score; a bin cut by mass might
+            if (peptideIdWindow is (int firstIdInWindow, int lastIdInWindow) && firstIdInWindow > lastIdInWindow && binsHoldingOutOfOrder == null)
             {
                 return;
             }
@@ -143,7 +145,8 @@ namespace EngineLayer.ModernSearch
                     if (!bin.IsEmpty)
                     {
                         // filter bin by peptide mass
-                        var (start, end) = BinRangeToIncrement(peptideIdWindow, lowestMassPeptideToLookFor, highestMassPeptideToLookFor, bin, scan.PrecursorMass);
+                        var (start, end) = BinRangeToIncrement(peptideIdWindow, lowestMassPeptideToLookFor, highestMassPeptideToLookFor,
+                            HoldsOutOfOrderPeptide(binsHoldingOutOfOrder, fragmentBin), bin, scan.PrecursorMass);
 
                         // add +1 to each peptide score
                         IncrementPeptideScoresInBin(start, end, bin, scoringTable, scan, byteScoreCutoff, peptidesPossiblyObserved, CommonParameters.DissociationType);
@@ -164,7 +167,8 @@ namespace EngineLayer.ModernSearch
                                 if (!bin.IsEmpty)
                                 {
                                     // filter bin by peptide mass
-                                    var (start, end) = BinRangeToIncrement(peptideIdWindow, lowestMassPeptideToLookFor, highestMassPeptideToLookFor, bin, scan.PrecursorMass);
+                                    var (start, end) = BinRangeToIncrement(peptideIdWindow, lowestMassPeptideToLookFor, highestMassPeptideToLookFor,
+                                        HoldsOutOfOrderPeptide(binsHoldingOutOfOrder, fragmentBin), bin, scan.PrecursorMass);
 
                                     // add +1 to each peptide score
                                     IncrementPeptideScoresInBin(start, end, bin, scoringTable, scan, byteScoreCutoff, peptidesPossiblyObserved, CommonParameters.DissociationType);
@@ -200,7 +204,8 @@ namespace EngineLayer.ModernSearch
                         }
 
                         // filter bin by peptide mass
-                        var (start, end) = BinRangeToIncrement(peptideIdWindow, lowestMassPeptideToLookFor, highestMassPeptideToLookFor, bin, scan.PrecursorMass);
+                        var (start, end) = BinRangeToIncrement(peptideIdWindow, lowestMassPeptideToLookFor, highestMassPeptideToLookFor,
+                            HoldsOutOfOrderPeptide(binsHoldingOutOfOrder, b), bin, scan.PrecursorMass);
 
                         // add +1 to each peptide score
                         IncrementPeptideScoresInBin(start, end, bin, scoringTable, scan, byteScoreCutoff, peptidesPossiblyObserved, CommonParameters.DissociationType);
@@ -229,7 +234,8 @@ namespace EngineLayer.ModernSearch
                                     }
 
                                     // filter bin by peptide mass
-                                    var (start, end) = BinRangeToIncrement(peptideIdWindow, lowestMassPeptideToLookFor, highestMassPeptideToLookFor, bin, scan.PrecursorMass);
+                                    var (start, end) = BinRangeToIncrement(peptideIdWindow, lowestMassPeptideToLookFor, highestMassPeptideToLookFor,
+                                        HoldsOutOfOrderPeptide(binsHoldingOutOfOrder, b), bin, scan.PrecursorMass);
 
                                     // add +1 to each peptide score
                                     IncrementPeptideScoresInBin(start, end, bin, scoringTable, scan, byteScoreCutoff, peptidesPossiblyObserved, CommonParameters.DissociationType);
@@ -276,8 +282,10 @@ namespace EngineLayer.ModernSearch
 
         /// <summary>
         /// The precursor window [lowest, highest] as the ids of the first and last peptide inside it, or null when the index is
-        /// not sorted by mass. First above last means no peptide is inside. An infinite bound leaves that end of the index open,
-        /// as it leaves that end of every bin open in <see cref="GetFirstAndLastIndexesInBinToIncrement"/>.
+        /// not sorted by mass, or not nearly enough (see <see cref="AnalyzeBinSearchOrder"/>). On a nearly sorted index the ids
+        /// bound the peptides in mass order, and a bin holding a peptide out of order is cut by mass instead. First above last means
+        /// no peptide in order is inside. An infinite bound leaves that end of the index open, as it leaves that end of every bin
+        /// open in <see cref="GetFirstAndLastIndexesInBinToIncrement"/>.
         ///
         /// The indexing engine sorts the index by mass (undefined masses first, read as negative infinity) and numbers peptides
         /// by position, and ids ascend within every bin. So "mass at or below the bound" is "id at or below the last id at or below
@@ -288,25 +296,34 @@ namespace EngineLayer.ModernSearch
         /// </summary>
         protected (int FirstId, int LastId)? PeptideIdWindowOf(double lowestPeptideMassToLookFor, double highestPeptideMassToLookFor)
         {
-            if (PeptideIndex == null || !PeptideIndexIsSortedForBinSearch(PeptideIndex))
+            if (PeptideIndex == null)
             {
                 return null;
             }
 
-            int firstId = double.IsNegativeInfinity(lowestPeptideMassToLookFor) ? 0 : FirstPeptideIdAtOrAbove(PeptideIndex, lowestPeptideMassToLookFor);
-            int lastId = double.IsPositiveInfinity(highestPeptideMassToLookFor) ? PeptideIndex.Count - 1 : LastPeptideIdAtOrBelow(PeptideIndex, highestPeptideMassToLookFor);
+            BinSearchOrder order = BinSearchOrderOf(PeptideIndex);
+            if (!order.IdWindowUsable)
+            {
+                return null;
+            }
+
+            int firstId = double.IsNegativeInfinity(lowestPeptideMassToLookFor) ? 0
+                : FirstPeptideIdAtOrAbove(PeptideIndex, lowestPeptideMassToLookFor, order.BoundMassOfOutOfOrder);
+            int lastId = double.IsPositiveInfinity(highestPeptideMassToLookFor) ? PeptideIndex.Count - 1
+                : LastPeptideIdAtOrBelow(PeptideIndex, highestPeptideMassToLookFor, order.BoundMassOfOutOfOrder);
             return (firstId, lastId);
         }
 
         /// <summary>
         /// The first and last positions in the bin of the peptides to add a +1 score to: with the scan's window as peptide ids
-        /// (<see cref="PeptideIdWindowOf"/>), two searches over the bin's ids; without, <see cref="GetFirstAndLastIndexesInBinToIncrement"/>.
-        /// Either way the positions that receive a score are the same: first above last when none do.
+        /// (<see cref="PeptideIdWindowOf"/>), two searches over the bin's ids; without, or for a bin holding a peptide out of mass
+        /// order, <see cref="GetFirstAndLastIndexesInBinToIncrement"/>. Either way the positions that receive a score are the same:
+        /// first above last when none do.
         /// </summary>
         protected (int start, int end) BinRangeToIncrement((int FirstId, int LastId)? peptideIdWindow, double lowestPeptideMassToLookFor,
-            double highestPeptideMassToLookFor, ReadOnlySpan<int> bin, double precursorMass)
+            double highestPeptideMassToLookFor, bool binHoldsOutOfOrderPeptide, ReadOnlySpan<int> bin, double precursorMass)
         {
-            if (peptideIdWindow is (int firstId, int lastId))
+            if (peptideIdWindow is (int firstId, int lastId) && !binHoldsOutOfOrderPeptide)
             {
                 return (FirstBinPositionAtOrAboveId(bin, firstId), LastBinPositionAtOrBelowId(bin, lastId));
             }
@@ -537,9 +554,12 @@ namespace EngineLayer.ModernSearch
 
         /// <summary>
         /// The last peptide id whose mass, as the bin searches see it, is at or below <paramref name="peptideMassToLookFor"/>, or -1
-        /// if there is none. Only meaningful on an index for which <see cref="IsSortedForBinSearch"/> is true.
+        /// if there is none. Only meaningful on an index for which <see cref="IsSortedForBinSearch"/> is true, or on a nearly sorted
+        /// one given the stand-in masses <see cref="AnalyzeBinSearchOrder"/> found for it: the masses searched are then in order,
+        /// and the answer is exact for every peptide in order.
         /// </summary>
-        protected static int LastPeptideIdAtOrBelow(List<IBioPolymerWithSetMods> peptideIndex, double peptideMassToLookFor)
+        protected static int LastPeptideIdAtOrBelow(List<IBioPolymerWithSetMods> peptideIndex, double peptideMassToLookFor,
+            Dictionary<int, double> boundMassOfOutOfOrder = null)
         {
             int low = 0;
             int high = peptideIndex.Count - 1;
@@ -549,7 +569,7 @@ namespace EngineLayer.ModernSearch
             {
                 int mid = low + ((high - low) / 2);
 
-                if (MassForBinSearch(peptideIndex[mid].MonoisotopicMass) <= peptideMassToLookFor)
+                if (BoundMass(peptideIndex, mid, boundMassOfOutOfOrder) <= peptideMassToLookFor)
                 {
                     result = mid;
                     low = mid + 1;
@@ -566,9 +586,10 @@ namespace EngineLayer.ModernSearch
         /// <summary>
         /// The first peptide id whose mass, as the bin searches see it, is at or above <paramref name="peptideMassToLookFor"/>, or the
         /// index's count if there is none. The lower-bound twin of <see cref="LastPeptideIdAtOrBelow"/>, and like it only meaningful on
-        /// an index for which <see cref="IsSortedForBinSearch"/> is true.
+        /// an index for which <see cref="IsSortedForBinSearch"/> is true, or on a nearly sorted one given its stand-in masses.
         /// </summary>
-        protected static int FirstPeptideIdAtOrAbove(List<IBioPolymerWithSetMods> peptideIndex, double peptideMassToLookFor)
+        protected static int FirstPeptideIdAtOrAbove(List<IBioPolymerWithSetMods> peptideIndex, double peptideMassToLookFor,
+            Dictionary<int, double> boundMassOfOutOfOrder = null)
         {
             int low = 0;
             int high = peptideIndex.Count - 1;
@@ -578,7 +599,7 @@ namespace EngineLayer.ModernSearch
             {
                 int mid = low + ((high - low) / 2);
 
-                if (MassForBinSearch(peptideIndex[mid].MonoisotopicMass) >= peptideMassToLookFor)
+                if (BoundMass(peptideIndex, mid, boundMassOfOutOfOrder) >= peptideMassToLookFor)
                 {
                     result = mid;
                     high = mid - 1;
@@ -590,6 +611,17 @@ namespace EngineLayer.ModernSearch
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// The mass the id-bound searches read for a peptide: its own, as the bin searches see it, or the stand-in
+        /// <see cref="AnalyzeBinSearchOrder"/> gave a peptide out of order.
+        /// </summary>
+        private static double BoundMass(List<IBioPolymerWithSetMods> peptideIndex, int id, Dictionary<int, double> boundMassOfOutOfOrder)
+        {
+            return boundMassOfOutOfOrder != null && boundMassOfOutOfOrder.TryGetValue(id, out double standIn)
+                ? standIn
+                : MassForBinSearch(peptideIndex[id].MonoisotopicMass);
         }
 
         /// <summary>
@@ -649,12 +681,18 @@ namespace EngineLayer.ModernSearch
         }
 
         /// <summary>
-        /// The last peptide index checked with <see cref="IsSortedForBinSearch"/> and the answer, so the check runs once per index
+        /// The last peptide index checked with <see cref="AnalyzeBinSearchOrder"/> and the answer, so the check runs once per index
         /// rather than once per scan. Held by reference: an index is built once and not changed while it is searched. A search
         /// starts all its threads at once, so the check is made under a lock: it reads every peptide, and each thread repeating it
         /// cost more than the scoring it was guarding.
         /// </summary>
-        private sealed record BinSearchOrder(List<IBioPolymerWithSetMods> PeptideIndex, bool Sorted);
+        /// <param name="Sorted">Every peptide is in mass order, as the bin searches see it.</param>
+        /// <param name="BoundMassOfOutOfOrder">Null when sorted, or when too many peptides are out of order for the id window. Else,
+        /// for each peptide out of order, the mass the id-bound searches read for it instead of its own.</param>
+        private sealed record BinSearchOrder(List<IBioPolymerWithSetMods> PeptideIndex, bool Sorted, Dictionary<int, double> BoundMassOfOutOfOrder)
+        {
+            public bool IdWindowUsable => Sorted || BoundMassOfOutOfOrder != null;
+        }
 
         private volatile BinSearchOrder _binSearchOrder;
 
@@ -667,7 +705,9 @@ namespace EngineLayer.ModernSearch
         /// </summary>
         internal int BinSearchOrderChecks => System.Threading.Volatile.Read(ref _binSearchOrderChecks);
 
-        private bool PeptideIndexIsSortedForBinSearch(List<IBioPolymerWithSetMods> peptideIndex)
+        private bool PeptideIndexIsSortedForBinSearch(List<IBioPolymerWithSetMods> peptideIndex) => BinSearchOrderOf(peptideIndex).Sorted;
+
+        private BinSearchOrder BinSearchOrderOf(List<IBioPolymerWithSetMods> peptideIndex)
         {
             BinSearchOrder known = _binSearchOrder;
             if (known == null || !ReferenceEquals(known.PeptideIndex, peptideIndex))
@@ -678,13 +718,133 @@ namespace EngineLayer.ModernSearch
                     if (known == null || !ReferenceEquals(known.PeptideIndex, peptideIndex))
                     {
                         System.Threading.Interlocked.Increment(ref _binSearchOrderChecks);
-                        known = new BinSearchOrder(peptideIndex, IsSortedForBinSearch(peptideIndex));
+                        var (sorted, boundMassOfOutOfOrder) = AnalyzeBinSearchOrder(peptideIndex);
+                        known = new BinSearchOrder(peptideIndex, sorted, boundMassOfOutOfOrder);
                         _binSearchOrder = known;
                     }
                 }
             }
-            return known.Sorted;
+            return known;
         }
+
+        /// <summary>
+        /// Whether the index is in mass order, as the bin searches see it, and if not, whether it is nearly enough for the id window.
+        ///
+        /// An index read back from its cache is not quite in order. Its peptides' masses are recomputed on reading, summing the
+        /// modifications in position order rather than the order digestion added them, so a few come out a unit in the last place
+        /// apart from the masses the index was sorted by: 9 of the bottom-up nightly's 9.8 M peptides, out of order at 5 places.
+        /// Without this, every spectra file searched with a read-back index, which is every file but the one that built it, and
+        /// every file once the index is cached, lost the id window.
+        ///
+        /// Walking the ids in order, a peptide is in order when its mass is at or above the heaviest mass in order before it; the
+        /// rest are out of order. The masses of the peptides in order then never decrease, so two peptides in order are never out
+        /// of order with each other, and any two that are include a peptide out of order. So a bin holding no peptide out of order
+        /// has its masses in order, the per-bin mass search cuts it at exactly the peptides inside the window, and so does the id
+        /// window as long as its bounds are right for the peptides in order. They are, if the id-bound searches read, for each
+        /// peptide out of order, the heaviest mass in order before it: the masses searched then never decrease, and each peptide in
+        /// order is read at its own mass. A bin that does hold a peptide out of order is cut by mass, as before.
+        ///
+        /// More than one peptide in a thousand out of order (a shuffled index, say) is not nearly sorted: the id window is not used.
+        /// </summary>
+        protected static (bool Sorted, Dictionary<int, double> BoundMassOfOutOfOrder) AnalyzeBinSearchOrder(List<IBioPolymerWithSetMods> peptideIndex)
+        {
+            int allowedOutOfOrder = peptideIndex.Count / 1000;
+            Dictionary<int, double> boundMassOfOutOfOrder = null;
+            double heaviestInOrder = double.NegativeInfinity;
+
+            for (int id = 0; id < peptideIndex.Count; id++)
+            {
+                double mass = MassForBinSearch(peptideIndex[id].MonoisotopicMass);
+                if (mass >= heaviestInOrder)
+                {
+                    heaviestInOrder = mass;
+                    continue;
+                }
+
+                boundMassOfOutOfOrder ??= new Dictionary<int, double>();
+                if (boundMassOfOutOfOrder.Count == allowedOutOfOrder)
+                {
+                    return (false, null);
+                }
+                boundMassOfOutOfOrder.Add(id, heaviestInOrder);
+            }
+
+            return (boundMassOfOutOfOrder == null, boundMassOfOutOfOrder);
+        }
+
+        /// <summary>
+        /// For the bins of <see cref="FragmentIndex"/> holding a peptide out of order in a nearly sorted <see cref="PeptideIndex"/>, so
+        /// <see cref="BinRangeToIncrement"/> cuts them by mass. Computed once per index pair, under a lock, as the order is.
+        /// </summary>
+        private sealed record OutOfOrderBins(BinSearchOrder Order, Indexing.FragmentIndex FragmentIndex, ulong[] Bins);
+
+        private volatile OutOfOrderBins _outOfOrderBins;
+
+        private readonly object _outOfOrderBinsLock = new object();
+
+        /// <summary>
+        /// One bit per fragment bin, set when the bin holds a peptide out of mass order, or null when no bin does (a sorted index).
+        /// </summary>
+        private ulong[] BinsHoldingOutOfOrderPeptides()
+        {
+            BinSearchOrder order = BinSearchOrderOf(PeptideIndex);
+            if (order.BoundMassOfOutOfOrder == null || FragmentIndex == null)
+            {
+                return null;
+            }
+
+            OutOfOrderBins known = _outOfOrderBins;
+            if (known == null || !ReferenceEquals(known.Order, order) || !ReferenceEquals(known.FragmentIndex, FragmentIndex))
+            {
+                lock (_outOfOrderBinsLock)
+                {
+                    known = _outOfOrderBins;
+                    if (known == null || !ReferenceEquals(known.Order, order) || !ReferenceEquals(known.FragmentIndex, FragmentIndex))
+                    {
+                        known = new OutOfOrderBins(order, FragmentIndex, FindBinsHolding(FragmentIndex, order.BoundMassOfOutOfOrder.Keys,
+                            PeptideIndex.Count, CommonParameters.MaxThreadsToUsePerFile));
+                        _outOfOrderBins = known;
+                    }
+                }
+            }
+            return known.Bins;
+        }
+
+        /// <summary>
+        /// One bit per bin of <paramref name="fragmentIndex"/>, set when the bin holds any of <paramref name="peptideIds"/>.
+        /// </summary>
+        protected static ulong[] FindBinsHolding(Indexing.FragmentIndex fragmentIndex, IEnumerable<int> peptideIds, int peptideCount, int maxThreads)
+        {
+            var wanted = new bool[peptideCount];
+            foreach (int id in peptideIds)
+            {
+                wanted[id] = true;
+            }
+
+            var bins = new ulong[(fragmentIndex.Length + 63) / 64];
+
+            // ranges start at multiples of 2^16, so no two share a word of the bit set
+            System.Threading.Tasks.Parallel.ForEach(System.Collections.Concurrent.Partitioner.Create(0, fragmentIndex.Length, 1 << 16),
+                new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, maxThreads) }, range =>
+                {
+                    for (int b = range.Item1; b < range.Item2; b++)
+                    {
+                        foreach (int id in fragmentIndex[b])
+                        {
+                            if (wanted[id])
+                            {
+                                bins[b >> 6] |= 1UL << (b & 63);
+                                break;
+                            }
+                        }
+                    }
+                });
+
+            return bins;
+        }
+
+        protected static bool HoldsOutOfOrderPeptide(ulong[] binsHoldingOutOfOrder, int bin)
+            => binsHoldingOutOfOrder != null && (binsHoldingOutOfOrder[bin >> 6] & (1UL << (bin & 63))) != 0;
 
         /// <summary>
         /// Deprecated.

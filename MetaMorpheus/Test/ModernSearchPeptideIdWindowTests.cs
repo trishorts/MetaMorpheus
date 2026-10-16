@@ -364,12 +364,7 @@ namespace Test
                 var parameters = new CommonParameters(dissociationType: dissociationType, addCompIons: addCompIons, maxThreadsToUsePerFile: 4,
                     digestionParams: new DigestionParams(protease: "trypsin", maxMissedCleavages: 2, minPeptideLength: 7));
                 string folder = Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData");
-                var proteins = ProteinDbLoader.LoadProteinFasta(Path.Combine(folder, "smalldb.fasta"), true, DecoyType.Reverse, false, out _);
-                var variable = GlobalVariables.AllModsKnown.Where(m => m.IdWithMotif == "Oxidation on M").ToList();
-                var fixedMods = GlobalVariables.AllModsKnown.Where(m => m.IdWithMotif == "Carbamidomethyl on C").ToList();
-                var index = (IndexingResults)new IndexingEngine(proteins, variable, fixedMods, null, null, null, 0, DecoyType.Reverse, parameters,
-                    new List<(string, CommonParameters)> { ("", parameters) }, 30000, false, new List<FileInfo>(),
-                    TargetContaminantAmbiguity.RemoveContaminant, new List<string>()).Run();
+                var index = BuildRealIndex(parameters);
 
                 string spectra = Path.Combine(folder, "SmallCalibratible_Yeast.mzML");
                 var file = MsDataFileReader.GetDataFile(spectra).LoadAllStaticData();
@@ -379,6 +374,20 @@ namespace Test
                 RealInputs[(dissociationType, addCompIons)] = inputs;
                 return inputs;
             }
+        }
+
+        /// <summary>
+        /// The small yeast database with decoys, oxidized methionine variable and carbamidomethyl fixed, indexed afresh each call.
+        /// </summary>
+        private static IndexingResults BuildRealIndex(CommonParameters parameters)
+        {
+            string folder = Path.Combine(TestContext.CurrentContext.TestDirectory, "TestData");
+            var proteins = ProteinDbLoader.LoadProteinFasta(Path.Combine(folder, "smalldb.fasta"), true, DecoyType.Reverse, false, out _);
+            var variable = GlobalVariables.AllModsKnown.Where(m => m.IdWithMotif == "Oxidation on M").ToList();
+            var fixedMods = GlobalVariables.AllModsKnown.Where(m => m.IdWithMotif == "Carbamidomethyl on C").ToList();
+            return (IndexingResults)new IndexingEngine(proteins, variable, fixedMods, null, null, null, 0, DecoyType.Reverse, parameters,
+                new List<(string, CommonParameters)> { ("", parameters) }, 30000, false, new List<FileInfo>(),
+                TargetContaminantAmbiguity.RemoveContaminant, new List<string>()).Run();
         }
 
         /// <summary>
@@ -394,6 +403,270 @@ namespace Test
                 bins.Add(ids.OrderBy(_ => random.Next()).Take(length).OrderBy(id => id).ToArray());
             }
             return bins;
+        }
+
+        /// <summary>
+        /// A sorted index made nearly sorted the way reading it back from its cache does: a few peptides' masses moved by a unit
+        /// in the ninth decimal place, the precision masses are rounded to. Each is the middle of a run of three equal masses, alternately
+        /// moved down (so it sits below the peptide before it) and up (so the peptide after it sits below it). Returns the moved ids.
+        /// </summary>
+        private static List<int> MakeNearlySorted(List<IBioPolymerWithSetMods> sortedIndex, int howMany)
+        {
+            var massField = typeof(PeptideWithSetModifications).GetField("_monoisotopicMass",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var candidates = new List<int>();
+            for (int id = 1; id + 1 < sortedIndex.Count; id++)
+            {
+                double mass = sortedIndex[id].MonoisotopicMass;
+                // a run of exactly three, so moving the middle one disturbs one other peptide at most
+                if (!double.IsNaN(mass) && mass == sortedIndex[id - 1].MonoisotopicMass && mass == sortedIndex[id + 1].MonoisotopicMass
+                    && (id < 2 || sortedIndex[id - 2].MonoisotopicMass != mass) && (id + 2 >= sortedIndex.Count || sortedIndex[id + 2].MonoisotopicMass != mass))
+                {
+                    candidates.Add(id);
+                }
+            }
+            Assert.That(candidates.Count, Is.GreaterThanOrEqualTo(howMany), "the fixture needs runs of equal masses to disturb");
+
+            var moved = new List<int>();
+            for (int k = 0; k < howMany; k++)
+            {
+                int id = candidates[(int)((long)k * candidates.Count / howMany)];
+                double mass = sortedIndex[id].MonoisotopicMass;
+                massField.SetValue(sortedIndex[id], (double?)(k % 2 == 0 ? mass - 1e-9 : mass + 1e-9));
+                moved.Add(id);
+            }
+            return moved;
+        }
+
+        /// <summary>
+        /// About 15,000 peptides: the anagram and X-residue proteins of <see cref="SortedPeptideIndex"/> and 400 random ones, so a
+        /// few peptides out of order stay within the one in a thousand a nearly sorted index may have.
+        /// </summary>
+        private static List<IBioPolymerWithSetMods> LargeSortedPeptideIndex()
+        {
+            var random = new Random(4242);
+            const string residues = "ACDEFGHIKLMNPQRSTVWY";
+            var sequences = new List<string>
+            {
+                "ACDEFKCADEFKDACEFKEDCAFKFEDCAKGHILMRHGILMRIGHLMRLIGHMRMLIGHR",
+                "PEPTIDEKPETPIDEKTPEPIDEKXAAGKAXAGKAAXGKQQAQNIEKMSKAQQNQIEKMSK",
+            };
+            for (int p = 0; p < 400; p++)
+            {
+                sequences.Add(new string(Enumerable.Range(0, 120).Select(_ => residues[random.Next(residues.Length)]).ToArray()));
+            }
+            var digestion = new DigestionParams(protease: "trypsin", maxMissedCleavages: 2, minPeptideLength: 1);
+            var peptides = sequences.Select((s, i) => new Protein(s, "L" + i))
+                .SelectMany(p => p.Digest(digestion, new List<Modification>(), new List<Modification>()))
+                .Cast<IBioPolymerWithSetMods>()
+                .ToList();
+            return IndexingEngine.SortByMonoisotopicMass(peptides);
+        }
+
+        [Test]
+        public static void TheOrderCheckTellsSortedNearlySortedAndShuffledApart()
+        {
+            var sorted = LargeSortedPeptideIndex();
+            Assert.That(Probe.Analyze(sorted), Is.EqualTo((true, (Dictionary<int, double>)null)));
+
+            List<int> moved = MakeNearlySorted(sorted, 6);
+            var (isSorted, standIns) = Probe.Analyze(sorted);
+            Assert.That(isSorted, Is.False);
+            Assert.That(standIns, Is.Not.Null);
+            // a peptide moved down is out of order itself; one moved up puts the rest of its equal-mass run out of order
+            for (int k = 0; k < moved.Count; k++)
+            {
+                Assert.That(standIns.ContainsKey(k % 2 == 0 ? moved[k] : moved[k] + 1), Is.True, $"moved peptide {k}");
+            }
+            Assert.That(standIns.Keys.All(id => moved.Any(m => Math.Abs(id - m) <= 20)), Is.True, "only the disturbed runs are out of order");
+
+            // the peptides left in order are in order, and each stand-in is the heaviest mass in order before its peptide
+            double heaviest = double.NegativeInfinity;
+            for (int id = 0; id < sorted.Count; id++)
+            {
+                double mass = double.IsNaN(sorted[id].MonoisotopicMass) ? double.NegativeInfinity : sorted[id].MonoisotopicMass;
+                if (standIns.TryGetValue(id, out double standIn))
+                {
+                    Assert.That(standIn, Is.EqualTo(heaviest), $"stand-in of {id}");
+                    Assert.That(mass, Is.LessThan(heaviest), $"{id} is out of order");
+                }
+                else
+                {
+                    Assert.That(mass, Is.GreaterThanOrEqualTo(heaviest), $"{id} is in order");
+                    heaviest = mass;
+                }
+            }
+
+            var random = new Random(3);
+            var shuffled = sorted.OrderBy(_ => random.Next()).ToList();
+            Assert.That(Probe.Analyze(shuffled), Is.EqualTo((false, (Dictionary<int, double>)null)), "far out of order is not nearly sorted");
+        }
+
+        /// <summary>
+        /// The nearly sorted case of the bin-by-bin comparison: every bin, for every window, including windows bounded exactly at,
+        /// and a unit in the last place either side of, every mass the moved peptides and their neighbours have. Bins holding a moved
+        /// peptide go to the mass search, the rest are cut by id, and every one receives scores exactly where the old per-bin mass
+        /// search gave them.
+        /// </summary>
+        [Test]
+        public static void OnANearlySortedIndexEveryBinIsCutWhereThePerBinMassSearchCutIt()
+        {
+            var peptideIndex = LargeSortedPeptideIndex();
+            List<int> moved = MakeNearlySorted(peptideIndex, 6);
+            var (_, standIns) = Probe.Analyze(peptideIndex);
+            Assert.That(standIns, Is.Not.Null, "premise: nearly sorted");
+            var probe = new Probe(peptideIndex);
+            var random = new Random(8080);
+            List<int[]> bins = RandomBins(peptideIndex.Count, random);
+            // and bins built around each moved peptide and its neighbours, so every disturbed run is cut many ways
+            foreach (int id in moved)
+            {
+                for (int width = 1; width <= 4; width++)
+                {
+                    bins.Add(Enumerable.Range(Math.Max(0, id - width), 2 * width + 1).Where(i => i < peptideIndex.Count).ToArray());
+                    bins.Add(Enumerable.Range(Math.Max(0, id - width), 2 * width + 1).Where(i => i < peptideIndex.Count && i != id).ToArray());
+                }
+            }
+
+            var bounds = new List<double>();
+            foreach (int id in moved)
+            {
+                for (int i = Math.Max(0, id - 3); i <= Math.Min(peptideIndex.Count - 1, id + 3); i++)
+                {
+                    double m = peptideIndex[i].MonoisotopicMass;
+                    bounds.AddRange(new[] { m, m - 1e-9, m + 1e-9, m - 5e-10, m + 5e-10, m - 2e-9, m + 2e-9 });
+                }
+            }
+            var windows = new List<(double Lowest, double Highest)>();
+            foreach (double a in bounds)
+            {
+                windows.Add((a, double.PositiveInfinity));
+                windows.Add((double.NegativeInfinity, a));
+                foreach (double b in bounds)
+                {
+                    windows.Add((a, b));
+                }
+            }
+            List<double> general = Bounds(peptideIndex);
+            for (int w = 0; w < 400; w++)
+            {
+                windows.Add((general[random.Next(general.Count)], general[random.Next(general.Count)]));
+            }
+
+            int compared = 0, nonEmpty = 0, byMass = 0;
+            var failures = new List<string>();
+            foreach (var (lowest, highest) in windows)
+            {
+                (int FirstId, int LastId)? idWindow = probe.Window(lowest, highest);
+                Assert.That(idWindow, Is.Not.Null, "a nearly sorted index must give an id window");
+
+                foreach (int[] bin in bins)
+                {
+                    bool holdsOutOfOrder = bin.Any(standIns.ContainsKey);
+                    var (refStart, refEnd) = ReferenceRange(lowest, highest, bin, peptideIndex);
+                    var (start, end) = probe.Range(idWindow, lowest, highest, bin, holdsOutOfOrder);
+                    bool refEmpty = refStart > refEnd;
+                    bool empty = start > end;
+                    compared++;
+                    nonEmpty += refEmpty ? 0 : 1;
+                    byMass += holdsOutOfOrder ? 1 : 0;
+
+                    if (refEmpty != empty || (!refEmpty && (refStart != start || refEnd != end)))
+                    {
+                        if (failures.Count < 10)
+                        {
+                            failures.Add($"window [{lowest:R}, {highest:R}] bin of {bin.Length} (out of order: {holdsOutOfOrder}): reference ({refStart}, {refEnd}), now ({start}, {end})");
+                        }
+                    }
+                }
+            }
+
+            Assert.That(failures, Is.Empty, string.Join("; ", failures));
+            Assert.That(nonEmpty, Is.GreaterThan(compared / 10), "most comparisons should score something");
+            Assert.That(byMass, Is.GreaterThan(compared / 20), "bins holding a peptide out of order must be covered");
+        }
+
+        /// <summary>
+        /// The bins marked for the mass search are exactly the bins of a real fragment index holding a peptide out of order.
+        /// </summary>
+        [Test]
+        public static void TheBinsMarkedAreExactlyTheBinsHoldingAPeptideOutOfOrder()
+        {
+            var parameters = new CommonParameters(maxThreadsToUsePerFile: 4,
+                digestionParams: new DigestionParams(protease: "trypsin", maxMissedCleavages: 2, minPeptideLength: 7));
+            IndexingResults index = BuildRealIndex(parameters);
+            MakeNearlySorted(index.PeptideIndex, 8);
+            var (_, standIns) = Probe.Analyze(index.PeptideIndex);
+            Assert.That(standIns, Is.Not.Null, "premise: nearly sorted");
+
+            ulong[] marked = Probe.BinsHolding(index.FragmentIndex, standIns.Keys, index.PeptideIndex.Count);
+            int holding = 0, wrong = 0;
+            for (int b = 0; b < index.FragmentIndex.Length; b++)
+            {
+                bool expected = false;
+                foreach (int id in index.FragmentIndex[b])
+                {
+                    expected |= standIns.ContainsKey(id);
+                }
+                holding += expected ? 1 : 0;
+                wrong += expected != Probe.Holds(marked, b) ? 1 : 0;
+            }
+            Assert.That(wrong, Is.EqualTo(0));
+            Assert.That(holding, Is.GreaterThan(0));
+            Assert.That(Probe.Holds(null, 0), Is.False, "no bit set means no bin holds one");
+        }
+
+        /// <summary>
+        /// A whole modern search over a nearly sorted index (a fresh copy of the real one with peptides moved as reading back does)
+        /// finds exactly what the per-bin mass search found, for every fragmentation mode and window shape the sorted case covers.
+        /// </summary>
+        [Test]
+        [TestCase(DissociationType.HCD, false, "OneMM 10 ppm")]
+        [TestCase(DissociationType.HCD, true, "OneMM 10 ppm")]
+        [TestCase(DissociationType.HCD, false, "Open")]
+        [TestCase(DissociationType.HCD, false, "[-187, +inf) Da")]
+        [TestCase(DissociationType.HCD, false, "[-500, +5] Da")]
+        [TestCase(DissociationType.LowCID, false, "OneMM 10 ppm")]
+        public static void ModernSearchOnANearlySortedIndexFindsExactlyWhatThePerBinMassSearchFound(DissociationType dissociationType, bool addCompIons, string acceptorName)
+        {
+            var (parameters, scans, _) = RealSearchInputs(dissociationType, addCompIons);
+            IndexingResults index = BuildRealIndex(parameters);
+            MakeNearlySorted(index.PeptideIndex, 8);
+            Assert.That(Probe.Analyze(index.PeptideIndex).Sorted, Is.False, "premise: not sorted");
+
+            AssertSameMatches(scans, index.PeptideIndex, index.FragmentIndex, parameters, Acceptor(acceptorName), expectIdWindow: true, minimumMatches: 50);
+        }
+
+        /// <summary>
+        /// A scan whose window holds a peptide out of order and no peptide in order: the id window is empty, but the bins holding
+        /// that peptide are cut by mass, and the search still finds it, as the per-bin mass search did. The scan is made from the
+        /// peptide's own fragments, and its window is half a unit in the last place either side of the peptide's moved mass, so the
+        /// rest of its run, a unit above, is outside.
+        /// </summary>
+        [Test]
+        public static void AScanWhoseWindowHoldsOnlyAPeptideOutOfOrderStillFindsIt()
+        {
+            var (parameters, _, _) = RealSearchInputs(DissociationType.HCD, false);
+            IndexingResults index = BuildRealIndex(parameters);
+            List<int> moved = MakeNearlySorted(index.PeptideIndex, 8);
+            IBioPolymerWithSetMods peptide = index.PeptideIndex[moved[0]]; // the first is moved down, below the rest of its run
+
+            var products = new List<Product>();
+            peptide.Fragment(DissociationType.HCD, FragmentationTerminus.Both, products);
+            double[] mz = products.Select(x => x.NeutralMass.ToMz(1)).OrderBy(x => x).ToArray();
+            double[] intensities = mz.Select(_ => 1000.0).ToArray();
+            double precursorMz = peptide.MonoisotopicMass.ToMz(1);
+            var dataScan = new MsDataScan(new MzSpectrum(mz, intensities, false), 2, 2, true, Polarity.Positive, 1.0, new MzRange(50, 5000), null,
+                MZAnalyzerType.Orbitrap, intensities.Sum(), null, null, "scan=2", precursorMz, 1, 1000, precursorMz, 2, DissociationType.HCD, 1, precursorMz);
+            var scan = new Ms2ScanWithSpecificMass(dataScan, precursorMz, 1, "synthetic", parameters);
+            var acceptor = new IntervalMassDiffAcceptor("half a unit", new[] { new DoubleRange(-5e-10, 5e-10) });
+
+            var probe = new Probe(index.PeptideIndex);
+            var window = acceptor.GetAllowedPrecursorMassIntervalsFromObservedMass(scan.PrecursorMass).Single();
+            var idWindow = probe.Window(window.Minimum, window.Maximum);
+            Assert.That(idWindow.Value.FirstId, Is.GreaterThan(idWindow.Value.LastId), "premise: no peptide in order is inside the window");
+
+            AssertSameMatches(new[] { scan }, index.PeptideIndex, index.FragmentIndex, parameters, acceptor, expectIdWindow: true, minimumMatches: 1);
         }
 
         #region the per-bin mass search, verbatim from ModernSearchEngine before the id window
@@ -657,8 +930,14 @@ namespace Test
 
             internal (int FirstId, int LastId)? Window(double lowest, double highest) => PeptideIdWindowOf(lowest, highest);
 
-            internal (int start, int end) Range((int FirstId, int LastId)? idWindow, double lowest, double highest, int[] bin)
-                => BinRangeToIncrement(idWindow, lowest, highest, bin, 0);
+            internal (int start, int end) Range((int FirstId, int LastId)? idWindow, double lowest, double highest, int[] bin, bool holdsOutOfOrder = false)
+                => BinRangeToIncrement(idWindow, lowest, highest, holdsOutOfOrder, bin, 0);
+
+            internal static (bool Sorted, Dictionary<int, double> StandIns) Analyze(List<IBioPolymerWithSetMods> peptideIndex) => AnalyzeBinSearchOrder(peptideIndex);
+
+            internal static ulong[] BinsHolding(FragmentIndex fragmentIndex, IEnumerable<int> ids, int peptideCount) => FindBinsHolding(fragmentIndex, ids, peptideCount, 4);
+
+            internal static bool Holds(ulong[] bins, int bin) => HoldsOutOfOrderPeptide(bins, bin);
 
             internal static bool IsSorted(List<IBioPolymerWithSetMods> peptideIndex) => IsSortedForBinSearch(peptideIndex);
 
