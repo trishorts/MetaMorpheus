@@ -83,7 +83,7 @@ namespace MetaMorpheusGUI
             {
                 proteaseComboBox.Items.Add(protease);
             }
-            Protease trypsin = ProteaseDictionary.Dictionary["trypsin"];
+            Protease trypsin = ProteaseDictionary.Dictionary[CommonParameters.DefaultProteaseName];
             proteaseComboBox.SelectedItem = trypsin;
 
             foreach (string initiatior_methionine_behavior in Enum.GetNames(typeof(InitiatorMethionineBehavior)))

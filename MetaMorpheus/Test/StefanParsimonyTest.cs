@@ -31,8 +31,8 @@ namespace Test
             // unmodified version of protein
             var protein2 = new Protein("YYYKPEPTIDEM", "accession2");
 
-            List<PeptideWithSetModifications> pwsmsFromProtein1 = protein1.Digest(new DigestionParams(protease: "trypsin", minPeptideLength: 1), new List<Modification> { mod }, new List<Modification>()).ToList();  //this is a fixed mod
-            List<PeptideWithSetModifications> pwsmsFromProtein2 = protein2.Digest(new DigestionParams(protease: "trypsin", minPeptideLength: 1), new List<Modification>(), new List<Modification>()).ToList();
+            List<PeptideWithSetModifications> pwsmsFromProtein1 = protein1.Digest(new DigestionParams(protease: "trypsin/P", minPeptideLength: 1), new List<Modification> { mod }, new List<Modification>()).ToList();  //this is a fixed mod
+            List<PeptideWithSetModifications> pwsmsFromProtein2 = protein2.Digest(new DigestionParams(protease: "trypsin/P", minPeptideLength: 1), new List<Modification>(), new List<Modification>()).ToList();
 
             // check to make sure mod is present
             PeptideWithSetModifications modifiedPeptide = pwsmsFromProtein1[0];
@@ -100,8 +100,8 @@ namespace Test
             // unmodified version of protein
             var protein2 = new Protein("YYYKPEPTIDEM", "accession2");
 
-            List<PeptideWithSetModifications> pwsmsFromProtein1 = protein1.Digest(new DigestionParams(protease: "trypsin", minPeptideLength: 1), new List<Modification> { mod }, new List<Modification>()).ToList();  //this is a fixed mod
-            List<PeptideWithSetModifications> pwsmsFromProtein2 = protein2.Digest(new DigestionParams(protease: "trypsin", minPeptideLength: 1), new List<Modification>(), new List<Modification>()).ToList();
+            List<PeptideWithSetModifications> pwsmsFromProtein1 = protein1.Digest(new DigestionParams(protease: "trypsin/P", minPeptideLength: 1), new List<Modification> { mod }, new List<Modification>()).ToList();  //this is a fixed mod
+            List<PeptideWithSetModifications> pwsmsFromProtein2 = protein2.Digest(new DigestionParams(protease: "trypsin/P", minPeptideLength: 1), new List<Modification>(), new List<Modification>()).ToList();
 
             // check to make sure mod is present
             PeptideWithSetModifications modifiedPeptide = pwsmsFromProtein1[0];
@@ -169,8 +169,8 @@ namespace Test
             // unmodified version of protein
             var protein2 = new Protein("YYYKPEPTIDEM", "accession2");
 
-            List<PeptideWithSetModifications> pwsmsFromProtein1 = protein1.Digest(new DigestionParams(protease: "trypsin", minPeptideLength: 1), new List<Modification> { mod }, new List<Modification>()).ToList();  //this is a fixed mod
-            List<PeptideWithSetModifications> pwsmsFromProtein2 = protein2.Digest(new DigestionParams(protease: "trypsin", minPeptideLength: 1), new List<Modification>(), new List<Modification>()).ToList();
+            List<PeptideWithSetModifications> pwsmsFromProtein1 = protein1.Digest(new DigestionParams(protease: "trypsin/P", minPeptideLength: 1), new List<Modification> { mod }, new List<Modification>()).ToList();  //this is a fixed mod
+            List<PeptideWithSetModifications> pwsmsFromProtein2 = protein2.Digest(new DigestionParams(protease: "trypsin/P", minPeptideLength: 1), new List<Modification>(), new List<Modification>()).ToList();
 
             // check to make sure mod is present
             PeptideWithSetModifications modifiedPeptide = pwsmsFromProtein1[0];

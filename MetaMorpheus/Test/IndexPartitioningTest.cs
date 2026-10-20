@@ -1439,7 +1439,7 @@ namespace Test
             // disagree on exactly half of all bins. That predates this branch and is not fixed here, so
             // asserting either outcome would be asserting current behaviour rather than correct behaviour.
             var parameters = new CommonParameters(dissociationType: dissociationType, addCompIons: addCompIons,
-                digestionParams: new DigestionParams(protease: "trypsin", minPeptideLength: 5));
+                digestionParams: new DigestionParams(protease: "trypsin/P", minPeptideLength: 5));
             var (scan, proteins) = SyntheticScanFor("MKPEPTIDERTIDEK", "MKAAAAAAAAKGGGGGGGGKSSSSSSSSK", parameters);
             var fsp = new List<(string, CommonParameters)> { ("", parameters) };
 

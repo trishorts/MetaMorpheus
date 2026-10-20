@@ -670,7 +670,7 @@ namespace Test
                 trimMs1Peaks: false,
                 trimMsMsPeaks: false,
                 digestionParams: new DigestionParams(
-                    protease: "trypsin",
+                    protease: "trypsin/P",
                     minPeptideLength: 1,
                     maxMissedCleavages: 2,
                     initiatorMethionineBehavior: InitiatorMethionineBehavior.Variable),
@@ -777,7 +777,7 @@ namespace Test
                 trimMsMsPeaks: false,
                 separationType: "HPLC",
                 digestionParams: new DigestionParams(
-                    protease: "trypsin",
+                    protease: "trypsin/P",
                     minPeptideLength: 1,
                     maxMissedCleavages: 2,
                     initiatorMethionineBehavior: InitiatorMethionineBehavior.Variable),

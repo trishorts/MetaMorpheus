@@ -357,7 +357,7 @@ namespace Test
 
             var db = ProteinDbWriter.WriteXmlDatabase(new Dictionary<string, HashSet<Tuple<int, Modification>>>(), new List<Protein> { protein1, protein2 }, Path.Combine(TestContext.CurrentContext.TestDirectory, @"PrunedDbTest/fakeDb.xml"));
 
-            var peptideObserved = protein1.Digest(new DigestionParams(minPeptideLength: 1), new List<Modification>(), new List<Modification>())
+            var peptideObserved = protein1.Digest(new DigestionParams("trypsin/P", minPeptideLength: 1), new List<Modification>(), new List<Modification>())
             .Where(p => p.BaseSequence == "PEPT" && p.AllModsOneIsNterminus.Count > 0).First();
             PostSearchAnalysisParameters testPostTaskParameters = new PostSearchAnalysisParameters();
             CommonParameters commonParam = new CommonParameters();
@@ -461,7 +461,7 @@ namespace Test
 
             var db = ProteinDbWriter.WriteXmlDatabase(new Dictionary<string, HashSet<Tuple<int, Modification>>>(), proteinList, Path.Combine(TestContext.CurrentContext.TestDirectory, @"PrunedDbTestVariant/fakeDb.xml"));
 
-            var peptideObserved = protein1Variants.First().Digest(new DigestionParams(minPeptideLength: 1), new List<Modification>(), new List<Modification>())
+            var peptideObserved = protein1Variants.First().Digest(new DigestionParams("trypsin/P", minPeptideLength: 1), new List<Modification>(), new List<Modification>())
             .Where(p => p.BaseSequence == "PEPT").First();
             PostSearchAnalysisParameters testPostTaskParameters = new PostSearchAnalysisParameters();
             CommonParameters commonParam = new CommonParameters();

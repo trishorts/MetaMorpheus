@@ -16,6 +16,13 @@ namespace EngineLayer
 {
     public class CommonParameters
     {
+        /// <summary>
+        /// The protease a new task starts with: trypsin that also cleaves before proline. Since mzLib #1186 that enzyme
+        /// is named "trypsin/P", and bare "trypsin", mzLib's own default, applies the proline rule. Naming it here keeps
+        /// MetaMorpheus's default search what it was before #1186.
+        /// </summary>
+        public const string DefaultProteaseName = "trypsin/P";
+
         // this parameterless constructor needs to exist to read the toml.
         // if you can figure out a way to get rid of it, feel free...
         public CommonParameters()
@@ -99,7 +106,7 @@ namespace EngineLayer
             PrecursorMassTolerance = precursorMassTolerance ?? new PpmTolerance(5);
             ProductMassTolerance_LowRes = productMassTolerance_LowRes ?? new AbsoluteTolerance(0.35);
             DeconvolutionMassTolerance = deconvolutionMassTolerance ?? new PpmTolerance(4);
-            DigestionParams = digestionParams ?? new DigestionParams();
+            DigestionParams = digestionParams ?? new DigestionParams(DefaultProteaseName);
             DissociationType = dissociationType;
             SeparationType = separationType;
             MS2ChildScanDissociationType = ms2childScanDissociationType;
