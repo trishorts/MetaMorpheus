@@ -792,13 +792,17 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
-    /// The classifier network's hidden layers can be set (null keeps the rescorer's default, DIA-NN 2020's 25-20-15-10-5). A
-    /// search with another architecture gives other scores, and a zero-unit layer is refused.
+    /// The classifier network's hidden layers can be set; null is 64-32-16, wider than the rescorer's own 25-20-15-10-5
+    /// (DIA-NN 2020's). With the pooled sample at 120,000 rows under two passes, two-seed means at a matched entrapment FDP
+    /// of 1% gained 1.21% on PXD022589 (HF-X) and 1.09% on PXD005573 1 h (held-out) over 25-20-15-10-5. The default reaches
+    /// the classifier, a search with another architecture gives other scores, and a zero-unit layer is refused.
     /// </summary>
     [Test]
     public void TheClassifierNetworkLayersCanBeSet()
     {
         Assert.That(new DiaLibrarySearchParameters().ClassifierNetworkLayers, Is.Null);
+        Assert.That(new DiaLibrarySearchParameters().EffectiveClassifierNetworkLayers, Is.EqualTo(new[] { 64, 32, 16 }));
+        Assert.That(new DiaLibrarySearchParameters(ClassifierNetworkLayers: [16, 8]).EffectiveClassifierNetworkLayers, Is.EqualTo(new[] { 16, 8 }));
 
         var run = SyntheticDiaRun.Build(200, entry => SyntheticDiaRun.Bucket(entry, 4) != 0);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
@@ -806,9 +810,10 @@ public class DiaLibrarySearchEngineTests
             new DiaLibrarySearchParameters(ClassifierNetworkLayers: layers, ClassifierNetworkMembers: 3), new CommonParameters(), [], []).Run();
 
         var standard = SearchWith(null);
-        var wide = SearchWith([16, 8]);
+        var narrow = SearchWith([16, 8]);
 
-        Assert.That(wide.Matches.Select(m => m.Score), Is.Not.EqualTo(standard.Matches.Select(m => m.Score)));
+        Assert.That(standard.Matches.Select(m => m.Score), Is.EqualTo(SearchWith([64, 32, 16]).Matches.Select(m => m.Score)));
+        Assert.That(narrow.Matches.Select(m => m.Score), Is.Not.EqualTo(standard.Matches.Select(m => m.Score)));
         Assert.Throws<ArgumentOutOfRangeException>(() => SearchWith([16, 0]), "a zero-unit layer is refused, not ignored");
     }
 

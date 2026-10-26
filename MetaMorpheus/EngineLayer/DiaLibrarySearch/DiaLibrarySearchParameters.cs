@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 
 namespace EngineLayer.DiaLibrarySearch;
 
@@ -81,7 +82,7 @@ namespace EngineLayer.DiaLibrarySearch;
 /// <param name="Ms1Offset">The run's MS1 offset over retention time (fitted in calibration); every MS1 lookup is shifted by it. Null shifts nothing.</param>
 /// <param name="Ms1PeakFeatures">Features: the M0 mass error over the co-elution window (intensity-weighted) and the M+2 isotope trace's co-elution.</param>
 /// <param name="ClassifierNetworkPositiveQValue">With the confident training sample, positives are only targets passing this q-value in the linear ranking (with as many top decoys); null keeps the top half-cap of targets.</param>
-/// <param name="ClassifierNetworkLayers">The classifier network's hidden layers, input side first; null keeps the rescorer's default (DIA-NN 2020's 25-20-15-10-5).</param>
+/// <param name="ClassifierNetworkLayers">The classifier network's hidden layers, input side first; null is <see cref="DefaultClassifierNetworkLayers"/> (64-32-16).</param>
 /// <param name="SqrtCoElution">A feature: the core fragments' co-elution on square-root traces, which damp the apex so the peak's flanks weigh more.</param>
 /// <param name="Ms1ToleranceSpreadMultiple">When set, the MS1 tolerance follows the run's own mass accuracy: this multiple of the calibrated offset's residual spread (<see cref="EffectiveMs1TolerancePpm"/>).</param>
 /// <param name="Ms1PeakEnvelopeTight">A feature: the <see cref="Ms1PeakEnvelope"/> cosine again from MS1 peaks within 0.6x the MS1 tolerance only.</param>
@@ -213,6 +214,17 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
         Ms1ToleranceSpreadMultiple is { } multiple && Ms1Offset is { ResidualSpreadPpm: var spread } && double.IsFinite(spread) && spread > 0
             ? multiple * spread
             : Ms1TolerancePpm;
+
+    /// <summary>
+    /// The classifier network's hidden layers when <see cref="ClassifierNetworkLayers"/> is null: 64-32-16, wider than the
+    /// rescorer's 25-20-15-10-5 (DIA-NN 2020's). With the pooled sample at 120,000 rows under two passes, two-seed means at a
+    /// matched entrapment FDP of 1% gained 1.21% (HF-X) and 1.09% (held-out). Under the half-and-half sample the same network
+    /// gained 0.9% and lost 0.3%.
+    /// </summary>
+    public static IReadOnlyList<int> DefaultClassifierNetworkLayers { get; } = [64, 32, 16];
+
+    /// <summary>The hidden layers the classifier network trains: <see cref="ClassifierNetworkLayers"/>, else <see cref="DefaultClassifierNetworkLayers"/>.</summary>
+    public IReadOnlyList<int> EffectiveClassifierNetworkLayers => ClassifierNetworkLayers ?? DefaultClassifierNetworkLayers;
 
     private readonly int _minimumApexFragments = MinimumApexFragments is >= 0 and <= 6 ? MinimumApexFragments
         : throw new ArgumentOutOfRangeException(nameof(MinimumApexFragments), MinimumApexFragments, "The gate counts the six most intense fragments, so 0 to 6.");

@@ -1161,7 +1161,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 networkPasses: _parameters.ClassifierNetworkPasses,
                 networkTrainingSample: _parameters.ClassifierNetworkTrainingSample,
                 normalizationGroups: _parameters.ClassifierNormalizationGroups,
-                networkLayers: _parameters.ClassifierNetworkLayers,
+                networkLayers: _parameters.EffectiveClassifierNetworkLayers,
                 networkPositiveQValue: _parameters.ClassifierNetworkPositiveQValue,
                 networkTargetFraction: _parameters.ClassifierNetworkTargetFraction,
                 candidateGroups: matches.Select(m => m.PrecursorIndex).ToList());

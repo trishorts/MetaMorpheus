@@ -81,6 +81,12 @@ public static class DiaIrtSelfCalibration
     /// </summary>
     public const int CalibrationInterferenceExplainedFragments = 4;
 
+    /// <summary>
+    /// Calibration's classifier network (<see cref="DiaLibrarySearchParameters.ClassifierNetworkLayers"/>): the rescorer's
+    /// 25-20-15-10-5, DIA-NN 2020's. The main search's wider default was benchmarked with calibration at this one.
+    /// </summary>
+    public static IReadOnlyList<int> CalibrationNetworkLayers { get; } = [25, 20, 15, 10, 5];
+
     /// <param name="sampleOffset">
     /// Which of each pass's samples to draw (<see cref="DiaLibrarySearchParameters.PrecursorSampleOffset"/>, taken modulo the
     /// pass's stride). 0 by default; others repeat calibration on a disjoint sample.
@@ -94,11 +100,11 @@ public static class DiaIrtSelfCalibration
     /// <see cref="CalibrationMs1TolerancePpm"/> with no offset, since calibration is what fits the offset. With the rule in
     /// calibration too, the held-out run (PXD005573 1 h) lost 2.1% (two-seed means at a matched paired entrapment FDP of 1%).
     /// DIA-NN's signal share stays off as well: it was benchmarked in the main search only, and in calibration it moved the
-    /// anchors and cost HF-X 1.5% on seed 0.
+    /// anchors and cost HF-X 1.5% on seed 0. The network is <see cref="CalibrationNetworkLayers"/>.
     /// </summary>
     public static DiaLibrarySearchParameters CalibrationParameters(DiaLibrarySearchParameters parameters) =>
         parameters with { DiaNnFragmentFilter = false, Ms1Offset = null, Ms1TolerancePpm = CalibrationMs1TolerancePpm, DiaNnSignalShare = false,
-            InterferenceExplainedFragments = CalibrationInterferenceExplainedFragments };
+            InterferenceExplainedFragments = CalibrationInterferenceExplainedFragments, ClassifierNetworkLayers = [.. CalibrationNetworkLayers] };
 
     /// <summary>
     /// MS1 tolerance during calibration, before the run's offset is known: wide enough for an error that drifts up to 3 ppm off

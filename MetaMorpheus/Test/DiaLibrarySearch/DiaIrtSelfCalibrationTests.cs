@@ -46,8 +46,8 @@ public class DiaIrtSelfCalibrationTests
         var calibrationParameters = DiaIrtSelfCalibration.CalibrationParameters(search);
         Assert.That(calibrationParameters.DiaNnFragmentFilter, Is.False);
         Assert.That(calibrationParameters with { DiaNnFragmentFilter = true, Ms1TolerancePpm = search.Ms1TolerancePpm, DiaNnSignalShare = search.DiaNnSignalShare,
-                InterferenceExplainedFragments = search.InterferenceExplainedFragments},
-            Is.EqualTo(search), "nothing else changes but calibration's own MS1 tolerance, the signal share and the interference rule");
+                InterferenceExplainedFragments = search.InterferenceExplainedFragments, ClassifierNetworkLayers = search.ClassifierNetworkLayers },
+            Is.EqualTo(search), "nothing else changes but calibration's own MS1 tolerance, the signal share, the interference rule and the network");
 
         var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
@@ -91,6 +91,27 @@ public class DiaIrtSelfCalibrationTests
         var three = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(InterferenceExplainedFragments: 3), new CommonParameters());
         var six = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(InterferenceExplainedFragments: 6), new CommonParameters());
         Assert.That(three.Anchors, Is.EqualTo(six.Anchors));
+    }
+
+    /// <summary>
+    /// Calibration's network keeps the rescorer's 25-20-15-10-5 (DIA-NN 2020's), whatever the search uses: the main search's
+    /// 64-32-16 was benchmarked with calibration at 25-20-15-10-5. Calibration gives the same anchors whichever network the
+    /// search sets.
+    /// </summary>
+    [Test]
+    public void CalibrationKeepsItsOwnNetwork()
+    {
+        Assert.That(DiaIrtSelfCalibration.CalibrationNetworkLayers, Is.EqualTo(new[] { 25, 20, 15, 10, 5 }));
+        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters()).EffectiveClassifierNetworkLayers,
+            Is.EqualTo(DiaIrtSelfCalibration.CalibrationNetworkLayers));
+        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters(ClassifierNetworkLayers: [16, 8])).EffectiveClassifierNetworkLayers,
+            Is.EqualTo(DiaIrtSelfCalibration.CalibrationNetworkLayers));
+
+        var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        var standard = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new CommonParameters());
+        var narrow = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(ClassifierNetworkLayers: [16, 8]), new CommonParameters());
+        Assert.That(narrow.Anchors, Is.EqualTo(standard.Anchors));
     }
 
     /// <summary>
