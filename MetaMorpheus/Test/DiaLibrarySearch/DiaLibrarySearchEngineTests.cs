@@ -200,16 +200,17 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
-    /// By default the network trains on the 180,000 rows per fold the linear model ranks highest, targets and decoys under
+    /// By default the network trains on the 120,000 rows per fold the linear model ranks highest, targets and decoys under
     /// one score threshold. Against the half-and-half confident sample at 250,000, two-seed means at a matched entrapment
-    /// FDP of 1% gained 3.58% on PXD022589 (HF-X) and 2.23% on PXD005573 1 h (held-out).
+    /// FDP of 1% gained 3.58% on PXD022589 (HF-X) and 2.23% on PXD005573 1 h (held-out) at 180,000 rows. Under two network
+    /// passes 120,000 gained a further 0.95% and 1.06% over 180,000; 90,000 lost 0.44% on HF-X and 250,000 lost on both.
     /// </summary>
     [Test]
     public void TheNetworkTrainsOnItsMostConfidentRowsByDefault()
     {
         var parameters = new DiaLibrarySearchParameters();
         Assert.That(parameters.ClassifierNetworkTrainingSample, Is.EqualTo(StatisticalModels.NetworkTrainingSample.ConfidentPooled));
-        Assert.That(parameters.MaxNetworkTrainingRows, Is.EqualTo(180_000));
+        Assert.That(parameters.MaxNetworkTrainingRows, Is.EqualTo(120_000));
     }
 
     /// <summary>

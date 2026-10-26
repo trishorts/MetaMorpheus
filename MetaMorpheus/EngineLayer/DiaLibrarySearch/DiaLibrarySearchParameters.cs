@@ -152,15 +152,16 @@ namespace EngineLayer.DiaLibrarySearch;
 /// <param name="MaxNetworkTrainingRows">
 /// When set, the classifier's network trains on a random subsample of at most this many rows per fold (every row is still
 /// scored). Null trains on all. 250,000, about DIA-NN's training size, took the whole-proteome classifier from 10:10 to
-/// 7:03. Default 180,000 with the pooled sample: a larger pooled sample admits decoy-like false targets (375,000 lost 5.3%
-/// on PXD005573 1 h). Smaller libraries never reach it.
+/// 7:03. Default 120,000 with the pooled sample: a larger pooled sample admits decoy-like false targets (375,000 lost 5.3%
+/// on PXD005573 1 h). Under two network passes, 120,000 gained 0.95% (HF-X) and 1.06% (held-out) over 180,000. Smaller
+/// libraries never reach it.
 /// </param>
 /// <param name="ClassifierModel">The model the rescorer fits in each fold: a linear discriminant, or a small neural-network ensemble (DIA-NN's approach).</param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
     int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 10, double ClassifierTrainingQValue = 0.01,
     StatisticalModels.RescoreModel ClassifierModel = StatisticalModels.RescoreModel.NeuralNetworkEnsemble,
     int InterferenceExplainedFragments = 3,
-    int? MaxNetworkTrainingRows = 180_000,
+    int? MaxNetworkTrainingRows = 120_000,
     bool InterferenceSameMzOnly = true,
     int ClassifierSeed = 0,
     int ClassifierNetworkMembers = 12,
