@@ -30,8 +30,10 @@ namespace EngineLayer.DiaLibrarySearch;
 /// (<see cref="DiaIrtSelfCalibration.CalibrationInterferenceExplainedFragments"/>).
 /// </param>
 /// <param name="ClassifierNetworkMembers">
-/// Networks in the classifier's ensemble. 12, as DIA-NN, trained 10 epochs each: at a matched entrapment FDP of 1%, +1.6%
-/// (PXD005573 1 h) and +3.9% (HF-X) over 5 networks on the whole-proteome library, at about 1.5-2x the search time.
+/// Networks in the classifier's ensemble, trained 10 epochs each; calibration trains as many. 24 by default, twice DIA-NN's
+/// 12: at the 64-32-16 network, two-seed means at a matched entrapment FDP of 1% gained 0.12% (HF-X) and 1.60% (PXD005573
+/// 1 h) over 12. 12 had gained 1.6% (1 h) and 3.9% (HF-X) over 5 on the whole-proteome library, at about 1.5-2x the search
+/// time.
 /// </param>
 /// <param name="ClassifierNetworkEpochs">Training epochs per network (DIA-NN uses 1).</param>
 /// <param name="ClassifierNetworkTrainingSample">
@@ -165,7 +167,7 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     int? MaxNetworkTrainingRows = 120_000,
     bool InterferenceSameMzOnly = true,
     int ClassifierSeed = 0,
-    int ClassifierNetworkMembers = 12,
+    int ClassifierNetworkMembers = 24,
     int ClassifierNetworkEpochs = StatisticalModels.TargetDecoyRescorer.NetworkEpochs,
     int ClassifierNetworkPasses = 2,
     StatisticalModels.NetworkTrainingSample ClassifierNetworkTrainingSample = StatisticalModels.NetworkTrainingSample.ConfidentPooled,

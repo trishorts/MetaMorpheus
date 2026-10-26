@@ -180,6 +180,18 @@ public class DiaLibrarySearchEngineTests
         Assert.That(new DiaLibrarySearchParameters().ClassifierNetworkPasses, Is.EqualTo(2));
 
     /// <summary>
+    /// The classifier's ensemble has 24 networks by default, twice DIA-NN's 12. At the 64-32-16 network, two-seed means at a
+    /// matched entrapment FDP of 1% gained 0.12% on PXD022589 (HF-X) and 1.60% on PXD005573 1 h (held-out), whose two seeds
+    /// gained alike (1.63%, 1.57%). Calibration trains as many, as the A/B ran.
+    /// </summary>
+    [Test]
+    public void TheClassifierTrains24NetworksByDefault()
+    {
+        Assert.That(new DiaLibrarySearchParameters().ClassifierNetworkMembers, Is.EqualTo(24));
+        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new()).ClassifierNetworkMembers, Is.EqualTo(24));
+    }
+
+    /// <summary>
     /// The classifier's network can train on the most confident rows rather than a random sample, as DIA-NN trains after
     /// removing low-confidence identifications. The setting reaches the classifier: with a cap below the rows, the scores change.
     /// </summary>
