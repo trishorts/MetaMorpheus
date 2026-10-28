@@ -680,6 +680,13 @@ namespace TaskLayer
                 return;
             }
 
+            // quantified as numbered; said now and in results.txt
+            foreach (string warning in TmtExperimentalDesign.GetWarningsInDesign(tmtFiles))
+            {
+                Warn(warning);
+                Parameters.SearchTaskResults.AddTaskSummaryText(warning);
+            }
+
             // Copy the design into the output folder, as the label-free path does for ExperimentalDesign,
             // so a result folder records the design it was quantified under. AFTER the read, not before:
             // a design that could not be parsed was not quantified under anything, and archiving it
@@ -712,7 +719,8 @@ namespace TaskLayer
 
             // includeAmbiguous: false is the unambiguous filter the design calls for. A PSM that could be
             // more than one peptide would otherwise have its channel intensities credited to whichever
-            // candidate happened to sort first.
+            // candidate happened to sort first. A PSM ambiguous only in where its modifications sit is kept here
+            // and decided once the groups are known, below: it is one peptide whatever the site.
             //
             // includeContaminants follows WriteContaminants, the same switch ProteinGroupIsWritten reads
             // below. Passing true unconditionally made the quantified set wider than the written set at
@@ -725,7 +733,7 @@ namespace TaskLayer
                 includeDecoys: false,
                 includeContaminants: includeContaminants,
                 includeAmbiguous: false,
-                includeAmbiguousMods: false,
+                includeAmbiguousMods: true,
                 includeHighQValuePsms: false);
 
             static bool CarriesReporterIons(SpectralMatch psm) =>
@@ -733,7 +741,13 @@ namespace TaskLayer
 
             var filteredPsms = FilterMatches(Parameters.SearchParameters.WriteContaminants);
 
-            var quantifiablePsms = filteredPsms.Where(CarriesReporterIons).ToList();
+            // A PSM ambiguous in its full sequence is kept only when it is ambiguous in nothing but where its
+            // modifications sit (mzLib quantifies it as a LocalizationAmbiguousPeptide); different peptides, or
+            // different modifications, stay out as before.
+            var quantifiablePsms = filteredPsms
+                .Where(CarriesReporterIons)
+                .Where(psm => psm.FullSequence != null || LocalizationAmbiguousPeptide.SiteFreeIdentityOrNull(psm) != null)
+                .ToList();
 
             if (quantifiablePsms.Count == 0)
             {
@@ -775,7 +789,24 @@ namespace TaskLayer
                 return;
             }
 
+            // A localization-ambiguous PSM is unique to the one group all its candidates belong to and counts for it,
+            // as in label-free quantification; one whose candidates span groups, or belong to none, would be credited
+            // by guessing which group it measured, so it is left out. Judged among every group, as the engine judges
+            // uniqueness.
+            var groupsOfPsm = new Dictionary<SpectralMatch, int>();
+            foreach (var proteinGroup in ProteinGroups)
+            {
+                foreach (var psm in proteinGroup.AllPsmsBelowOnePercentFDR.Cast<SpectralMatch>().Where(psm => psm.FullSequence == null))
+                {
+                    groupsOfPsm[psm] = groupsOfPsm.GetValueOrDefault(psm) + 1;
+                }
+            }
+            quantifiablePsms.RemoveAll(psm => psm.FullSequence == null && groupsOfPsm.GetValueOrDefault(psm) != 1);
+
+            // The peptide rows of single sequences. mzLib builds the localization-ambiguous rows from the PSMs
+            // themselves; listing their candidates here would add an empty row for each site.
             var peptides = quantifiablePsms
+                .Where(psm => psm.FullSequence != null)
                 .SelectMany(psm => psm.GetIdentifiedBioPolymersWithSetMods())
                 .Distinct()
                 .ToList();
@@ -809,12 +840,16 @@ namespace TaskLayer
                 WriteProteinInformation = true
             };
 
+            // Every group of the search, written or not, decides whether a peptide is unique: a peptide that a group
+            // above the q-value threshold also lists is shared, though only the written groups are quantified. A group
+            // left out of the table must not make a peptide it shares look unique to the group that is shown.
             var engine = new QuantificationEngine(
                 quantParameters,
                 experimentalDesign,
                 quantifiablePsms.Cast<ISpectralMatch>().ToList(),
                 peptides,
-                quantifiableProteinGroups.Cast<IBioPolymerGroup>().ToList());
+                quantifiableProteinGroups.Cast<IBioPolymerGroup>().ToList(),
+                ProteinGroups.Cast<IBioPolymerGroup>().ToList());
 
             var results = engine.Run();
 
@@ -826,19 +861,17 @@ namespace TaskLayer
 
             Parameters.MultiplexQuantificationResults = results;
 
-            // The engine drops any match it cannot attribute to exactly one biopolymer, and counts them
+            // The engine drops any match it cannot attribute to exactly one full sequence, and counts them
             // rather than throwing. Reported here because the loss is otherwise invisible: the peptide and
-            // protein tables simply total less than the per-PSM reporter columns, and in the worst case --
-            // every peptide in the search shared between two groups -- they total zero while the raw
-            // table looks perfectly healthy. The exclusion itself is mzLib's: one sequence found in two
-            // proteins is two unequal PeptideWithSetModifications, so the engine's unambiguous filter
-            // drops it. Tracked as smith-chem-wisc/mzLib#1280; this warning stands whatever comes of it.
+            // protein tables simply total less than the per-PSM reporter columns while the raw table looks
+            // perfectly healthy. One sequence found in several proteins is one peptide to the engine
+            // (smith-chem-wisc/mzLib#1463), and the filter above already removes matches with two different
+            // sequences, so this count is expected to be zero; the warning stays as a guard.
             if (results.AmbiguousSpectralMatchesExcluded > 0)
             {
                 Warn($"{results.AmbiguousSpectralMatchesExcluded} spectral match(es) were left out of " +
-                     "multiplex quantification because they did not identify exactly one biopolymer, so the " +
-                     "peptide and protein tables total less than the reporter ion columns in the .psmtsv. A " +
-                     "peptide shared between two protein groups is the usual cause");
+                     "multiplex quantification because they did not identify exactly one full sequence, so the " +
+                     "peptide and protein tables total less than the reporter ion columns in the .psmtsv");
             }
 
             // Rebuild the per-group column schema the engine's write-back invalidated: assigning
@@ -953,6 +986,13 @@ namespace TaskLayer
                     {
                         Warn("Error reading experimental design file: " + errors.First() + ". Skipping quantification");
                         return;
+                    }
+
+                    // quantified as numbered; said now and in results.txt
+                    foreach (string warning in ExperimentalDesign.GetWarningsInExperimentalDesign(spectraFileInfo))
+                    {
+                        Warn(warning);
+                        Parameters.SearchTaskResults.AddTaskSummaryText(warning);
                     }
                 }
                 else if (Parameters.SearchParameters.Normalize)
