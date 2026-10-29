@@ -1,4 +1,3 @@
-global using obo = Omics.Modifications.IO.obo;
 using Chemistry;
 using Easy.Common.Extensions;
 using EngineLayer.GlycoSearch;
@@ -132,7 +131,6 @@ namespace EngineLayer
         public static GlobalSettings GlobalSettings { get; set; }
         public static IEnumerable<Modification> UnimodDeserialized { get; private set; }
         public static IEnumerable<Modification> UniprotDeseralized { get; private set; }
-        public static obo PsiModDeserialized { get; private set; }
         public static IEnumerable<Modification> AllModsKnown { get { return _AllModsKnown.AsEnumerable(); } }
         public static IEnumerable<Modification> AllRnaModsKnown { get { return _AllRnaModsKnown.AsEnumerable(); } }
         public static IEnumerable<string> AllModTypesKnown { get { return _AllModTypesKnown.AsEnumerable(); } }
@@ -503,6 +501,22 @@ namespace EngineLayer
         }
 
         /// <summary>
+        /// Copies one data file from the shipped data directory into a user-specified one that lacks it.
+        /// A file already there is left alone, and nothing happens if the shipped copy is missing too.
+        /// </summary>
+        public static void CopyDataFileIfMissing(string shippedDataDir, string userDataDir, string relativePath)
+        {
+            string target = Path.Combine(userDataDir, relativePath);
+            string source = Path.Combine(shippedDataDir, relativePath);
+            if (File.Exists(target) || !File.Exists(source))
+            {
+                return;
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(target));
+            File.Copy(source, target);
+        }
+
+        /// <summary>
         /// Gets the file extension, with the option to keep .gz appended for compressed files
         /// </summary>
         public static string GetFileExtension(string fileWithExtension, bool getUncompressedExtension = true)
@@ -608,6 +622,13 @@ namespace EngineLayer
                 {
                     CopyFilesRecursively(new DirectoryInfo(DataDir), new DirectoryInfo(UserSpecifiedDataDir));
                 }
+                else
+                {
+                    // A data directory an earlier MetaMorpheus made has PSI-MOD.obo.xml, not the table
+                    // that replaced it, and LoadModifications cannot start without the table. Seed it
+                    // from the shipped copy; never overwrite one the directory already has.
+                    CopyDataFileIfMissing(DataDir, UserSpecifiedDataDir, Path.Combine(@"Data", @"PsiModFormalCharges.tsv"));
+                }
 
                 DataDir = UserSpecifiedDataDir;
             }
@@ -643,8 +664,7 @@ namespace EngineLayer
             AllModsKnownDictionary = new Dictionary<string, Modification>();
 
             UnimodDeserialized = Loaders.LoadUnimod(Path.Combine(DataDir, @"Data", @"unimod.xml")).ToList();
-            PsiModDeserialized = Loaders.LoadPsiMod(Path.Combine(DataDir, @"Data", @"PSI-MOD.obo.xml"));
-            var formalChargesDictionary = Loaders.GetFormalChargesDictionary(PsiModDeserialized);
+            var formalChargesDictionary = ModificationLoader.ReadFormalChargesDictionary(Path.Combine(DataDir, @"Data", @"PsiModFormalCharges.tsv"));
             UniprotDeseralized = Loaders.LoadUniprot(Path.Combine(DataDir, @"Data", @"ptmlist.txt"), formalChargesDictionary).ToList();
 
             // Seeded before the sweep below picks it up. The template is a title line plus a '#' banner,

@@ -133,6 +133,56 @@ namespace Test
         }
 
         [Test]
+        public static void TestExistingCustomDataDirectoryGainsTheFormalChargeTable()
+        {
+            // A custom data directory made by a MetaMorpheus that shipped PSI-MOD.obo.xml has no
+            // PsiModFormalCharges.tsv, and is never copied over again because it already exists.
+            string customDataDir = Path.Combine(TestContext.CurrentContext.TestDirectory, @"ExistingCustomDataDir");
+            if (Directory.Exists(customDataDir))
+                Directory.Delete(customDataDir, true);
+            GlobalVariables.CopyFilesRecursively(new DirectoryInfo(GlobalVariables.DataDir), new DirectoryInfo(customDataDir));
+            string table = Path.Combine(customDataDir, @"Data", @"PsiModFormalCharges.tsv");
+            File.Delete(table);
+
+            GlobalVariables.UserSpecifiedDataDir = customDataDir;
+            Assert.DoesNotThrow(GlobalVariables.SetUpGlobalVariables);
+            Assert.That(File.Exists(table));
+            Assert.That(GlobalVariables.UniprotDeseralized, Is.Not.Empty);
+
+            GlobalVariables.UserSpecifiedDataDir = null;
+            GlobalVariables.SetUpGlobalVariables();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            Directory.Delete(customDataDir, true);
+        }
+
+        [Test]
+        public static void TestCopyDataFileIfMissingNeverOverwrites()
+        {
+            string root = Path.Combine(TestContext.CurrentContext.TestDirectory, @"CopyDataFileIfMissing");
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+            string shipped = Path.Combine(root, "shipped");
+            string user = Path.Combine(root, "user");
+            Directory.CreateDirectory(Path.Combine(shipped, "Data"));
+            Directory.CreateDirectory(Path.Combine(user, "Data"));
+            File.WriteAllText(Path.Combine(shipped, "Data", "a.tsv"), "shipped");
+            File.WriteAllText(Path.Combine(user, "Data", "a.tsv"), "user");
+
+            GlobalVariables.CopyDataFileIfMissing(shipped, user, Path.Combine("Data", "a.tsv"));
+            Assert.That(File.ReadAllText(Path.Combine(user, "Data", "a.tsv")), Is.EqualTo("user"));
+
+            GlobalVariables.CopyDataFileIfMissing(shipped, user, Path.Combine("Data", "absent.tsv"));
+            Assert.That(File.Exists(Path.Combine(user, "Data", "absent.tsv")), Is.False);
+
+            File.Delete(Path.Combine(user, "Data", "a.tsv"));
+            GlobalVariables.CopyDataFileIfMissing(shipped, user, Path.Combine("Data", "a.tsv"));
+            Assert.That(File.ReadAllText(Path.Combine(user, "Data", "a.tsv")), Is.EqualTo("shipped"));
+
+            Directory.Delete(root, true);
+        }
+
+        [Test]
         public static void TestCustomFileExtensionGetter()
         {
             string test1 = @"C:\myFile.fasta";
