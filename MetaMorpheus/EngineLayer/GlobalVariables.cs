@@ -502,6 +502,22 @@ namespace EngineLayer
         }
 
         /// <summary>
+        /// Copies one data file from the shipped data directory into a user-specified one that lacks it.
+        /// A file already there is left alone, and nothing happens if the shipped copy is missing too.
+        /// </summary>
+        public static void CopyDataFileIfMissing(string shippedDataDir, string userDataDir, string relativePath)
+        {
+            string target = Path.Combine(userDataDir, relativePath);
+            string source = Path.Combine(shippedDataDir, relativePath);
+            if (File.Exists(target) || !File.Exists(source))
+            {
+                return;
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(target));
+            File.Copy(source, target);
+        }
+
+        /// <summary>
         /// Gets the file extension, with the option to keep .gz appended for compressed files
         /// </summary>
         public static string GetFileExtension(string fileWithExtension, bool getUncompressedExtension = true)
@@ -606,6 +622,13 @@ namespace EngineLayer
                 if (!Directory.Exists(UserSpecifiedDataDir))
                 {
                     CopyFilesRecursively(new DirectoryInfo(DataDir), new DirectoryInfo(UserSpecifiedDataDir));
+                }
+                else
+                {
+                    // A data directory an earlier MetaMorpheus made has PSI-MOD.obo.xml, not the table
+                    // that replaced it, and LoadModifications cannot start without the table. Seed it
+                    // from the shipped copy; never overwrite one the directory already has.
+                    CopyDataFileIfMissing(DataDir, UserSpecifiedDataDir, Path.Combine(@"Data", @"PsiModFormalCharges.tsv"));
                 }
 
                 DataDir = UserSpecifiedDataDir;
