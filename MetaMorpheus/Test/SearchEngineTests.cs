@@ -181,7 +181,9 @@ namespace Test
             Assert.That(psm.NextAminoAcid, Is.EqualTo("G"));
             Assert.That(psm.Notch, Is.EqualTo("0"));
             Assert.That(psm.OrganismName, Is.EqualTo("Homo sapiens"));
-            Assert.That(0, Is.EqualTo(psm.PEP).Within(1E-04));
+            // The PEP column is the estimated PEP: the best-ranked block of this small search holds 200 targets and 7 decoys,
+            // so 7 / 200. The classifier's own value for this match is 0.
+            Assert.That(psm.PEP, Is.EqualTo(7.0 / 200).Within(1E-04));
             Assert.That(0.005, Is.EqualTo(psm.PEP_QValue).Within(1E-03));
             Assert.That(psm.PeptideDescription, Is.EqualTo("full"));
             Assert.That(psm.PeptideMonoMass, Is.EqualTo("2125.92875"));
