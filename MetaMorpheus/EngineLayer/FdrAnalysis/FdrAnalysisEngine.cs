@@ -5,6 +5,7 @@ using EngineLayer.CrosslinkSearch;
 using EngineLayer.SpectrumMatch;
 using PredictionClients.Koina.SupportedModels.RetentionTimeModels;
 using Proteomics.ProteolyticDigestion;
+using StatisticalModels;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -290,6 +291,7 @@ namespace EngineLayer.FdrAnalysis
             if (pepCalculation)
             {
                 PepQValueInverted(psms, peptideLevelAnalysis: peptideLevelCalculation);
+                EstimatePep(psms, peptideLevel: peptideLevelCalculation);
             }
             else
             {
@@ -302,6 +304,50 @@ namespace EngineLayer.FdrAnalysis
                 {
                     QValueInverted(psms, peptideLevelAnalysis: peptideLevelCalculation);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Writes <see cref="FdrInfo.EstimatedPep"/> at one level for the matches of one PEP q-value pass. It is the
+        /// posterior error probability that mzLib's <see cref="TargetDecoyPep"/> reads off the target-decoy distribution
+        /// of the classifier PEP within these matches. Decoys are counted per hypothesis, as <see cref="CalculateQValue"/>
+        /// counts them, so a match half target and half decoy is half a decoy.
+        /// <para>
+        /// Only the reported value changes. Ranking, q-values and rules keep reading <see cref="FdrInfo.PEP"/>, and the
+        /// estimate never decreases as that increases, so nothing ordered by PEP can change. Nothing is written when the
+        /// classifier gave every match the same value (PEP was not trained), when a value is not finite, or when the
+        /// matches hold no targets or no decoys. A value from an earlier pass is then left as it was.
+        /// </para>
+        /// </summary>
+        internal static void EstimatePep(List<SpectralMatch> matches, bool peptideLevel)
+        {
+            if (GlobalVariables.StopLoops || matches.Count == 0) { return; }
+
+            var scores = new double[matches.Count];
+            var decoyFraction = new double[matches.Count];
+            bool varies = false;
+            for (int i = 0; i < matches.Count; i++)
+            {
+                // TargetDecoyPep ranks higher-is-better. Negation is exact, so the order is the PEP order, ties included.
+                scores[i] = -matches[i].FdrInfo.PEP;
+                if (!double.IsFinite(scores[i])) { return; }
+                varies |= scores[i] != scores[0];
+
+                int hypotheses = 0, decoys = 0;
+                foreach (var hypothesis in matches[i].BestMatchingBioPolymersWithSetMods)
+                {
+                    hypotheses++;
+                    if (hypothesis.IsDecoy) { decoys++; }
+                }
+                decoyFraction[i] = hypotheses == 0 ? (matches[i].IsDecoy ? 1 : 0) : (double)decoys / hypotheses;
+            }
+            if (!varies) { return; }
+
+            var estimate = TargetDecoyPep.Estimate(scores, decoyFraction);
+            if (estimate.Status != TargetDecoyPepStatus.Estimated) { return; }
+            for (int i = 0; i < matches.Count; i++)
+            {
+                matches[i].GetFdrInfo(peptideLevel).EstimatedPep = estimate.Peps[i];
             }
         }
 

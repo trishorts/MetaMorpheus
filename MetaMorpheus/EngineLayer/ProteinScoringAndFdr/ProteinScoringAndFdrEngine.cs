@@ -238,6 +238,8 @@ namespace EngineLayer
                 pg.BestPeptideScore = bestPeptidePsms.Max(psm => psm.Score);
                 pg.BestPeptideQValue = bestPeptidePsms.Min(psm => psm.FdrInfo.QValueNotch);
                 pg.BestPeptidePEP = bestPeptidePsms.Min(psm => psm.FdrInfo.PEP);
+                var estimatedPeps = bestPeptidePsms.Where(psm => psm.FdrInfo.EstimatedPep.HasValue).Select(psm => psm.FdrInfo.EstimatedPep.Value).ToList();
+                pg.BestPeptideEstimatedPEP = estimatedPeps.Count > 0 ? estimatedPeps.Min() : null;
             }
 
             // pick the best for each paired accession based on filter type
