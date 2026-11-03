@@ -1382,7 +1382,7 @@ namespace Test
         private static string FdrState(SpectralMatch match)
         {
             static string Of(FdrInfo f) => f == null ? "none" : FormattableString.Invariant(
-                $"q {f.QValue:R}, notch q {f.QValueNotch:R}, PEP {f.PEP:R}, PEP q {f.PEP_QValue:R}, T {f.CumulativeTarget:R}, D {f.CumulativeDecoy:R}, notch T {f.CumulativeTargetNotch:R}, notch D {f.CumulativeDecoyNotch:R}");
+                $"q {f.QValue:R}, notch q {f.QValueNotch:R}, PEP {f.PEP:R}, PEP q {f.PEP_QValue:R}, estimated PEP {(f.EstimatedPep.HasValue ? f.EstimatedPep.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "none")}, T {f.CumulativeTarget:R}, D {f.CumulativeDecoy:R}, notch T {f.CumulativeTargetNotch:R}, notch D {f.CumulativeDecoyNotch:R}");
             string hypotheses = string.Join("; ", match.BestMatchingBioPolymersWithSetMods.Select(h => FormattableString.Invariant(
                 $"{h.QValueNotch:R} {h.CumulativeTargetNotch:R} {h.CumulativeDecoyNotch:R} {h.PeptideQValueNotch:R} {h.PeptideCumulativeTargetNotch:R} {h.PeptideCumulativeDecoyNotch:R}")));
             return $"PSM [{Of(match.PsmFdrInfo)}] peptide [{Of(match.PeptideFdrInfo)}] PSM count {match.PsmCount} hypotheses [{hypotheses}]";

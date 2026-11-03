@@ -8,8 +8,21 @@
         public double CumulativeDecoyNotch { get; set; }
         public double QValue { get; set; }
         public double QValueNotch { get; set; }
+        /// <summary>
+        /// The classifier's value: 1 minus the Platt-calibrated probability of the best hypothesis. Every ranking, q-value
+        /// and rule reads this one. It is calibrated to the rows the model trained on, not to the matches it scores, so it
+        /// is not reported as the PEP when <see cref="EstimatedPep"/> exists.
+        /// </summary>
         public double PEP { get; set; }
         public double PEP_QValue { get; set; }
+
+        /// <summary>
+        /// The posterior error probability read off the target-decoy distribution of <see cref="PEP"/> in the same
+        /// population the PEP q-value was computed on (this level's matches, for this digestion agent). It is what the PEP
+        /// column reports. It never decreases as <see cref="PEP"/> increases within that population, so nothing ranked by
+        /// <see cref="PEP"/> would order differently. Null when it was not estimated (PEP not trained, or no decoys).
+        /// </summary>
+        public double? EstimatedPep { get; set; }
 
         /// <summary>
         /// Creates a new FdrInfo object where Q-Values and PEP_Qvalues are set to 2 by default

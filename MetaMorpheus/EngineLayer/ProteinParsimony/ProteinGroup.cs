@@ -138,6 +138,13 @@ namespace EngineLayer
         public double BestPeptidePEP { get; set; }
 
         /// <summary>
+        /// The lowest estimated PEP (<see cref="FdrAnalysis.FdrInfo.EstimatedPep"/>) among the PSMs in
+        /// <see cref="AllPsmsBelowOnePercentFDR"/> that have one, or null when none does. The "Best Peptide PEP" column
+        /// reports it; ranking keeps using <see cref="BestPeptidePEP"/>.
+        /// </summary>
+        public double? BestPeptideEstimatedPEP { get; set; }
+
+        /// <summary>
         /// True when FlashLFQ returned results for this run. Gates the IntensityOccupancy columns in both
         /// the header and the row, and is assigned uniformly so every group carries the same schema.
         /// </summary>
@@ -462,8 +469,8 @@ namespace EngineLayer
             sb.Append(BestPeptideQValue);
             sb.Append("\t");
 
-            // best peptide PEP
-            sb.Append(BestPeptidePEP);
+            // best peptide PEP: the estimated one where it exists (see BestPeptideEstimatedPEP)
+            sb.Append(BestPeptideEstimatedPEP ?? BestPeptidePEP);
 
             return sb.ToString();
         }

@@ -381,7 +381,8 @@ namespace EngineLayer
                 cumulativeTarget = fdrInfo.CumulativeTarget.ToString(CultureInfo.InvariantCulture);
                 cumulativeDecoy = fdrInfo.CumulativeDecoy.ToString(CultureInfo.InvariantCulture);
                 qValue = fdrInfo.QValue.ToString("F6", CultureInfo.InvariantCulture);
-                PEP = fdrInfo.PEP.ToString();
+                // The estimated PEP where there is one; the classifier's value otherwise (PEP not trained, or no decoys).
+                PEP = (fdrInfo.EstimatedPep ?? fdrInfo.PEP).ToString();
                 PEP_Qvalue = fdrInfo.PEP_QValue.ToString();
 
                 // ambiguous notch, has never been resolved by our disambiguation, so take the best of the notches for the fdr columns. 

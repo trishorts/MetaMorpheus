@@ -125,8 +125,8 @@ namespace Test
             return new PeptideSpectralMatch(peptide, notch, score, scanNumber, ms2, new CommonParameters(), new List<MatchedFragmentIon>());
         }
 
-        private static (double, double, double, double, double, double, double, double) Values(FdrInfo f) =>
-            (f.CumulativeTarget, f.CumulativeDecoy, f.CumulativeTargetNotch, f.CumulativeDecoyNotch, f.QValue, f.QValueNotch, f.PEP, f.PEP_QValue);
+        private static (double, double, double, double, double, double, double, double, double?) Values(FdrInfo f) =>
+            (f.CumulativeTarget, f.CumulativeDecoy, f.CumulativeTargetNotch, f.CumulativeDecoyNotch, f.QValue, f.QValueNotch, f.PEP, f.PEP_QValue, f.EstimatedPep);
 
         private record HypothesisState(int Notch, double? QValueNotch, double? CumulativeTargetNotch, double? CumulativeDecoyNotch,
             double? PeptideQValueNotch, double? PeptideCumulativeTargetNotch, double? PeptideCumulativeDecoyNotch, double? Pep);
