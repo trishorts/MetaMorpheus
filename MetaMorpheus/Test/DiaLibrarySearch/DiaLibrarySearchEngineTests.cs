@@ -192,6 +192,33 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// The tree blend is off by default and never reaches calibration, which only picks anchors. Asked for, it reorders the
+    /// final scores: the same precursors, the same score values, and q-values that still never fall as the score falls.
+    /// </summary>
+    [Test]
+    public void TheTreeBlendReordersTheFinalScoresOnlyWhenAskedFor()
+    {
+        Assert.That(new DiaLibrarySearchParameters().ClassifierTreeBlend, Is.False);
+        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new(ClassifierTreeBlend: true)).ClassifierTreeBlend, Is.False);
+        var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        List<DiaPrecursorMatch> SearchWith(bool blend) => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(ClassifierNetworkMembers: 3, ClassifierTreeBlend: blend), new CommonParameters(), [], []).Run()).Matches
+            .OrderBy(m => m.PrecursorIndex).ToList();
+
+        var plain = SearchWith(false);
+        var blended = SearchWith(true);
+
+        Assert.That(plain.Count(m => m.IsDecoy), Is.GreaterThan(150), "enough scored decoys for each fold's trees to learn from");
+        Assert.That(blended.Select(m => m.PrecursorIndex), Is.EqualTo(plain.Select(m => m.PrecursorIndex)));
+        Assert.That(blended.Select(m => m.Score).Order(), Is.EqualTo(plain.Select(m => m.Score).Order()));
+        Assert.That(blended.Select(m => m.Score), Is.Not.EqualTo(plain.Select(m => m.Score)));
+        var targets = blended.Where(m => !m.IsDecoy).OrderByDescending(m => m.Score).ToList();
+        for (int i = 1; i < targets.Count; i++)
+            Assert.That(targets[i].QValue, Is.GreaterThanOrEqualTo(targets[i - 1].QValue), $"at rank {i}");
+    }
+
+    /// <summary>
     /// The classifier's network can train on the most confident rows rather than a random sample, as DIA-NN trains after
     /// removing low-confidence identifications. The setting reaches the classifier: with a cap below the rows, the scores change.
     /// </summary>

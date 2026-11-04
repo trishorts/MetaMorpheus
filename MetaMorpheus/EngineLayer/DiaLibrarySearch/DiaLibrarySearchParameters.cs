@@ -159,6 +159,9 @@ namespace EngineLayer.DiaLibrarySearch;
 /// on PXD005573 1 h). Under two network passes, 120,000 gained 0.95% (HF-X) and 1.06% (held-out) over 180,000. Smaller
 /// libraries never reach it.
 /// </param>
+/// <param name="ClassifierTreeBlend">
+/// Blend the classifier's order with gradient-boosted trees' before q-values (<see cref="DiaTreeBlend"/>). Off by default.
+/// </param>
 /// <param name="ClassifierModel">The model the rescorer fits in each fold: a linear discriminant, or a small neural-network ensemble (DIA-NN's approach).</param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
     int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 10, double ClassifierTrainingQValue = 0.01,
@@ -206,7 +209,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     int? CoElutionHalfWidthScans = null,
     bool LibraryIrtFeature = false,
     int? Ms1CorrelationHalfWidthScans = null,
-    double ClassifierNetworkTargetFraction = 0.5)
+    double ClassifierNetworkTargetFraction = 0.5,
+    bool ClassifierTreeBlend = false)
 {
     /// <summary>
     /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual

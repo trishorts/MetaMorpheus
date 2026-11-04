@@ -1197,6 +1197,16 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             matches = kept;
         }
 
+        if (_parameters.ClassifierTreeBlend && matches.Count > 0)
+        {
+            var blendClock = System.Diagnostics.Stopwatch.StartNew();
+            double[] blended = DiaTreeBlend.Blend(matches.Select(m => m.Features).ToList(), matches.Select(m => m.Score).ToList(),
+                matches.Select(m => m.IsDecoy).ToList(), matches.Select(m => m.FullSequence).ToList(),
+                _parameters.MaxNetworkTrainingRows ?? matches.Count, _parameters.ClassifierSeed, CommonParameters.MaxThreadsToUsePerFile);
+            matches = matches.Select((m, i) => m with { Score = blended[i] }).ToList();
+            Status($"timing: tree blend over {matches.Count} precursors  [{blendClock.Elapsed:mm\\:ss\\.f}]");
+        }
+
         var targets = matches.Where(m => !m.IsDecoy).ToList();
         var decoyScores = matches.Where(m => m.IsDecoy).Select(m => m.Score).ToList();
         double[] qValues = DeconvolutionQValueCalculator.AssignQValues(targets.Select(m => m.Score).ToList(), decoyScores);
