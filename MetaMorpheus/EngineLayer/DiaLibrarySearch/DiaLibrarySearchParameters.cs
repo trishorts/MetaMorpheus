@@ -161,8 +161,8 @@ namespace EngineLayer.DiaLibrarySearch;
 /// </param>
 /// <param name="ClassifierTreeBlend">
 /// Blend the classifier's order with gradient-boosted trees' before q-values (<see cref="DiaTreeBlend"/>). On by default: two-seed
-/// means gained 2.92% (PXD022589 HF-X) and 2.78% (PXD005573 1 h) at a matched paired entrapment FDP of 1%, for 1.5-8 minutes on a
-/// whole-proteome run.
+/// means gained 2.92% (PXD022589 HF-X) and 2.78% (PXD005573 1 h) at a matched paired entrapment FDP of 1%, for about a minute on
+/// HF-X with the machine to itself; competing work slowed it to nearly 8.
 /// </param>
 /// <param name="ClassifierModel">The model the rescorer fits in each fold: a linear discriminant, or a small neural-network ensemble (DIA-NN's approach).</param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
