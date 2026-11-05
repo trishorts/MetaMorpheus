@@ -192,13 +192,13 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
-    /// The tree blend is off by default and never reaches calibration, which only picks anchors. Asked for, it reorders the
-    /// final scores: the same precursors, the same score values, and q-values that still never fall as the score falls.
+    /// The tree blend is on by default and never reaches calibration, which only picks anchors. It reorders the final scores:
+    /// the same precursors, the same score values, and q-values that still never fall as the score falls.
     /// </summary>
     [Test]
-    public void TheTreeBlendReordersTheFinalScoresOnlyWhenAskedFor()
+    public void TheTreeBlendIsOnByDefaultAndReordersTheFinalScores()
     {
-        Assert.That(new DiaLibrarySearchParameters().ClassifierTreeBlend, Is.False);
+        Assert.That(new DiaLibrarySearchParameters().ClassifierTreeBlend, Is.True);
         Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new(ClassifierTreeBlend: true)).ClassifierTreeBlend, Is.False);
         var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
@@ -263,8 +263,9 @@ public class DiaLibrarySearchEngineTests
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0, noisePeaksPerScan: 2000);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
 
+        // Without the tree blend, which reorders the chosen candidates after the classifier has picked them
         var results = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
-            new DiaLibrarySearchParameters(MaxApexCandidates: 3), new CommonParameters(), [], []).Run();
+            new DiaLibrarySearchParameters(MaxApexCandidates: 3, ClassifierTreeBlend: false), new CommonParameters(), [], []).Run();
 
         Assert.That(results.LosingCandidates.Values.Sum(v => v.Count), Is.GreaterThan(0));
         foreach (var match in results.Matches)

@@ -1237,7 +1237,8 @@ public class DiaLibrarySearchResults(DiaLibrarySearchEngine engine, List<DiaPrec
     /// <summary>
     /// Each precursor's other candidate peaks (<see cref="DiaLibrarySearchParameters.MaxApexCandidates"/>), as apex RT and
     /// classifier score, best first; precursors with a single candidate are absent. Kept so that a miss where another
-    /// engine chose a different peak can be told apart: scored lower among our candidates, or never a candidate.
+    /// engine chose a different peak can be told apart: scored lower among our candidates, or never a candidate. The tree
+    /// blend reorders only the chosen candidates, afterwards, so these scores are not comparable with a blended match's.
     /// </summary>
     public IReadOnlyDictionary<int, List<(MzLibUtil.RtMinutes ApexRt, double Score)>> LosingCandidates { get; init; } =
         new Dictionary<int, List<(MzLibUtil.RtMinutes ApexRt, double Score)>>();

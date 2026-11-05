@@ -160,7 +160,9 @@ namespace EngineLayer.DiaLibrarySearch;
 /// libraries never reach it.
 /// </param>
 /// <param name="ClassifierTreeBlend">
-/// Blend the classifier's order with gradient-boosted trees' before q-values (<see cref="DiaTreeBlend"/>). Off by default.
+/// Blend the classifier's order with gradient-boosted trees' before q-values (<see cref="DiaTreeBlend"/>). On by default: two-seed
+/// means gained 2.92% (PXD022589 HF-X) and 2.78% (PXD005573 1 h) at a matched paired entrapment FDP of 1%, for about 1.5-4 minutes
+/// on a whole-proteome run.
 /// </param>
 /// <param name="ClassifierModel">The model the rescorer fits in each fold: a linear discriminant, or a small neural-network ensemble (DIA-NN's approach).</param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
@@ -210,7 +212,7 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool LibraryIrtFeature = false,
     int? Ms1CorrelationHalfWidthScans = null,
     double ClassifierNetworkTargetFraction = 0.5,
-    bool ClassifierTreeBlend = false)
+    bool ClassifierTreeBlend = true)
 {
     /// <summary>
     /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual
