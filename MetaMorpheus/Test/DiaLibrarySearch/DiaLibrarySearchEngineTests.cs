@@ -11,6 +11,7 @@ using Chromatography.RetentionTimeCalibration;
 using EngineLayer.DiaLibrarySearch;
 using MzLibUtil;
 using NUnit.Framework;
+using Omics.SpectralMatch.MslSpectralLibrary;
 using Readers.SpectralLibrary;
 
 namespace Test.DiaLibrarySearch;
@@ -1465,6 +1466,73 @@ public class DiaLibrarySearchEngineTests
     public void InterferenceRemovalPairsTheSameMzByDefault()
     {
         Assert.That(new DiaLibrarySearchParameters().InterferenceSameMzOnly, Is.True);
+    }
+
+    /// <summary>Dropping a winner whose own ions do not co-elute is off by default, so a search with no floor is the plain rule.</summary>
+    [Test]
+    public void InterferenceOwnIonFloorIsOffByDefault()
+    {
+        Assert.That(new DiaLibrarySearchParameters().InterferenceOwnIonFloor, Is.EqualTo(0));
+    }
+
+    /// <summary>
+    /// A run where each of 30 planted targets has a rival on the library: its m/z and iRT and five of its six fragments, with a sixth of its own that is not in the run.
+    /// The target's own ion is really there, so it is what tells the two apart. Returns the search at each floor, and the sequences of the target winners with no floor.
+    /// </summary>
+    private (DiaLibrarySearchResults Plain, DiaLibrarySearchResults Dropping, List<string> TargetWinners) SearchWithRivals(double floor)
+    {
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000);
+        var rivalOf = new Dictionary<string, string>();
+        foreach (var target in run.Library.Where(e => !e.IsDecoy && run.PlantedSequences.Contains(e.FullSequence)).Take(30).ToList())
+        {
+            string sequence = "W" + target.BaseSequence;
+            var rival = new MslLibraryEntry { FullSequence = sequence, BaseSequence = sequence, PrecursorMz = target.PrecursorMz, ChargeState = target.ChargeState, RetentionTime = target.RetentionTime };
+            foreach (var (fragment, i) in target.MatchedFragmentIons.Select((f, i) => (f, i)))
+                rival.MatchedFragmentIons.Add(new MslFragmentIon
+                {
+                    Mz = i < 5 ? fragment.Mz : fragment.Mz + 3, Intensity = fragment.Intensity, ProductType = fragment.ProductType, FragmentNumber = fragment.FragmentNumber,
+                    ResiduePosition = fragment.ResiduePosition, Charge = fragment.Charge,
+                });
+            run.Library.Add(rival);
+            rivalOf[target.FullSequence] = sequence;
+        }
+        string path = run.WriteLibrary(_directory);
+        DiaLibrarySearchResults SearchAt(double f)
+        {
+            using var library = MslLibrary.Load(path);
+            return (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+                new DiaLibrarySearchParameters(InterferenceOwnIonFloor: f), new CommonParameters(), [], []).Run();
+        }
+        var plain = SearchAt(0);
+        var removed = plain.RemovedAsInterference.Select(m => m.FullSequence).ToHashSet();
+        var winners = plain.Matches.Where(m => rivalOf.TryGetValue(m.FullSequence, out string? r) && removed.Contains(r)).Select(m => m.FullSequence).ToList();
+        return (plain, SearchAt(floor), winners);
+    }
+
+    /// <summary>
+    /// With the floor on, the engine passes the winners it drops to the results with the rest of the removals: reported and removed together are still every precursor.
+    /// A co-elution can never reach a floor of 2, so every winner with a rival goes.
+    /// </summary>
+    [Test]
+    public void WinnersBelowTheOwnIonFloorAreKeptInTheResultsAsRemoved()
+    {
+        var (plain, dropping, winners) = SearchWithRivals(2);
+
+        Assert.That(winners, Is.Not.Empty, "the case needs a target that beat its rival");
+        Assert.That(dropping.Matches.Select(m => m.FullSequence), Does.Not.Contain(winners[0]));
+        Assert.That(dropping.RemovedAsInterference.Select(m => m.FullSequence), Does.Contain(winners[0]));
+        Assert.That(dropping.Matches.Concat(dropping.RemovedAsInterference).Select(m => m.PrecursorIndex),
+            Is.EquivalentTo(plain.Matches.Concat(plain.RemovedAsInterference).Select(m => m.PrecursorIndex)));
+    }
+
+    /// <summary>On the real scans a winner's own ion is measured, not assumed: these targets' sixth fragments are in the run on their peak, so none of them goes.</summary>
+    [Test]
+    public void AWinnerWhoseOwnIonIsInTheRunStays()
+    {
+        var (_, dropping, winners) = SearchWithRivals(0.1);
+
+        Assert.That(winners, Is.Not.Empty, "the case needs a target that beat its rival");
+        Assert.That(dropping.Matches.Select(m => m.FullSequence), Is.SupersetOf(winners));
     }
 
     /// <summary>

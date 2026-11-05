@@ -137,7 +137,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         double cycleMinutes = windows.Select(w => w.Select(s => s.RetentionTime).Order().ToArray())
             .Where(rts => rts.Length > 1).Select(rts => rts[rts.Length / 2] - rts[rts.Length / 2 - 1]).DefaultIfEmpty(0).Average();
         AddSiblingFeatures(rows, (_parameters.ApexHalfWidthScans + 1) * cycleMinutes, _parameters.SiblingTopCandidateOnly);
-        var matches = AssignQValues(rows, windowBounds, cycleMinutes, out var removed, out var losing);
+        MsDataScan[][] windowScans = _parameters.InterferenceOwnIonFloor > 0 ? windows.Select(w => w.OrderBy(s => s.RetentionTime).ToArray()).ToArray() : [];
+        var matches = AssignQValues(rows, windowBounds, windowScans, cycleMinutes, out var removed, out var losing);
         var peptides = DiaPeptideFdr.Assign(matches);
         Status($"timing: search done  [{stage.Elapsed:mm\\:ss\\.f}]");
         Status("Done.");
@@ -1032,7 +1033,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     }
 
     /// <summary>Pearson's r over [from, to]; negative, flat or undefined counts as 0.</summary>
-    private static double ClippedPearson(double[] a, double[] b, int from, int to)
+    internal static double ClippedPearson(double[] a, double[] b, int from, int to)
     {
         int points = to - from + 1;
         if (points < 3)
@@ -1174,7 +1175,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     /// candidate, and (D+1)/T q-values are assigned among targets.
     /// If rescoring cannot run (for example too few matches), the pre-rescoring score stands.
     /// </summary>
-    private List<DiaPrecursorMatch> AssignQValues(List<DiaPrecursorMatch> matches, (double Low, double High)[] windowBounds, double cycleMinutes,
+    private List<DiaPrecursorMatch> AssignQValues(List<DiaPrecursorMatch> matches, (double Low, double High)[] windowBounds, MsDataScan[][] windowScans, double cycleMinutes,
         out List<DiaPrecursorMatch> removed, out Dictionary<int, List<(MzLibUtil.RtMinutes ApexRt, double Score)>> losing)
     {
         var clock = System.Diagnostics.Stopwatch.StartNew();
@@ -1223,8 +1224,28 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             }
             float[] FragmentMzs(int index) => _library.GetEntry(index)?.MatchedFragmentIons.OrderByDescending(f => f.Intensity)
                 .Take(_parameters.TopFragmentCount).Select(f => f.Mz).ToArray() ?? [];
+            List<(double Mz, double Intensity)> ScoredIons(MslLibraryEntry entry)
+            {
+                var ions = entry.MatchedFragmentIons;
+                var scorable = _parameters.DiaNnFragmentFilter
+                    ? ions.Where(f => IsDiaNnScorable(f, _parameters.FragmentMinimumMz, _parameters.FragmentMinimumResidues, _parameters.FragmentMaximumCharge, entry.ChargeState, _parameters.FragmentChargeBelowPrecursor)).ToList()
+                    : ions.ToList();
+                return (scorable.Count >= 3 ? scorable : ions.ToList()).OrderByDescending(f => f.Intensity)
+                    .Take(_parameters.TopFragmentCount + _parameters.ExtraFragmentCount).Select(f => ((double)f.Mz, (double)f.Intensity)).ToList();
+            }
+            double OwnIons(DiaPrecursorMatch winner, DiaPrecursorMatch rival)
+            {
+                var winnerEntry = _library.GetEntry(winner.PrecursorIndex);
+                var rivalEntry = _library.GetEntry(rival.PrecursorIndex);
+                if (winnerEntry is null || rivalEntry is null)
+                    return double.NaN;
+                var holding = Enumerable.Range(0, windowBounds.Length).Where(w => rival.PrecursorMz >= windowBounds[w].Low && rival.PrecursorMz < windowBounds[w].High).Select(w => windowScans[w]).ToList();
+                return DiaInterferenceRemoval.OwnIonCoElution(ScoredIons(winnerEntry), winnerEntry.MatchedFragmentIons.Select(f => (double)f.Mz).ToList(),
+                    ScoredIons(rivalEntry), rivalEntry.MatchedFragmentIons.Select(f => (double)f.Mz).ToList(), holding, (winner.ApexRt.Value + rival.ApexRt.Value) / 2,
+                    _parameters.FragmentTolerancePpm, _parameters.ApexHalfWidthScans, _parameters.MostIntenseFragmentPeak);
+            }
             var kept = DiaInterferenceRemoval.Remove(matches, FragmentMzs, WindowOf, (_parameters.InterferenceRtToleranceCycles ?? _parameters.ApexHalfWidthScans + 1) * cycleMinutes,
-                _parameters.FragmentTolerancePpm, _parameters.InterferenceExplainedFragments, Status, _parameters.InterferenceSameMzOnly);
+                _parameters.FragmentTolerancePpm, _parameters.InterferenceExplainedFragments, Status, _parameters.InterferenceSameMzOnly, OwnIons, _parameters.InterferenceOwnIonFloor);
             var keptIndices = kept.Select(m => m.PrecursorIndex).ToHashSet();
             removed = matches.Where(m => !keptIndices.Contains(m.PrecursorIndex)).ToList();
             matches = kept;

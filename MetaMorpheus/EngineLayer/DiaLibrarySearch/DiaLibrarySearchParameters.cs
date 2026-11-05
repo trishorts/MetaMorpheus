@@ -173,6 +173,10 @@ namespace EngineLayer.DiaLibrarySearch;
 /// (PXD022589 HF-X) and 1.07% (PXD005573 1 h) at a matched paired entrapment FDP of 1%. Below 0.5% q it loses some targets to decoys that now
 /// score near the very top (PXD005573 1 h at 0.25% q: 3.1-8.0% fewer).
 /// </param>
+/// <param name="InterferenceOwnIonFloor">
+/// When above 0, interference removal also drops a winner whose own ions, those not on its rival's list, co-elute with the ions the two share below this library-weighted
+/// correlation (<see cref="DiaInterferenceRemoval.OwnIonCoElution"/>). Off by default.
+/// </param>
 /// <param name="ClassifierModel">The model the rescorer fits in each fold: a linear discriminant, or a small neural-network ensemble (DIA-NN's approach).</param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
     int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 10, double ClassifierTrainingQValue = 0.01,
@@ -222,7 +226,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     int? Ms1CorrelationHalfWidthScans = null,
     double ClassifierNetworkTargetFraction = 0.5,
     bool ClassifierTreeBlend = true,
-    bool CandidatePeaksFromSummedCore = true)
+    bool CandidatePeaksFromSummedCore = true,
+    double InterferenceOwnIonFloor = 0)
 {
     /// <summary>
     /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual
