@@ -1156,6 +1156,44 @@ public class DiaLibrarySearchEngineTests
         Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(masked, 3, 10, summedCorePeaks: true), Does.Contain(20));
     }
 
+    /// <summary>
+    /// The summed core fills gaps and moves nothing: every candidate of the best-fragment rule stays, in its order, and new ones come after.
+    /// A first form sorted both kinds together, so a sum-peak with a slightly higher score took over an existing apex: on HF-X it moved 3,694
+    /// found precursors' apexes by a median 3 scans, and 27% of them were lost, against 2% of those whose apex stayed.
+    /// </summary>
+    [Test]
+    public void TheSummedCoreNeverMovesACandidateOfTheBestFragmentRule()
+    {
+        var random = new Random(11);
+        int added = 0;
+        for (int trial = 0; trial < 300; trial++)
+        {
+            var core = Enumerable.Range(0, 6).Select(_ => new double[60]).ToArray();
+            for (int peak = 0; peak < 1 + random.Next(4); peak++)
+            {
+                int apex = 5 + random.Next(50);
+                double height = 1e3 * (1 + random.Next(100)), width = 1 + 2 * random.NextDouble();
+                int fragments = 2 + random.Next(5);
+                for (int f = 0; f < fragments; f++)
+                {
+                    double share = 0.2 + random.NextDouble(), jitter = random.NextDouble() - 0.5;
+                    for (int s = 0; s < 60; s++)
+                        core[f][s] += height * share * Math.Exp(-0.5 * Math.Pow((s - apex - jitter) / width, 2));
+                }
+            }
+            foreach (var trace in core)
+                for (int s = 0; s < 60; s++)
+                    trace[s] = random.NextDouble() < 0.15 ? 0 : trace[s] * (0.7 + 0.6 * random.NextDouble());
+
+            int[] plain = DiaLibrarySearchEngine.DiaNnCandidateApexes(core, 3, 10);
+            int[] summed = DiaLibrarySearchEngine.DiaNnCandidateApexes(core, 3, 10, summedCorePeaks: true);
+
+            Assert.That(summed.Take(plain.Length), Is.EqualTo(plain), $"trial {trial}");
+            added += summed.Length - plain.Length;
+        }
+        Assert.That(added, Is.GreaterThan(0), "the sum must add candidates for this test to mean anything");
+    }
+
     /// <summary>The option reaches the finder: on a noisy run it scores more candidate peaks. It is off by default.</summary>
     [Test]
     public void CandidatePeaksFromTheSummedCoreReachTheSearch()

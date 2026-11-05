@@ -165,10 +165,11 @@ namespace EngineLayer.DiaLibrarySearch;
 /// HF-X with the machine to itself; competing work slowed it to nearly 8.
 /// </param>
 /// <param name="CandidatePeaksFromSummedCore">
-/// With <see cref="DiaNnPeakFinding"/>, a scan can also be a candidate where the smoothed sum of the core fragments peaks, not only
-/// where that scan's best fragment does. When a peak's two top scans are close, each one's best fragment can peak on the other, and
-/// the whole peak is lost however well its fragments co-elute. A replay found this stopped 482 of 963 (HF-X) and 1,361 of 1,711
-/// (PXD005573 1 h) of the DIA-NN peaks that never became a candidate. Off by default, being measured.
+/// With <see cref="DiaNnPeakFinding"/>, add candidates where the smoothed sum of the core fragments peaks, in the gaps the best-fragment
+/// rule leaves. When a peak's two top scans are close, each one's best fragment can peak on the other, and the whole peak is lost however
+/// well its fragments co-elute. A replay found this stopped 482 of 963 (HF-X) and 1,361 of 1,711 (PXD005573 1 h) of the DIA-NN peaks that
+/// never became a candidate. Existing candidates never move: a first form that let them moved found precursors off their peaks and lost
+/// more than it rescued. Off by default, being measured.
 /// </param>
 /// <param name="ClassifierModel">The model the rescorer fits in each fold: a linear discriminant, or a small neural-network ensemble (DIA-NN's approach).</param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,

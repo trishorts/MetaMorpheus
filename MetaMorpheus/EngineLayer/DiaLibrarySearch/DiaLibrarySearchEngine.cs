@@ -929,7 +929,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     /// best fragment peaks there (within a third of the half width). Candidates within 2.0 of the best are kept, more than
     /// <paramref name="halfWidth"/> apart, best first, at most <paramref name="maxCount"/>. DIA-NN's MS1 correlation term is
     /// added when <paramref name="ms1"/> is given: the MS1 trace's correlation with the best fragment. With
-    /// <paramref name="summedCorePeaks"/>, a scan also qualifies where the sum of the smoothed fragments peaks.
+    /// <paramref name="summedCorePeaks"/>, scans where the sum of the smoothed fragments peaks are added after those, more than
+    /// <paramref name="halfWidth"/> from every candidate, so no candidate of the best-fragment rule moves.
     /// </summary>
     public static int[] DiaNnCandidateApexes(IReadOnlyList<double[]> core, int halfWidth, int maxCount, double[]? ms1 = null, bool summedCorePeaks = false)
     {
@@ -945,6 +946,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         }
         int local = Math.Max(1, halfWidth / 3);
         var candidates = new List<(int Scan, double Score)>();
+        var summedOnly = new List<(int Scan, double Score)>();
         // Flat rather than [,]: a multi-dimensional array per call was a measurable share of extraction (CreateInstanceMDArray)
         var correlation = new double[core.Count * core.Count];
         for (int s = 0; s < n; s++)
@@ -971,8 +973,10 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 bestSum += ClippedPearson(core[best], ms1, from, to);
             if (bestSum < 0.5)
                 continue;
-            if (IsLocalMaximum(smoothed[best], s, local) || (summed is not null && IsLocalMaximum(summed, s, local)))
+            if (IsLocalMaximum(smoothed[best], s, local))
                 candidates.Add((s, bestSum));
+            else if (summed is not null && IsLocalMaximum(summed, s, local))
+                summedOnly.Add((s, bestSum));
         }
         var chosen = new List<int>();
         double top = candidates.Count > 0 ? candidates.Max(c => c.Score) : 0;
@@ -982,6 +986,18 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 break;
             if (chosen.All(c => Math.Abs(c - scan) > halfWidth))
                 chosen.Add(scan);
+        }
+        // The summed core only fills gaps: taking over a nearby apex moved found precursors off their peaks and cost more than it rescued
+        if (summedOnly.Count > 0)
+        {
+            double bar = (candidates.Count > 0 ? top : summedOnly.Max(c => c.Score)) - 2.0;
+            foreach (var (scan, score) in summedOnly.OrderByDescending(c => c.Score).ThenBy(c => c.Scan))
+            {
+                if (score < bar || chosen.Count == maxCount)
+                    break;
+                if (chosen.All(c => Math.Abs(c - scan) > halfWidth))
+                    chosen.Add(scan);
+            }
         }
         return chosen.ToArray();
     }
