@@ -1239,9 +1239,14 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 var rivalEntry = _library.GetEntry(rival.PrecursorIndex);
                 if (winnerEntry is null || rivalEntry is null)
                     return double.NaN;
+                var winnerIons = ScoredIons(winnerEntry);
+                var rivalAllMzs = rivalEntry.MatchedFragmentIons.Select(f => (double)f.Mz).ToList();
+                // A winner with much of its own is not judged, however those ions read
+                if (DiaInterferenceRemoval.OwnIonShare(winnerIons, rivalAllMzs, _parameters.FragmentTolerancePpm) > _parameters.InterferenceOwnIonShareCeiling)
+                    return double.PositiveInfinity;
                 var holding = Enumerable.Range(0, windowBounds.Length).Where(w => rival.PrecursorMz >= windowBounds[w].Low && rival.PrecursorMz < windowBounds[w].High).Select(w => windowScans[w]).ToList();
-                return DiaInterferenceRemoval.OwnIonCoElution(ScoredIons(winnerEntry), winnerEntry.MatchedFragmentIons.Select(f => (double)f.Mz).ToList(),
-                    ScoredIons(rivalEntry), rivalEntry.MatchedFragmentIons.Select(f => (double)f.Mz).ToList(), holding, (winner.ApexRt.Value + rival.ApexRt.Value) / 2,
+                return DiaInterferenceRemoval.OwnIonCoElution(winnerIons, winnerEntry.MatchedFragmentIons.Select(f => (double)f.Mz).ToList(),
+                    ScoredIons(rivalEntry), rivalAllMzs, holding, (winner.ApexRt.Value + rival.ApexRt.Value) / 2,
                     _parameters.FragmentTolerancePpm, _parameters.ApexHalfWidthScans, _parameters.MostIntenseFragmentPeak);
             }
             var kept = DiaInterferenceRemoval.Remove(matches, FragmentMzs, WindowOf, (_parameters.InterferenceRtToleranceCycles ?? _parameters.ApexHalfWidthScans + 1) * cycleMinutes,

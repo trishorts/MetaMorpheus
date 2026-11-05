@@ -1479,7 +1479,7 @@ public class DiaLibrarySearchEngineTests
     /// A run where each of 30 planted targets has a rival on the library: its m/z and iRT and five of its six fragments, with a sixth of its own that is not in the run.
     /// The target's own ion is really there, so it is what tells the two apart. Returns the search at each floor, and the sequences of the target winners with no floor.
     /// </summary>
-    private (DiaLibrarySearchResults Plain, DiaLibrarySearchResults Dropping, List<string> TargetWinners) SearchWithRivals(double floor)
+    private (DiaLibrarySearchResults Plain, DiaLibrarySearchResults Dropping, List<string> TargetWinners) SearchWithRivals(double floor, double shareCeiling = 1)
     {
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000);
         var rivalOf = new Dictionary<string, string>();
@@ -1501,7 +1501,7 @@ public class DiaLibrarySearchEngineTests
         {
             using var library = MslLibrary.Load(path);
             return (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
-                new DiaLibrarySearchParameters(InterferenceOwnIonFloor: f), new CommonParameters(), [], []).Run();
+                new DiaLibrarySearchParameters(InterferenceOwnIonFloor: f, InterferenceOwnIonShareCeiling: shareCeiling), new CommonParameters(), [], []).Run();
         }
         var plain = SearchAt(0);
         var removed = plain.RemovedAsInterference.Select(m => m.FullSequence).ToHashSet();
@@ -1523,6 +1523,36 @@ public class DiaLibrarySearchEngineTests
         Assert.That(dropping.RemovedAsInterference.Select(m => m.FullSequence), Does.Contain(winners[0]));
         Assert.That(dropping.Matches.Concat(dropping.RemovedAsInterference).Select(m => m.PrecursorIndex),
             Is.EquivalentTo(plain.Matches.Concat(plain.RemovedAsInterference).Select(m => m.PrecursorIndex)));
+    }
+
+    /// <summary>
+    /// Only a winner with almost nothing of its own is judged. These targets' sixth fragment carries more than a hundredth of their library intensity, so with the ceiling
+    /// below that they are spared, even at a floor no co-elution can reach. With no ceiling the same floor drops them (the test above), so the ceiling is what spares them.
+    /// </summary>
+    [Test]
+    public void AWinnerWithMuchOfItsOwnIsSparedByTheShareCeiling()
+    {
+        var (_, dropping, winners) = SearchWithRivals(2, shareCeiling: 0.01);
+
+        Assert.That(winners, Is.Not.Empty, "the case needs a target that beat its rival");
+        Assert.That(dropping.Matches.Select(m => m.FullSequence), Is.SupersetOf(winners));
+    }
+
+    /// <summary>The ceiling spares only what is above it. These targets' one own fragment of six is well under nine tenths of their library intensity, so they are still judged, and they go.</summary>
+    [Test]
+    public void AWinnerUnderTheShareCeilingIsStillJudged()
+    {
+        var (_, dropping, winners) = SearchWithRivals(2, shareCeiling: 0.9);
+
+        Assert.That(winners, Is.Not.Empty, "the case needs a target that beat its rival");
+        Assert.That(dropping.Matches.Select(m => m.FullSequence), Does.Not.Contain(winners[0]));
+    }
+
+    /// <summary>The ceiling is off by default, so the floor alone decides.</summary>
+    [Test]
+    public void TheOwnIonShareCeilingIsOffByDefault()
+    {
+        Assert.That(new DiaLibrarySearchParameters().InterferenceOwnIonShareCeiling, Is.EqualTo(1));
     }
 
     /// <summary>On the real scans a winner's own ion is measured, not assumed: these targets' sixth fragments are in the run on their peak, so none of them goes.</summary>

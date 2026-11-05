@@ -206,6 +206,15 @@ public static class DiaInterferenceRemoval
         return own.Sum(f => f.Intensity * DiaLibrarySearchEngine.ClippedPearson(Trace(bestWindow, firstScan, sharedTrace.Length, f.Mz), sharedTrace, from, to)) / total;
     }
 
+    /// <summary>The share of a winner's library intensity on ions its rival's whole list does not hold; 0 when it has no ions.</summary>
+    public static double OwnIonShare(IReadOnlyList<(double Mz, double Intensity)> winnerIons, IReadOnlyList<double> rivalAllMzs, double tolerancePpm)
+    {
+        double total = winnerIons.Sum(f => f.Intensity);
+        return total > 0
+            ? winnerIons.Where(f => !rivalAllMzs.Any(o => Math.Abs(f.Mz - o) <= f.Mz * tolerancePpm * 1e-6)).Sum(f => f.Intensity) / total
+            : 0;
+    }
+
     /// <summary>The first scan at or after a retention time, or the scan count when every scan is earlier.</summary>
     private static int FirstAtOrAfter(MsDataScan[] scans, double rtMinutes)
     {

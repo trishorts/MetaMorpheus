@@ -340,6 +340,18 @@ public class DiaInterferenceRemovalTests
         Assert.That(value, Is.EqualTo(0));
     }
 
+    /// <summary>How much of a winner's library intensity is its own. Near 0 it has almost nothing to tell it from its rival.</summary>
+    [Test]
+    public void OwnIonShareIsTheLibraryIntensityNotOnTheRivalsList()
+    {
+        (double Mz, double Intensity)[] winner = [(300, 6), (400, 3), (900, 1)];
+
+        Assert.That(DiaInterferenceRemoval.OwnIonShare(winner, [300, 400], Ppm), Is.EqualTo(0.1).Within(1e-9));
+        Assert.That(DiaInterferenceRemoval.OwnIonShare(winner, [300, 400, 900], Ppm), Is.EqualTo(0));
+        Assert.That(DiaInterferenceRemoval.OwnIonShare(winner, [], Ppm), Is.EqualTo(1));
+        Assert.That(DiaInterferenceRemoval.OwnIonShare([], [300], Ppm), Is.EqualTo(0));
+    }
+
     /// <summary>Shared signal found nowhere leaves nothing to measure against.</summary>
     [Test]
     public void NoSharedSignalIsNotANumber()
