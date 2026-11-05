@@ -309,7 +309,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                     candidateScores[s] = 0;
         }
         var apexes = _parameters.DiaNnPeakFinding
-            ? DiaNnCandidateApexes(core, _parameters.ApexHalfWidthScans, _parameters.MaxApexCandidates, _parameters.DiaNnPeakFindingMs1 ? ms1Mono : null).ToList()
+            ? DiaNnCandidateApexes(core, _parameters.ApexHalfWidthScans, _parameters.MaxApexCandidates, _parameters.DiaNnPeakFindingMs1 ? ms1Mono : null, _parameters.CandidatePeaksFromSummedCore).ToList()
             : FragmentCoElution.FindApexes(candidateScores, _parameters.ApexHalfWidthScans, _parameters.MaxApexCandidates).ToList();
         if (_parameters.FragmentApexCandidate && reachable.Length > 1)
         {
@@ -928,12 +928,21 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     /// side. A scan is a candidate when at least two fragments are present, the score is at least 0.5, and the 1-2-1 smoothed
     /// best fragment peaks there (within a third of the half width). Candidates within 2.0 of the best are kept, more than
     /// <paramref name="halfWidth"/> apart, best first, at most <paramref name="maxCount"/>. DIA-NN's MS1 correlation term is
-    /// added when <paramref name="ms1"/> is given: the MS1 trace's correlation with the best fragment.
+    /// added when <paramref name="ms1"/> is given: the MS1 trace's correlation with the best fragment. With
+    /// <paramref name="summedCorePeaks"/>, a scan also qualifies where the sum of the smoothed fragments peaks.
     /// </summary>
-    public static int[] DiaNnCandidateApexes(IReadOnlyList<double[]> core, int halfWidth, int maxCount, double[]? ms1 = null)
+    public static int[] DiaNnCandidateApexes(IReadOnlyList<double[]> core, int halfWidth, int maxCount, double[]? ms1 = null, bool summedCorePeaks = false)
     {
         int n = core.Count == 0 ? 0 : core[0].Length;
         var smoothed = core.Select(FragmentCoElution.Smooth).ToArray();
+        double[]? summed = null;
+        if (summedCorePeaks)
+        {
+            summed = new double[n];
+            foreach (var trace in smoothed)
+                for (int s = 0; s < n; s++)
+                    summed[s] += trace[s];
+        }
         int local = Math.Max(1, halfWidth / 3);
         var candidates = new List<(int Scan, double Score)>();
         // Flat rather than [,]: a multi-dimensional array per call was a measurable share of extraction (CreateInstanceMDArray)
@@ -962,11 +971,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 bestSum += ClippedPearson(core[best], ms1, from, to);
             if (bestSum < 0.5)
                 continue;
-            bool peak = true;
-            for (int t = Math.Max(0, s - local); t <= Math.Min(n - 1, s + local) && peak; t++)
-                if (smoothed[best][t] > smoothed[best][s] || (t < s && smoothed[best][t] == smoothed[best][s]))
-                    peak = false;
-            if (peak)
+            if (IsLocalMaximum(smoothed[best], s, local) || (summed is not null && IsLocalMaximum(summed, s, local)))
                 candidates.Add((s, bestSum));
         }
         var chosen = new List<int>();
@@ -979,6 +984,15 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 chosen.Add(scan);
         }
         return chosen.ToArray();
+    }
+
+    /// <summary>Whether no scan within <paramref name="radius"/> of <paramref name="s"/> is higher; on a tie, the earliest scan is the maximum.</summary>
+    private static bool IsLocalMaximum(double[] trace, int s, int radius)
+    {
+        for (int t = Math.Max(0, s - radius); t <= Math.Min(trace.Length - 1, s + radius); t++)
+            if (trace[t] > trace[s] || (t < s && trace[t] == trace[s]))
+                return false;
+        return true;
     }
 
     /// <summary>

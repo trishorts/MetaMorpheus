@@ -1098,6 +1098,82 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// A real peak the best-fragment rule loses: AADFIDQALAQK 2+ on PXD005573 1 h, at DIA-NN's RT. All six fragments co-elute (score
+    /// 4.9 of 5), but the two top scans are close, and each one's best fragment peaks on the other, so neither is a local maximum of its
+    /// own best fragment. The sum of the smoothed traces does not depend on which fragment is best, and it peaks at scan 4.
+    /// </summary>
+    [Test]
+    public void APeakWhoseBestFragmentFlipsIsACandidateWhereTheSummedCorePeaks()
+    {
+        double[][] core =
+        [
+            [15343, 15918, 35952, 146043, 133197, 41311, 49477, 21132, 0, 0, 0, 0, 0],
+            [19104, 36868, 49326, 100855, 92276, 49877, 47894, 40269, 35302, 34846, 14788, 6329, 11153],
+            [37112, 44031, 59810, 189770, 190532, 80275, 73164, 66859, 44940, 37505, 23949, 32421, 34708],
+            [5068, 3517, 8828, 78810, 66173, 26473, 4181, 0, 0, 0, 0, 0, 0],
+            [4437, 6592, 9575, 41817, 41834, 19314, 17656, 11974, 5409, 0, 2700, 0, 0],
+            [0, 12479, 12141, 79011, 78581, 30563, 6373, 0, 0, 0, 0, 0, 0],
+        ];
+        int[] InThePeak(int[] apexes) => apexes.Where(a => a is >= 2 and <= 5).ToArray();
+
+        Assert.That(InThePeak(DiaLibrarySearchEngine.DiaNnCandidateApexes(core, 3, 10)), Is.Empty);
+        Assert.That(InThePeak(DiaLibrarySearchEngine.DiaNnCandidateApexes(core, 3, 10, summedCorePeaks: true)), Is.EqualTo(new[] { 4 }));
+    }
+
+    /// <summary>
+    /// The summed core only adds places a candidate can be: the gates still hold. A one-fragment spike is no candidate though the sum
+    /// peaks there, a two-fragment peak stays more than 2.0 below a five-fragment one, and fragments that do not co-elute score below
+    /// 0.5 though their sum peaks. Clean peaks are found where they were.
+    /// </summary>
+    [Test]
+    public void TheSummedCoreKeepsTheOtherGatesOfTheCandidateFinder()
+    {
+        static double[][] Traces(params (int Apex, int Fragments, double Height)[] peaks)
+        {
+            var traces = Enumerable.Range(0, 6).Select(_ => new double[40]).ToArray();
+            foreach (var (apex, fragments, height) in peaks)
+                for (int f = 0; f < fragments; f++)
+                    for (int s = Math.Max(0, apex - 5); s <= Math.Min(39, apex + 5); s++)
+                        traces[f][s] += height * (f + 1) * Math.Exp(-0.5 * (s - apex) * (s - apex) / 2.25);
+            return traces;
+        }
+        var clean = Traces((10, 5, 1e4), (32, 4, 1e4));
+        clean[0][25] = 1e8;
+        var withTwoFragmentPeak = Traces((10, 5, 1e4), (32, 2, 1e4));
+        withTwoFragmentPeak[0][25] = 1e8;
+        var gaussian = Enumerable.Range(0, 40).Select(s => Math.Abs(s - 20) <= 5 ? 1e4 * Math.Exp(-0.5 * (s - 20) * (s - 20) / 2.25) : 0).ToArray();
+        var opposed = gaussian.Select(v => 2e4 - 0.5 * v).ToArray();
+        var sumPeaksButNoCoElution = new[] { gaussian, opposed, new double[40], new double[40], new double[40], new double[40] };
+
+        Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(clean, 3, 10, summedCorePeaks: true), Is.EqualTo(new[] { 10, 32 }));
+        Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(withTwoFragmentPeak, 3, 10, summedCorePeaks: true), Is.EqualTo(new[] { 10 }));
+        Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(sumPeaksButNoCoElution, 3, 10, summedCorePeaks: true), Is.Empty);
+
+        // A huge interference on one fragment leaves the sum rising with no maximum at the peak. The best-fragment rule still finds it,
+        // so the sum adds to that rule and does not replace it.
+        var masked = Traces((20, 5, 1e4));
+        masked[5] = Enumerable.Range(0, 40).Select(s => 1e7 * s).ToArray();
+        Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(masked, 3, 10, summedCorePeaks: true), Does.Contain(20));
+    }
+
+    /// <summary>The option reaches the finder: on a noisy run it scores more candidate peaks. It is off by default.</summary>
+    [Test]
+    public void CandidatePeaksFromTheSummedCoreReachTheSearch()
+    {
+        Assert.That(new DiaLibrarySearchParameters().CandidatePeaksFromSummedCore, Is.False);
+        var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        int Candidates(bool summed)
+        {
+            var results = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+                new DiaLibrarySearchParameters(ClassifierNetworkMembers: 3, ClassifierTreeBlend: false, CandidatePeaksFromSummedCore: summed), new CommonParameters(), [], []).Run();
+            return results.Matches.Count + results.LosingCandidates.Values.Sum(losers => losers.Count);
+        }
+
+        Assert.That(Candidates(true), Is.GreaterThan(Candidates(false)));
+    }
+
+    /// <summary>
     /// A fragment's peak can be looked up from a nearby index (the fragment it shadows, one isotope up) instead of by binary
     /// search: the same peak every time, nearest or most intense, from any starting index, including targets off either end.
     /// </summary>
