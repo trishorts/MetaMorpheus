@@ -169,7 +169,9 @@ namespace EngineLayer.DiaLibrarySearch;
 /// best-fragment rule leaves. When a peak's two top scans are close, each one's best fragment can peak on the other, and the whole peak is
 /// lost however well its fragments co-elute. A replay found this stopped 482 of 963 (HF-X) and 1,361 of 1,711 (PXD005573 1 h) of the DIA-NN
 /// peaks that never became a candidate. These compete on score for the <see cref="MaxApexCandidates"/> places, but no candidate moves: a first
-/// form that let them moved found precursors off their peaks and lost more than it rescued. Off by default, being measured.
+/// form that let them moved found precursors off their peaks and lost more than it rescued. On by default: two-seed means gained 0.92%
+/// (PXD022589 HF-X) and 1.07% (PXD005573 1 h) at a matched paired entrapment FDP of 1%. Below 0.5% q it loses some targets to decoys that now
+/// score near the very top (PXD005573 1 h at 0.25% q: 3.1-8.0% fewer).
 /// </param>
 /// <param name="ClassifierModel">The model the rescorer fits in each fold: a linear discriminant, or a small neural-network ensemble (DIA-NN's approach).</param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
@@ -220,7 +222,7 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     int? Ms1CorrelationHalfWidthScans = null,
     double ClassifierNetworkTargetFraction = 0.5,
     bool ClassifierTreeBlend = true,
-    bool CandidatePeaksFromSummedCore = false)
+    bool CandidatePeaksFromSummedCore = true)
 {
     /// <summary>
     /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual

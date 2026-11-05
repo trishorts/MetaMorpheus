@@ -1226,11 +1226,15 @@ public class DiaLibrarySearchEngineTests
         Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(core, 3, 1, summedCorePeaks: true), Is.EqualTo(new[] { 4 }));
     }
 
-    /// <summary>The option reaches the finder: on a noisy run it scores more candidate peaks. It is off by default.</summary>
+    /// <summary>
+    /// The option reaches the finder: on a noisy run it scores more candidate peaks. On by default in the main search since 2026-11-05 (two-seed
+    /// means +0.92% HF-X, +1.07% PXD005573 1 h at a matched paired FDP of 1%). Calibration keeps it off, as it was measured.
+    /// </summary>
     [Test]
     public void CandidatePeaksFromTheSummedCoreReachTheSearch()
     {
-        Assert.That(new DiaLibrarySearchParameters().CandidatePeaksFromSummedCore, Is.False);
+        Assert.That(new DiaLibrarySearchParameters().CandidatePeaksFromSummedCore, Is.True);
+        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new(CandidatePeaksFromSummedCore: true)).CandidatePeaksFromSummedCore, Is.False);
         var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
         int Candidates(bool summed)
