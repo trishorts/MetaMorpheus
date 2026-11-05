@@ -929,8 +929,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     /// best fragment peaks there (within a third of the half width). Candidates within 2.0 of the best are kept, more than
     /// <paramref name="halfWidth"/> apart, best first, at most <paramref name="maxCount"/>. DIA-NN's MS1 correlation term is
     /// added when <paramref name="ms1"/> is given: the MS1 trace's correlation with the best fragment. With
-    /// <paramref name="summedCorePeaks"/>, scans where the sum of the smoothed fragments peaks are added after those, more than
-    /// <paramref name="halfWidth"/> from every candidate, so no candidate of the best-fragment rule moves.
+    /// <paramref name="summedCorePeaks"/>, scans where the sum of the smoothed fragments peaks also compete on score for the
+    /// <paramref name="maxCount"/> places, if more than <paramref name="halfWidth"/> from every candidate, so none of those moves.
     /// </summary>
     public static int[] DiaNnCandidateApexes(IReadOnlyList<double[]> core, int halfWidth, int maxCount, double[]? ms1 = null, bool summedCorePeaks = false)
     {
@@ -978,28 +978,31 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             else if (summed is not null && IsLocalMaximum(summed, s, local))
                 summedOnly.Add((s, bestSum));
         }
-        var chosen = new List<int>();
+        var chosen = new List<(int Scan, double Score)>();
         double top = candidates.Count > 0 ? candidates.Max(c => c.Score) : 0;
         foreach (var (scan, score) in candidates.OrderByDescending(c => c.Score).ThenBy(c => c.Scan))
         {
-            if (score < top - 2.0 || chosen.Count == maxCount)
+            // With sum-peaks still to weigh, the cap waits until they have competed for its places
+            if (score < top - 2.0 || (summedOnly.Count == 0 && chosen.Count == maxCount))
                 break;
-            if (chosen.All(c => Math.Abs(c - scan) > halfWidth))
-                chosen.Add(scan);
+            if (chosen.All(c => Math.Abs(c.Scan - scan) > halfWidth))
+                chosen.Add((scan, score));
         }
-        // The summed core only fills gaps: taking over a nearby apex moved found precursors off their peaks and cost more than it rescued
-        if (summedOnly.Count > 0)
+        if (summedOnly.Count == 0)
+            return chosen.Select(c => c.Scan).ToArray();
+
+        // A sum-peak can never sit on a candidate of the best-fragment rule: taking over a nearby apex moved found precursors off their
+        // peaks and cost more than it rescued. But it does compete on score for the capped places, since the peaks it rescues mostly
+        // belong to precursors whose places are already full of weaker candidates.
+        double bar = (candidates.Count > 0 ? top : summedOnly.Max(c => c.Score)) - 2.0;
+        foreach (var (scan, score) in summedOnly.OrderByDescending(c => c.Score).ThenBy(c => c.Scan))
         {
-            double bar = (candidates.Count > 0 ? top : summedOnly.Max(c => c.Score)) - 2.0;
-            foreach (var (scan, score) in summedOnly.OrderByDescending(c => c.Score).ThenBy(c => c.Scan))
-            {
-                if (score < bar || chosen.Count == maxCount)
-                    break;
-                if (chosen.All(c => Math.Abs(c - scan) > halfWidth))
-                    chosen.Add(scan);
-            }
+            if (score < bar)
+                break;
+            if (chosen.All(c => Math.Abs(c.Scan - scan) > halfWidth))
+                chosen.Add((scan, score));
         }
-        return chosen.ToArray();
+        return chosen.OrderByDescending(c => c.Score).ThenBy(c => c.Scan).Take(maxCount).Select(c => c.Scan).ToArray();
     }
 
     /// <summary>Whether no scan within <paramref name="radius"/> of <paramref name="s"/> is higher; on a tie, the earliest scan is the maximum.</summary>

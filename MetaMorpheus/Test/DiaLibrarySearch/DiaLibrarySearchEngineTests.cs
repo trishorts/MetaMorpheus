@@ -1157,9 +1157,9 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
-    /// The summed core fills gaps and moves nothing: every candidate of the best-fragment rule stays, in its order, and new ones come after.
-    /// A first form sorted both kinds together, so a sum-peak with a slightly higher score took over an existing apex: on HF-X it moved 3,694
-    /// found precursors' apexes by a median 3 scans, and 27% of them were lost, against 2% of those whose apex stayed.
+    /// The summed core moves nothing: a sum-peak can only sit more than the half width from every candidate of the best-fragment rule, and
+    /// with room for all of them, each of those candidates stays. A first form let a sum-peak with a slightly higher score take over a nearby
+    /// apex: on HF-X it moved 3,694 found precursors' apexes by a median 3 scans, and 27% of them were lost, against 2% of those whose apex stayed.
     /// </summary>
     [Test]
     public void TheSummedCoreNeverMovesACandidateOfTheBestFragmentRule()
@@ -1185,13 +1185,45 @@ public class DiaLibrarySearchEngineTests
                 for (int s = 0; s < 60; s++)
                     trace[s] = random.NextDouble() < 0.15 ? 0 : trace[s] * (0.7 + 0.6 * random.NextDouble());
 
-            int[] plain = DiaLibrarySearchEngine.DiaNnCandidateApexes(core, 3, 10);
-            int[] summed = DiaLibrarySearchEngine.DiaNnCandidateApexes(core, 3, 10, summedCorePeaks: true);
+            int[] plain = DiaLibrarySearchEngine.DiaNnCandidateApexes(core, 3, 100);
+            int[] summed = DiaLibrarySearchEngine.DiaNnCandidateApexes(core, 3, 100, summedCorePeaks: true);
+            int[] capped = DiaLibrarySearchEngine.DiaNnCandidateApexes(core, 3, 2, summedCorePeaks: true);
 
-            Assert.That(summed.Take(plain.Length), Is.EqualTo(plain), $"trial {trial}");
+            Assert.That(summed, Is.SupersetOf(plain), $"trial {trial}");
+            foreach (int scan in summed.Concat(capped).Except(plain))
+                Assert.That(plain.All(p => Math.Abs(p - scan) > 3), $"trial {trial}: scan {scan} sits on a candidate of the best-fragment rule");
+            Assert.That(capped.Length, Is.LessThanOrEqualTo(2), $"trial {trial}");
             added += summed.Length - plain.Length;
         }
         Assert.That(added, Is.GreaterThan(0), "the sum must add candidates for this test to mean anything");
+    }
+
+    /// <summary>
+    /// A sum-peak competes on score for the capped places. In PXD005573 1 h the peaks this rule rescues mostly belong to precursors whose ten
+    /// places the best-fragment rule has already filled, so a sum-peak added after those would never get in, however well it scores. Here
+    /// the real flipped peak (score 4.9) beats a weak two-fragment peak (score about 1) for the single place.
+    /// </summary>
+    [Test]
+    public void ASumPeakThatOutscoresACandidateTakesItsPlaceUnderTheCap()
+    {
+        double[][] real =
+        [
+            [15343, 15918, 35952, 146043, 133197, 41311, 49477, 21132, 0, 0, 0, 0, 0],
+            [19104, 36868, 49326, 100855, 92276, 49877, 47894, 40269, 35302, 34846, 14788, 6329, 11153],
+            [37112, 44031, 59810, 189770, 190532, 80275, 73164, 66859, 44940, 37505, 23949, 32421, 34708],
+            [5068, 3517, 8828, 78810, 66173, 26473, 4181, 0, 0, 0, 0, 0, 0],
+            [4437, 6592, 9575, 41817, 41834, 19314, 17656, 11974, 5409, 0, 2700, 0, 0],
+            [0, 12479, 12141, 79011, 78581, 30563, 6373, 0, 0, 0, 0, 0, 0],
+        ];
+        // Only the peak's own seven scans of the real traces, then a weak two-fragment peak well away from it
+        double[][] core = real.Select(trace => trace.Take(8).Concat(new double[32]).ToArray()).ToArray();
+        for (int f = 0; f < 2; f++)
+            for (int s = 25; s <= 35; s++)
+                core[f][s] = 1e4 * (f + 1) * Math.Exp(-0.5 * (s - 30) * (s - 30) / 2.25);
+
+        Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(core, 3, 10), Does.Contain(30));
+        Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(core, 3, 10), Does.Not.Contain(4));
+        Assert.That(DiaLibrarySearchEngine.DiaNnCandidateApexes(core, 3, 1, summedCorePeaks: true), Is.EqualTo(new[] { 4 }));
     }
 
     /// <summary>The option reaches the finder: on a noisy run it scores more candidate peaks. It is off by default.</summary>
