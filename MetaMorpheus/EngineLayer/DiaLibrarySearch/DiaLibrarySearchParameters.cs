@@ -128,7 +128,9 @@ namespace EngineLayer.DiaLibrarySearch;
 /// </param>
 /// <param name="MaxToleranceCoElution">
 /// A feature as DIA-NN scores co-elution: each core fragment's best correlation with the profile among its traces at the full
-/// tolerance, 0.45x and 0.2x (peaks beyond the fraction dropped), averaged.
+/// tolerance, 0.45x and 0.2x (peaks beyond the fraction dropped), averaged. On by default in the main search, with <see cref="Ms1TightCorrelation"/>, <see cref="Ms1PeakFeatures"/>,
+/// <see cref="SqrtCoElution"/>, <see cref="Ms1PeakEnvelopeTight"/>, <see cref="Ms1PeakSignalFraction"/> and <see cref="Ms1PeakPoints"/>. Each lost alone under earlier classifiers; together, under the
+/// tree blend at 30 candidates, two-seed means gained 0.91% (PXD022589 HF-X) and 1.01% (PXD005573 1 h) at a matched paired entrapment FDP of 1%. Calibration keeps them off.
 /// </param>
 /// <param name="ExtraFragmentCount">
 /// Library fragments after the top <see cref="TopFragmentCount"/> (by library intensity) read as their own features
@@ -210,25 +212,25 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool DiaNnSignalShare = true,
     int ClassifierLinearIterations = 3,
     int ExtraFragmentCount = 12,
-    bool MaxToleranceCoElution = false,
+    bool MaxToleranceCoElution = true,
     bool DiaNnFragmentFilter = true,
     double FragmentMinimumMz = 200,
     int FragmentMinimumResidues = 3,
     int FragmentMaximumCharge = 0,
     bool FragmentChargeBelowPrecursor = false,
     double Ms1TolerancePpm = 5,
-    bool Ms1TightCorrelation = false,
+    bool Ms1TightCorrelation = true,
     int[]? ClassifierNetworkLayers = null,
     double? ClassifierNetworkPositiveQValue = null,
-    bool Ms1PeakFeatures = false,
+    bool Ms1PeakFeatures = true,
     Ms1OffsetModel? Ms1Offset = null,
-    bool SqrtCoElution = false,
+    bool SqrtCoElution = true,
     bool Ms1PeakEnvelope = true,
     double? Ms1ToleranceSpreadMultiple = null,
-    bool Ms1PeakEnvelopeTight = false,
+    bool Ms1PeakEnvelopeTight = true,
     bool Ms1Intensity = true,
-    bool Ms1PeakSignalFraction = false,
-    bool Ms1PeakPoints = false,
+    bool Ms1PeakSignalFraction = true,
+    bool Ms1PeakPoints = true,
     double? InterferenceRtToleranceCycles = null,
     bool ExtraFragmentFallback = false,
     int? CoElutionHalfWidthScans = null,

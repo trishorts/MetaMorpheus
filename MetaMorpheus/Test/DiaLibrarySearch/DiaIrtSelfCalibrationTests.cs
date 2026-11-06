@@ -47,7 +47,8 @@ public class DiaIrtSelfCalibrationTests
         Assert.That(calibrationParameters.DiaNnFragmentFilter, Is.False);
         Assert.That(calibrationParameters with { DiaNnFragmentFilter = true, Ms1TolerancePpm = search.Ms1TolerancePpm, DiaNnSignalShare = search.DiaNnSignalShare,
                 InterferenceExplainedFragments = search.InterferenceExplainedFragments, ClassifierNetworkLayers = search.ClassifierNetworkLayers,
-                ClassifierTreeBlend = search.ClassifierTreeBlend, CandidatePeaksFromSummedCore = search.CandidatePeaksFromSummedCore, NeighbourEvidence = search.NeighbourEvidence },
+                ClassifierTreeBlend = search.ClassifierTreeBlend, CandidatePeaksFromSummedCore = search.CandidatePeaksFromSummedCore, NeighbourEvidence = search.NeighbourEvidence,
+                MaxToleranceCoElution = search.MaxToleranceCoElution, Ms1TightCorrelation = search.Ms1TightCorrelation, SqrtCoElution = search.SqrtCoElution, Ms1PeakEnvelopeTight = search.Ms1PeakEnvelopeTight, Ms1PeakSignalFraction = search.Ms1PeakSignalFraction, Ms1PeakPoints = search.Ms1PeakPoints, Ms1PeakFeatures = search.Ms1PeakFeatures },
             Is.EqualTo(search), "nothing else changes but calibration's own MS1 tolerance, the signal share, the interference rule, the network, the tree blend and the summed core");
 
         var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
@@ -66,6 +67,13 @@ public class DiaIrtSelfCalibrationTests
     public void CalibrationIgnoresTheSignalShare()
     {
         Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters(DiaNnSignalShare: true)).DiaNnSignalShare, Is.False);
+        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters()).MaxToleranceCoElution, Is.False, "MaxToleranceCoElution: calibration was benchmarked without it");
+        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters()).Ms1TightCorrelation, Is.False, "Ms1TightCorrelation: calibration was benchmarked without it");
+        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters()).SqrtCoElution, Is.False, "SqrtCoElution: calibration was benchmarked without it");
+        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters()).Ms1PeakEnvelopeTight, Is.False, "Ms1PeakEnvelopeTight: calibration was benchmarked without it");
+        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters()).Ms1PeakSignalFraction, Is.False, "Ms1PeakSignalFraction: calibration was benchmarked without it");
+        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters()).Ms1PeakPoints, Is.False, "Ms1PeakPoints: calibration was benchmarked without it");
+        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters()).Ms1PeakFeatures, Is.False, "Ms1PeakFeatures: calibration was benchmarked without it");
 
         var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));

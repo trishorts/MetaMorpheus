@@ -411,7 +411,7 @@ public class DiaLibrarySearchEngineTests
         int best = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "MaxToleranceCoElution");
         int plain = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "CoElution");
         Assert.That(best, Is.GreaterThanOrEqualTo(0));
-        Assert.That(new DiaLibrarySearchParameters().MaxToleranceCoElution, Is.False);
+        Assert.That(new DiaLibrarySearchParameters().MaxToleranceCoElution, Is.True);
 
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
@@ -503,7 +503,7 @@ public class DiaLibrarySearchEngineTests
     {
         int tight = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1TightCorrelation");
         Assert.That(tight, Is.GreaterThanOrEqualTo(0));
-        Assert.That(new DiaLibrarySearchParameters().Ms1TightCorrelation, Is.False);
+        Assert.That(new DiaLibrarySearchParameters().Ms1TightCorrelation, Is.True);
 
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
@@ -526,7 +526,7 @@ public class DiaLibrarySearchEngineTests
     {
         int sqrt = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "SqrtCoElution");
         Assert.That(sqrt, Is.GreaterThanOrEqualTo(0));
-        Assert.That(new DiaLibrarySearchParameters().SqrtCoElution, Is.False);
+        Assert.That(new DiaLibrarySearchParameters().SqrtCoElution, Is.True);
 
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
@@ -610,7 +610,7 @@ public class DiaLibrarySearchEngineTests
     {
         int tight = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1PeakEnvelopeTightCosine");
         Assert.That(tight, Is.GreaterThanOrEqualTo(0));
-        Assert.That(new DiaLibrarySearchParameters().Ms1PeakEnvelopeTight, Is.False);
+        Assert.That(new DiaLibrarySearchParameters().Ms1PeakEnvelopeTight, Is.True);
 
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
@@ -676,7 +676,7 @@ public class DiaLibrarySearchEngineTests
     {
         int share = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1PeakSignalFraction");
         Assert.That(share, Is.GreaterThanOrEqualTo(0));
-        Assert.That(new DiaLibrarySearchParameters().Ms1PeakSignalFraction, Is.False);
+        Assert.That(new DiaLibrarySearchParameters().Ms1PeakSignalFraction, Is.True);
 
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
@@ -710,7 +710,7 @@ public class DiaLibrarySearchEngineTests
     {
         int points = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1PeakPointFraction");
         Assert.That(points, Is.GreaterThanOrEqualTo(0));
-        Assert.That(new DiaLibrarySearchParameters().Ms1PeakPoints, Is.False);
+        Assert.That(new DiaLibrarySearchParameters().Ms1PeakPoints, Is.True);
 
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
@@ -910,7 +910,7 @@ public class DiaLibrarySearchEngineTests
         int error = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1PeakMassErrorPpm");
         int m2 = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1Isotope2Correlation");
         Assert.That(new[] { error, m2 }, Has.All.GreaterThanOrEqualTo(0));
-        Assert.That(new DiaLibrarySearchParameters().Ms1PeakFeatures, Is.False);
+        Assert.That(new DiaLibrarySearchParameters().Ms1PeakFeatures, Is.True);
 
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
