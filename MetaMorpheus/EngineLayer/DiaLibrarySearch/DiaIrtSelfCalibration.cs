@@ -33,6 +33,12 @@ public sealed record DiaIrtCalibration(IrtCalibrationModel Model, double IrtHalf
     /// </summary>
     public DiaFragmentIntensityModel? FragmentIntensities { get; init; }
 
+    /// <summary>
+    /// What the last round's anchors say of the library's iRT by sequence composition; null when calibration ran a single round. A search applies it through
+    /// <see cref="DiaLibrarySearchParameters.IrtComposition"/>.
+    /// </summary>
+    public DiaIrtCompositionModel? IrtComposition { get; init; }
+
     /// <summary>The search's parameters with this calibration applied: its iRT window and its MS1 offset.</summary>
     public DiaLibrarySearchParameters ApplyTo(DiaLibrarySearchParameters parameters) =>
         parameters with { IrtHalfWindow = IrtHalfWindow, Ms1Offset = Ms1Offset };
@@ -112,7 +118,7 @@ public static class DiaIrtSelfCalibration
     public static DiaLibrarySearchParameters CalibrationParameters(DiaLibrarySearchParameters parameters) =>
         parameters with { DiaNnFragmentFilter = false, Ms1Offset = null, Ms1TolerancePpm = CalibrationMs1TolerancePpm, DiaNnSignalShare = false,
             InterferenceExplainedFragments = CalibrationInterferenceExplainedFragments, ClassifierNetworkLayers = [.. CalibrationNetworkLayers],
-            ClassifierTreeBlend = false, CandidatePeaksFromSummedCore = false, NeighbourEvidence = false, FragmentIntensities = null,
+            ClassifierTreeBlend = false, CandidatePeaksFromSummedCore = false, NeighbourEvidence = false, FragmentIntensities = null, IrtComposition = null,
             MaxToleranceCoElution = false, Ms1TightCorrelation = false, SqrtCoElution = false, Ms1PeakEnvelopeTight = false, Ms1PeakSignalFraction = false, Ms1PeakPoints = false, Ms1PeakFeatures = false };
 
     /// <summary>
@@ -199,15 +205,21 @@ public static class DiaIrtSelfCalibration
             if (anchors.Count < options.MinimumAnchors)
                 break;
             // The same confident targets give the run's MS1 offset (calibration searches without one, so the errors are raw)
-            calibration = Fit(anchors, options, windowSds) with
+            var fitted = Fit(anchors, options, windowSds);
+            calibration = fitted with
             {
                 Rounds = round,
+                IrtComposition = FitIrtComposition(confident, fitted.Model, library),
                 Ms1Offset = Ms1OffsetModel.Fit(confident.Select(m => (m.ApexRt.Value, m.Ms1ApexErrorPpm))),
                 FragmentIntensities = FitFragmentIntensities(confident, scans, library, parameters),
             };
         }
         return calibration;
     }
+
+    private static DiaIrtCompositionModel FitIrtComposition(IReadOnlyList<DiaPrecursorMatch> confident, IrtCalibrationModel model, MslLibrary library) =>
+        DiaIrtCompositionModel.Fit(confident.Select(m => (Match: m, Entry: library.GetEntry(m.PrecursorIndex))).Where(a => a.Entry is not null)
+            .Select(a => new DiaIrtCompositionModel.Anchor(a.Entry!.BaseSequence, a.Entry.FullSequence, a.Entry.ChargeState, model.ToIrt(a.Match.ApexRt).Value - a.Match.LibraryIrt.Value)).ToList());
 
     private static DiaFragmentIntensityModel FitFragmentIntensities(IReadOnlyList<DiaPrecursorMatch> confident, MsDataScan[] scans, MslLibrary library, DiaLibrarySearchParameters parameters)
     {

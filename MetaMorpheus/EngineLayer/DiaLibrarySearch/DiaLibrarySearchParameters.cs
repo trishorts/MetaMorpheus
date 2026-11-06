@@ -194,6 +194,10 @@ namespace EngineLayer.DiaLibrarySearch;
 /// When set, the library's fragment intensities are read through this table, in choosing a precursor's strongest fragments as well as in scoring them (<see cref="DiaFragmentIntensityModel"/>).
 /// Calibration fits one (<see cref="DiaIrtCalibration.FragmentIntensities"/>). Null reads the library as it is.
 /// </param>
+/// <param name="IrtComposition">
+/// When set, a precursor is expected this far from its library iRT, in the window read as well as in the error scored (<see cref="DiaIrtCompositionModel"/>). Calibration fits one
+/// (<see cref="DiaIrtCalibration.IrtComposition"/>). Null expects it at its library value.
+/// </param>
 /// <param name="ClassifierModel">The model the rescorer fits in each fold: a linear discriminant, or a small neural-network ensemble (DIA-NN's approach).</param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
     int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 30, double ClassifierTrainingQValue = 0.01,
@@ -247,7 +251,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     double InterferenceOwnIonFloor = 0,
     double InterferenceOwnIonShareCeiling = 1,
     bool NeighbourEvidence = true,
-    DiaFragmentIntensityModel? FragmentIntensities = null)
+    DiaFragmentIntensityModel? FragmentIntensities = null,
+    DiaIrtCompositionModel? IrtComposition = null)
 {
     /// <summary>
     /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual

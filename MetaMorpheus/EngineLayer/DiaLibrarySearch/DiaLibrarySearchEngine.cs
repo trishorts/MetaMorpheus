@@ -100,8 +100,9 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         {
             var scans = window.OrderBy(scan => scan.RetentionTime).ToArray();
             double[] scanIrts = scans.Select(scan => _irtMap.ToIrt(new RtMinutes(scan.RetentionTime)).Value).ToArray();
-            double irtLow = scanIrts.Min() - _parameters.IrtHalfWindow;
-            double irtHigh = scanIrts.Max() + _parameters.IrtHalfWindow;
+            double margin = _parameters.IrtComposition is null ? 0 : DiaIrtCompositionModel.QueryMargin;
+            double irtLow = scanIrts.Min() - _parameters.IrtHalfWindow - margin;
+            double irtHigh = scanIrts.Max() + _parameters.IrtHalfWindow + margin;
             using var hits = _library.QueryWindow((float)window.Key.Minimum, (float)window.Key.Maximum, (float)irtLow, (float)irtHigh, includeDecoys: true);
             foreach (var candidate in hits.Entries.ToArray())
                 if (candidate.PrecursorIdx % _parameters.PrecursorSampleStride == _parameters.PrecursorSampleOffset % _parameters.PrecursorSampleStride)
@@ -155,6 +156,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     private IEnumerable<DiaPrecursorMatch> ScoreCandidates(MslPrecursorIndexEntry candidate, MslLibraryEntry entry, MsDataScan[] scans,
         double[] scanIrts, PpmTolerance tolerance)
     {
+        double expectedIrt = candidate.Irt + (_parameters.IrtComposition?.Offset(entry.BaseSequence, entry.FullSequence, entry.ChargeState) ?? 0);
         var allIntensities = entry.MatchedFragmentIons.Select(LibraryIntensity).ToArray();
         // DIA-NN's fragment rule (DiaNnFragmentFilter): ineligible fragments are never picked, unless fewer than 3 qualify
         int eligible = allIntensities.Length;
@@ -184,7 +186,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         // per-element delegates and iterators were a large share of extraction's allocations
         var reachableList = new List<int>();
         for (int s = 0; s < scans.Length; s++)
-            if (Math.Abs(scanIrts[s] - candidate.Irt) <= _parameters.IrtHalfWindow)
+            if (Math.Abs(scanIrts[s] - expectedIrt) <= _parameters.IrtHalfWindow)
                 reachableList.Add(s);
         int[] reachable = reachableList.ToArray();
         if (reachable.Length == 0)
@@ -747,7 +749,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 coElution,
                 (double)ppmErrors.Count / fragments.Count,
                 ppmErrors.Count > 0 ? ppmErrors.Average() : _parameters.FragmentTolerancePpm,
-                Math.Abs(apexIrt.Value - candidate.Irt),
+                Math.Abs(apexIrt.Value - expectedIrt),
                 Math.Log10(1 + apexIntensities.Sum()),
                 peakEnd - peakStart + 1,
                 .. fragmentCorrelations,

@@ -1476,6 +1476,65 @@ public class DiaLibrarySearchEngineTests
         Assert.That(new DiaLibrarySearchParameters().InterferenceOwnIonFloor, Is.EqualTo(0));
     }
 
+    /// <summary>Anchors saying the run sits 8 iRT above the library: the error scored is measured from there, and the match keeps its library value for the second pass and the anchors.</summary>
+    [Test]
+    public void TheCompositionModelMovesTheErrorScored()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 300);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        var eight = DiaIrtCompositionModel.Fit(run.Library.Where(e => !e.IsDecoy).Select(e => new DiaIrtCompositionModel.Anchor(e.BaseSequence, e.FullSequence, e.ChargeState, 8)).ToList());
+        int error = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "AbsoluteDeltaIrt");
+        List<DiaPrecursorMatch> Planted(DiaIrtCompositionModel? model) => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(ClassifierNetworkMembers: 3, ClassifierTreeBlend: false, NeighbourEvidence: false, IrtComposition: model), new CommonParameters(), [], []).Run()).Matches
+            .Where(m => run.PlantedSequences.Contains(m.FullSequence)).ToList();
+
+        var plain = Planted(null).ToDictionary(m => m.FullSequence);
+        var moved = Planted(eight).Where(m => plain.TryGetValue(m.FullSequence, out var p) && Math.Abs(p.ApexRt.Value - m.ApexRt.Value) < 1e-9).ToList();
+
+        Assert.That(moved, Has.Count.GreaterThan(30));
+        Assert.That(moved.Select(m => m.Features[error] - plain[m.FullSequence].Features[error]).Order().ElementAt(moved.Count / 2), Is.EqualTo(8).Within(1));
+        Assert.That(moved.All(m => m.LibraryIrt.Value == plain[m.FullSequence].LibraryIrt.Value), Is.True, "the match keeps its library value");
+    }
+
+    /// <summary>A library misplacing every precursor by 30 iRT: read in a narrow window around its value, nothing is there, and around where the fit expects it, the planted targets are.</summary>
+    [Test]
+    public void TheCompositionModelMovesTheWindowRead()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 300);
+        foreach (var entry in run.Library)
+            entry.RetentionTime -= 30;
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        var thirty = DiaIrtCompositionModel.Fit(run.Library.Where(e => !e.IsDecoy).Select(e => new DiaIrtCompositionModel.Anchor(e.BaseSequence, e.FullSequence, e.ChargeState, 30)).ToList());
+        DiaLibrarySearchResults Search(DiaIrtCompositionModel? model) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(IrtHalfWindow: 5, ClassifierNetworkMembers: 3, ClassifierTreeBlend: false, NeighbourEvidence: false, IrtComposition: model), new CommonParameters(), [], []).Run();
+        int Found(DiaLibrarySearchResults results) => results.Matches.Count(m => !m.IsDecoy && m.QValue <= 0.05 && run.PlantedSequences.Contains(m.FullSequence));
+
+        var moved = Search(thirty);
+
+        Assert.That(Found(Search(null)), Is.LessThan(5));
+        Assert.That(Found(moved), Is.GreaterThan(30));
+        Assert.That(moved.Matches.Max(m => Math.Abs(m.ApexIrt.Value - m.LibraryIrt.Value - 30)), Is.LessThan(5.5));
+    }
+
+    /// <summary>A precursor whose library iRT lies past the run can still be expected inside it, so the search must look past the run for it.</summary>
+    [Test]
+    public void TheCompositionModelReachesPastTheRun()
+    {
+        var run = SyntheticDiaRun.Build(400, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 300);
+        double top = run.Scans.Where(s => s.MsnOrder == 2).Max(s => EndpointMap.ToIrt(new MzLibUtil.RtMinutes(s.RetentionTime)).Value);
+        foreach (var entry in run.Library)
+            entry.RetentionTime += 18;
+        var past = run.Library.Where(e => !e.IsDecoy && run.PlantedSequences.Contains(e.FullSequence) && e.RetentionTime > top + 5 && e.RetentionTime < top + 15).ToList();
+        Assert.That(past, Has.Count.GreaterThan(5), "the case needs planted precursors the query would not reach");
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        var back = DiaIrtCompositionModel.Fit(run.Library.Where(e => !e.IsDecoy).Select(e => new DiaIrtCompositionModel.Anchor(e.BaseSequence, e.FullSequence, e.ChargeState, -18)).ToList());
+        var scored = ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(IrtHalfWindow: 5, ClassifierNetworkMembers: 3, ClassifierTreeBlend: false, NeighbourEvidence: false, IrtComposition: back), new CommonParameters(), [], []).Run())
+            .Matches.Select(m => m.FullSequence).ToHashSet();
+
+        Assert.That(past.Count(e => scored.Contains(e.FullSequence)), Is.GreaterThan(past.Count / 2));
+    }
+
     /// <summary>A table that disagrees with the run lowers what a planted target's spectrum reads against the library, so the search does read the library through it.</summary>
     [Test]
     public void TheIntensityTableReachesTheScoring()
