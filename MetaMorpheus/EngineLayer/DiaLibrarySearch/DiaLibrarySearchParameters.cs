@@ -17,7 +17,9 @@ namespace EngineLayer.DiaLibrarySearch;
 /// </param>
 /// <param name="MaxApexCandidates">
 /// Candidate peaks scored per precursor. The classifier's score picks among them, so a precursor whose true peak scores
-/// second to interference on the apex score can still be found.
+/// second to interference on the apex score can still be found. 30 by default: over 10, two-seed means gained 0.52% (PXD022589 HF-X) and 2.43% (PXD005573 1 h) at a matched paired
+/// entrapment FDP of 1%, and targets over the curve gained alike on an E. coli arm with permuted decoys, with its false hits within counting noise. 20 was level within noise.
+/// Held-out candidate rows grow by about 63%.
 /// </param>
 /// <param name="ClassifierTrainingQValue">
 /// Targets at or below this q-value train the classifier as positives: 0.01, as Percolator. A looser cutoff (0.15)
@@ -183,7 +185,7 @@ namespace EngineLayer.DiaLibrarySearch;
 /// </param>
 /// <param name="ClassifierModel">The model the rescorer fits in each fold: a linear discriminant, or a small neural-network ensemble (DIA-NN's approach).</param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
-    int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 10, double ClassifierTrainingQValue = 0.01,
+    int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 30, double ClassifierTrainingQValue = 0.01,
     StatisticalModels.RescoreModel ClassifierModel = StatisticalModels.RescoreModel.NeuralNetworkEnsemble,
     int InterferenceExplainedFragments = 3,
     int? MaxNetworkTrainingRows = 120_000,

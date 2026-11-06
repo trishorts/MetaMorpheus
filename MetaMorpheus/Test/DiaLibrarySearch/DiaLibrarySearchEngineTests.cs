@@ -1094,8 +1094,9 @@ public class DiaLibrarySearchEngineTests
         Assert.That(new DiaLibrarySearchParameters().DiaNnPeakFindingMs1, Is.False);
         // The default since 2026-10-04, with 6 candidates: neutral at 3, +1.3% HF-X and +2.8% PXD005573 at 6 (matched paired FDP 1%)
         Assert.That(new DiaLibrarySearchParameters().DiaNnPeakFinding, Is.True);
-        // 10 since 2026-10-05, with the fragment rule: two-seed means +1.2% HF-X, +0.6% PXD005573 (matched paired FDP 1%)
-        Assert.That(new DiaLibrarySearchParameters().MaxApexCandidates, Is.EqualTo(10));
+        // 30 since 2026-11-05, with summed-core candidates: two-seed means +0.52% HF-X, +2.43% PXD005573 (matched paired FDP 1%), and targets over the curve gain alike on the
+        // species arm (+0.23% / +2.36%, E. coli hits within counting noise). 20 was level with it within noise, and missed the rule on HF-X.
+        Assert.That(new DiaLibrarySearchParameters().MaxApexCandidates, Is.EqualTo(30));
     }
 
     /// <summary>
