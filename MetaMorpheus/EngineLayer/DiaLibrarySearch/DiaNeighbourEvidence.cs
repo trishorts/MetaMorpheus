@@ -148,12 +148,10 @@ public static class DiaNeighbourEvidence
             coEluting,
         ];
 
-        // Each ion against the sum of the others, weighted by the library
+        // Each ion against the sum of the others, weighted by the library, so a lone ion has nothing to co-elute with and reads 0
         double CoElution(int[] set)
         {
-            if (set.Length < 2)
-                return 0;
-            int first = Math.Max(0, apexScan - apexHalfWidthScans), last = Math.Min(scans.Length - 1, apexScan + apexHalfWidthScans), span = last - first + 1;
+            int first =Math.Max(0, apexScan - apexHalfWidthScans), last = Math.Min(scans.Length - 1, apexScan + apexHalfWidthScans), span = last - first + 1;
             var traces = new Dictionary<int, double[]>();
             var sum = new double[span];
             foreach (int i in set)

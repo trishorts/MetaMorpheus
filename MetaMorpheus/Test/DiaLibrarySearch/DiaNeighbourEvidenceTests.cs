@@ -104,12 +104,12 @@ public class DiaNeighbourEvidenceTests
         Assert.That(Column(Measure(window, [Holding300()]), "ExplainedShare"), Is.EqualTo(0.25 / Sum).Within(1e-9));
     }
 
-    /// <summary>A near-isomer has too few ions of its own to weigh it by, so all its top ions do. Weighed by the one ion it has, a near-isomer would explain nothing.</summary>
+    /// <summary>A near-isomer has too few ions of its own to weigh it by, so all its top ions do. Weighed by the two ions it has, a near-isomer would explain almost nothing.</summary>
     [Test]
     public void ANeighbourWithFewIonsOfItsOwnIsScaledOnAllItsTopIons()
     {
-        DiaNeighbourEvidence.Neighbour nearIsomer = new(10, "NEIGHBOURK", [300, 400, 500, 1100], [1.0, 0.8, 0.6, 1.0]);
-        var window = Window([.. OnThePeak(), (1100, s => 0.01 * Peak(s))]);
+        DiaNeighbourEvidence.Neighbour nearIsomer = new(10, "NEIGHBOURK", [300, 400, 500, 1100, 1200], [1.0, 0.8, 0.6, 1.0, 1.0]);
+        var window = Window([.. OnThePeak(), (1100, s => 0.01 * Peak(s)), (1200, s => 0.01 * Peak(s))]);
 
         Assert.That(Column(Measure(window, [nearIsomer]), "ExplainedShare"), Is.EqualTo(2.4 / Sum).Within(1e-9));
     }
@@ -292,6 +292,14 @@ public class DiaNeighbourEvidenceTests
         Assert.That(Column(read, "CleanIons"), Is.EqualTo(3));
     }
 
+    [Test]
+    public void AnIonUnderHalfExplainedIsClean()
+    {
+        var read = Measure(Window([.. OnThePeak(), .. Its3Ions(0.45)]), [Holding300()]);
+
+        Assert.That(Column(read, "CleanIons"), Is.EqualTo(4));
+    }
+
     /// <summary>The trees cannot be handed a value that is not a number.</summary>
     [Test]
     public void ARowWithNoSignalReadsAsNothing()
@@ -326,6 +334,9 @@ public class DiaNeighbourEvidenceTests
 
         Assert.That(Column(read, "ExplainedShare"), Is.EqualTo(1.0 / 8).Within(1e-9));
         Assert.That(Column(read, "ExplainedShareTop6"), Is.EqualTo(0));
+
+        DiaNeighbourEvidence.Neighbour holdsTheSixth = new(10, "NEIGHBOURK", [1100, 1200, 1300, 700], [1, 1, 1, 1]);
+        Assert.That(Column(Measure(Window([.. peaks, .. Its3Ions(1)]), [holdsTheSixth], ions: ions), "ExplainedShareTop6"), Is.EqualTo(1.0 / 6).Within(1e-9));
     }
 
     [TestCase(0)]
@@ -545,6 +556,30 @@ public class DiaNeighbourEvidenceTests
 
         Assert.That(Column(read, "ResidualCosine"), Is.GreaterThan(0));
         Assert.That(Column(read, "Neighbours"), Is.EqualTo(1));
+    }
+
+    /// <summary>A precursor isolated elsewhere puts nothing in this window's scans, however well it would fit. A window holds its low bound and not its high one.</summary>
+    [TestCase(490.0, 1)]
+    [TestCase(509.99, 1)]
+    [TestCase(510.0, 0)]
+    [TestCase(489.99, 0)]
+    public void ANeighbourCountsOnlyInItsOwnWindow(double neighbourMz, int expected)
+    {
+        var row = Match(0, 11, rt: 10, mz: 500);
+        var matches = Crowd();
+        matches.Add(row);
+        matches.Add(Match(1, 12, rt: 10, mz: neighbourMz));
+        matches.AddRange(Tail());
+        DiaNeighbourEvidence.PrecursorIons Of(int index) => index switch
+        {
+            0 => new(Ions.ToList(), Ions.Select(i => i.Mz).ToList(), "ROWK"),
+            1 => new([(1100, 1), (1200, 1), (1300, 1), (300, 1)], [1100, 1200, 1300, 300], "NEIGHBOURK"),
+            _ => IonsOf(index),
+        };
+
+        double[] read = DiaNeighbourEvidence.MeasureAll(matches, Of, [(490, 510)], [Window([.. OnThePeak(), .. Its3Ions(1)])], RtTolerance, Ppm, ApexHalfWidth, true, 12)[matches.IndexOf(row)]!;
+
+        Assert.That(Column(read, "Neighbours"), Is.EqualTo(expected));
     }
 
     [Test]
