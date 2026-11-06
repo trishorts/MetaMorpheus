@@ -24,6 +24,9 @@ public static class DiaNeighbourEvidence
     /// <summary>Who counts as confident: targets at or under this provisional q-value.</summary>
     public const double ConfidentQValue = 0.01;
 
+    /// <summary>Rows at or under this provisional q-value keep their places. Trees are coarse at the very top: unguarded, a few decoys climbing there cost 28% of the targets at q 0.1% on PXD005573 1 h.</summary>
+    public const double KeptQValue = 0.001;
+
     /// <summary>The most a neighbour's own strongest ions are read to say how much of it is here.</summary>
     private const int ScalingIons = 6;
 
@@ -238,9 +241,11 @@ public static class DiaNeighbourEvidence
     /// Re-orders rows by out-of-fold trees learning target against decoy from the score and the columns.
     /// </summary>
     /// <param name="groupKeys">Rows sharing a key, such as a peptide's charge states, stay in one fold.</param>
+    /// <param name="keepAtOrAbove">Rows scoring at least this keep their places. The trees still learn from them.</param>
     /// <returns>The same score values as <paramref name="scores"/>, reordered, or a copy of it when there is too little to learn from.</returns>
     /// <exception cref="ArgumentException">The lists differ in length.</exception>
-    public static double[] Stack(IReadOnlyList<double> scores, IReadOnlyList<double[]> columns, IReadOnlyList<bool> isDecoy, IReadOnlyList<string> groupKeys, int seed, int threads = 1)
+    public static double[] Stack(IReadOnlyList<double> scores, IReadOnlyList<double[]> columns, IReadOnlyList<bool> isDecoy, IReadOnlyList<string> groupKeys, int seed, int threads = 1,
+        double keepAtOrAbove = double.PositiveInfinity)
     {
         int n = scores.Count;
         if (columns.Count != n || isDecoy.Count != n || groupKeys.Count != n)
@@ -249,7 +254,8 @@ public static class DiaNeighbourEvidence
         double[]? margins = DiaTreeBlend.OutOfFoldMargins(features, scores, isDecoy, groupKeys, n, StackFolds, StackTrees, seed, threads);
         if (margins is null)
             return scores.ToArray();
-        int[] order = Enumerable.Range(0, n).OrderByDescending(i => margins[i]).ThenByDescending(i => scores[i]).ThenBy(i => i).ToArray();
+        int[] order = Enumerable.Range(0, n).OrderByDescending(i => scores[i] >= keepAtOrAbove)
+            .ThenByDescending(i => scores[i] >= keepAtOrAbove ? scores[i] : margins[i]).ThenByDescending(i => scores[i]).ThenBy(i => i).ToArray();
         double[] values = scores.OrderDescending().ToArray();
         var stacked = new double[n];
         for (int rank = 0; rank < n; rank++)
@@ -258,7 +264,7 @@ public static class DiaNeighbourEvidence
     }
 
     /// <summary>
-    /// Measures the rows near the threshold and re-orders them. Rows below the provisional floor keep their scores, and every value above it stays above it.
+    /// Measures the rows near the threshold and re-orders them. Rows below the provisional floor keep their scores, and every value above it stays above it. So do rows at or under <see cref="KeptQValue"/>.
     /// </summary>
     /// <returns>The matches in their input order, with their scores reassigned.</returns>
     public static List<DiaPrecursorMatch> Apply(IReadOnlyList<DiaPrecursorMatch> matches, Func<int, PrecursorIons?> ionsOf, IReadOnlyList<(double Low, double High)> windowBounds,
@@ -269,8 +275,10 @@ public static class DiaNeighbourEvidence
         var applied = matches.ToList();
         if (measured.Length == 0)
             return applied;
+        double[] q = TargetDecoyQValues.Compute(matches.Select(m => m.Score).ToArray(), matches.Select(m => m.IsDecoy).ToArray());
+        double keepAtOrAbove = matches.Where((_, i) => q[i] <= KeptQValue).Select(m => m.Score).DefaultIfEmpty(double.PositiveInfinity).Min();
         double[] stacked = Stack(measured.Select(i => matches[i].Score).ToList(), measured.Select(i => columns[i]!).ToList(), measured.Select(i => matches[i].IsDecoy).ToList(),
-            measured.Select(i => matches[i].FullSequence).ToList(), seed, threads);
+            measured.Select(i => matches[i].FullSequence).ToList(), seed, threads, keepAtOrAbove);
         for (int k = 0; k < measured.Length; k++)
             applied[measured[k]] = matches[measured[k]] with { Score = stacked[k] };
         report?.Invoke($"neighbour evidence: {measured.Length} of {matches.Count} precursors measured and re-ranked ({measured.Count(i => matches[i].IsDecoy)} decoys)");

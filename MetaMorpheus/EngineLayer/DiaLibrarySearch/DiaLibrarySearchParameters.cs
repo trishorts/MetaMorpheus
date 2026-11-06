@@ -185,7 +185,7 @@ namespace EngineLayer.DiaLibrarySearch;
 /// </param>
 /// <param name="NeighbourEvidence">
 /// After the tree blend, measure how much of each near-threshold precursor's fragment signal confident precursors eluting with it already explain, and re-rank on the score and that
-/// evidence (<see cref="DiaNeighbourEvidence"/>). Off by default.
+/// evidence (<see cref="DiaNeighbourEvidence"/>). Rows at the very top keep their places. Off by default.
 /// </param>
 /// <param name="ClassifierModel">The model the rescorer fits in each fold: a linear discriminant, or a small neural-network ensemble (DIA-NN's approach).</param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,

@@ -440,6 +440,23 @@ public class DiaNeighbourEvidenceTests
         Assert.That(top.Count(i => !isDecoy[i]), Is.LessThan(375));
     }
 
+    /// <summary>Trees are coarse at the very top: on the held-out run, unguarded, a few decoys climbing there cost 28% of the targets at q 0.1% while nothing else moved.</summary>
+    [Test]
+    public void TheVeryTopKeepsItsPlace()
+    {
+        var (scores, columns, isDecoy, keys) = Rows();
+        double keepAtOrAbove = scores.OrderDescending().ElementAt(200);
+        double[] stacked = DiaNeighbourEvidence.Stack(scores, columns, isDecoy, keys, 0, keepAtOrAbove: keepAtOrAbove);
+        int[] rest = Enumerable.Range(0, scores.Length).Where(i => scores[i] < keepAtOrAbove).ToArray();
+
+        Assert.That(Enumerable.Range(0, scores.Length).Where(i => scores[i] >= keepAtOrAbove).Select(i => stacked[i]),
+            Is.EqualTo(Enumerable.Range(0, scores.Length).Where(i => scores[i] >= keepAtOrAbove).Select(i => scores[i])));
+        Assert.That(rest.Select(i => stacked[i]).Max(), Is.LessThan(keepAtOrAbove), "nothing climbs past them");
+        Assert.That(rest.Count(i => stacked[i] != scores[i]), Is.GreaterThan(rest.Length / 2), "the rest are still re-ranked");
+        int[] topOfRest = rest.OrderByDescending(i => stacked[i]).Take(400).ToArray();
+        Assert.That(topOfRest.Count(i => !isDecoy[i]), Is.GreaterThan(380), "by the evidence");
+    }
+
     [Test]
     public void WithTooFewDecoysTheStackLeavesTheScoresAlone()
     {
@@ -618,6 +635,27 @@ public class DiaNeighbourEvidenceTests
         Assert.That(above.Select(i => applied[i].Score).Order(), Is.EqualTo(above.Select(i => matches[i].Score).Order()), "the values stay the classifier's own");
         Assert.That(above.Count(i => applied[i].Score != matches[i].Score), Is.GreaterThan(above.Count / 2), "the order must really change");
         Assert.That(lines, Has.One.Contains("neighbour evidence"));
+    }
+
+    /// <summary>Rows at or under a provisional q of 0.1% keep their scores, and the trees still learn from them.</summary>
+    [Test]
+    public void ApplyKeepsRowsAtTheVeryTopInPlace()
+    {
+        var random = new Random(5);
+        // 1,500 targets alone at the top reach q 0.1%; below them one decoy in 20, down to the floor
+        var matches = Enumerable.Range(0, 1500).Select(i => Match(i + 5000, 100 + i / 100.0, rt: 1 + i % 19)).ToList();
+        matches.AddRange(Enumerable.Range(0, 2000).Select(i => Match(i, random.NextDouble() + 10, isDecoy: i % 20 == 0, rt: 1 + i % 19)));
+        matches.AddRange(Tail().Select(m => m with { IsDecoy = true }));
+        DiaNeighbourEvidence.PrecursorIons Of(int index) => new(Ions.ToList(), Ions.Select(i => i.Mz).ToList(), $"BASE{index}");
+        double[] q = TargetDecoyQValues.Compute(matches.Select(m => m.Score).ToArray(), matches.Select(m => m.IsDecoy).ToArray());
+        var kept = Enumerable.Range(0, matches.Count).Where(i => q[i] <= DiaNeighbourEvidence.KeptQValue).ToList();
+        Assert.That(kept, Has.Count.GreaterThan(1000), "the case needs rows that q");
+        Assert.That(q[1500 + 1], Is.GreaterThan(DiaNeighbourEvidence.KeptQValue), "the case needs rows past it");
+
+        var applied = DiaNeighbourEvidence.Apply(matches, Of, [(490, 510)], [Window(OnThePeak())], RtTolerance, Ppm, ApexHalfWidth, true, 12, 0);
+
+        Assert.That(kept.Select(i => applied[i].Score), Is.EqualTo(kept.Select(i => matches[i].Score)));
+        Assert.That(Enumerable.Range(1500, 2000).Count(i => applied[i].Score != matches[i].Score), Is.GreaterThan(1000), "the rest are still re-ranked");
     }
 
     [Test]
