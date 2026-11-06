@@ -101,12 +101,12 @@ public static class DiaIrtSelfCalibration
     /// calibration too, the held-out run (PXD005573 1 h) lost 2.1% (two-seed means at a matched paired entrapment FDP of 1%).
     /// DIA-NN's signal share stays off as well: it was benchmarked in the main search only, and in calibration it moved the
     /// anchors and cost HF-X 1.5% on seed 0. The network is <see cref="CalibrationNetworkLayers"/>. Calibration only picks
-    /// anchors, so it has no use for the tree blend, and it stays on the candidate rule it was tuned with, without the summed core.
+    /// anchors, so it has no use for the tree blend or the neighbour evidence, and it stays on the candidate rule it was tuned with, without the summed core.
     /// </summary>
     public static DiaLibrarySearchParameters CalibrationParameters(DiaLibrarySearchParameters parameters) =>
         parameters with { DiaNnFragmentFilter = false, Ms1Offset = null, Ms1TolerancePpm = CalibrationMs1TolerancePpm, DiaNnSignalShare = false,
             InterferenceExplainedFragments = CalibrationInterferenceExplainedFragments, ClassifierNetworkLayers = [.. CalibrationNetworkLayers],
-            ClassifierTreeBlend = false, CandidatePeaksFromSummedCore = false };
+            ClassifierTreeBlend = false, CandidatePeaksFromSummedCore = false, NeighbourEvidence = false };
 
     /// <summary>
     /// MS1 tolerance during calibration, before the run's offset is known: wide enough for an error that drifts up to 3 ppm off

@@ -137,7 +137,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         double cycleMinutes = windows.Select(w => w.Select(s => s.RetentionTime).Order().ToArray())
             .Where(rts => rts.Length > 1).Select(rts => rts[rts.Length / 2] - rts[rts.Length / 2 - 1]).DefaultIfEmpty(0).Average();
         AddSiblingFeatures(rows, (_parameters.ApexHalfWidthScans + 1) * cycleMinutes, _parameters.SiblingTopCandidateOnly);
-        MsDataScan[][] windowScans = _parameters.InterferenceOwnIonFloor > 0 ? windows.Select(w => w.OrderBy(s => s.RetentionTime).ToArray()).ToArray() : [];
+        MsDataScan[][] windowScans = _parameters.InterferenceOwnIonFloor > 0 || _parameters.NeighbourEvidence ? windows.Select(w => w.OrderBy(s => s.RetentionTime).ToArray()).ToArray() : [];
         var matches = AssignQValues(rows, windowBounds, windowScans, cycleMinutes, out var removed, out var losing);
         var peptides = DiaPeptideFdr.Assign(matches);
         Status($"timing: search done  [{stage.Elapsed:mm\\:ss\\.f}]");
@@ -1224,15 +1224,6 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             }
             float[] FragmentMzs(int index) => _library.GetEntry(index)?.MatchedFragmentIons.OrderByDescending(f => f.Intensity)
                 .Take(_parameters.TopFragmentCount).Select(f => f.Mz).ToArray() ?? [];
-            List<(double Mz, double Intensity)> ScoredIons(MslLibraryEntry entry)
-            {
-                var ions = entry.MatchedFragmentIons;
-                var scorable = _parameters.DiaNnFragmentFilter
-                    ? ions.Where(f => IsDiaNnScorable(f, _parameters.FragmentMinimumMz, _parameters.FragmentMinimumResidues, _parameters.FragmentMaximumCharge, entry.ChargeState, _parameters.FragmentChargeBelowPrecursor)).ToList()
-                    : ions.ToList();
-                return (scorable.Count >= 3 ? scorable : ions.ToList()).OrderByDescending(f => f.Intensity)
-                    .Take(_parameters.TopFragmentCount + _parameters.ExtraFragmentCount).Select(f => ((double)f.Mz, (double)f.Intensity)).ToList();
-            }
             double OwnIons(DiaPrecursorMatch winner, DiaPrecursorMatch rival)
             {
                 var winnerEntry = _library.GetEntry(winner.PrecursorIndex);
@@ -1266,6 +1257,17 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             Status($"timing: tree blend over {matches.Count} precursors  [{blendClock.Elapsed:mm\\:ss\\.f}]");
         }
 
+        if (_parameters.NeighbourEvidence && matches.Count > 0)
+        {
+            var neighbourClock = System.Diagnostics.Stopwatch.StartNew();
+            DiaNeighbourEvidence.PrecursorIons? IonsOf(int index) => _library.GetEntry(index) is { } entry
+                ? new DiaNeighbourEvidence.PrecursorIons(ScoredIons(entry), entry.MatchedFragmentIons.Select(f => (double)f.Mz).ToList(), entry.BaseSequence)
+                : null;
+            matches = DiaNeighbourEvidence.Apply(matches, IonsOf, windowBounds, windowScans, (_parameters.InterferenceRtToleranceCycles ?? _parameters.ApexHalfWidthScans + 1) * cycleMinutes,
+                _parameters.FragmentTolerancePpm, _parameters.ApexHalfWidthScans, _parameters.MostIntenseFragmentPeak, _parameters.TopFragmentCount, _parameters.ClassifierSeed, CommonParameters.MaxThreadsToUsePerFile, Status);
+            Status($"timing: neighbour evidence over {matches.Count} precursors  [{neighbourClock.Elapsed:mm\\:ss\\.f}]");
+        }
+
         var targets = matches.Where(m => !m.IsDecoy).ToList();
         var decoyScores = matches.Where(m => m.IsDecoy).Select(m => m.Score).ToList();
         double[] qValues = DeconvolutionQValueCalculator.AssignQValues(targets.Select(m => m.Score).ToList(), decoyScores);
@@ -1273,6 +1275,17 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         var assigned = targets.Select((m, i) => m with { QValue = qValues[i] }).ToList();
         assigned.AddRange(matches.Where(m => m.IsDecoy));
         return assigned;
+    }
+
+    /// <summary>The fragments a precursor is scored on, most intense first: the fragment rule's if at least three pass it, as the search picks them.</summary>
+    private List<(double Mz, double Intensity)> ScoredIons(MslLibraryEntry entry)
+    {
+        var ions = entry.MatchedFragmentIons;
+        var scorable = _parameters.DiaNnFragmentFilter
+            ? ions.Where(f => IsDiaNnScorable(f, _parameters.FragmentMinimumMz, _parameters.FragmentMinimumResidues, _parameters.FragmentMaximumCharge, entry.ChargeState, _parameters.FragmentChargeBelowPrecursor)).ToList()
+            : ions.ToList();
+        return (scorable.Count >= 3 ? scorable : ions.ToList()).OrderByDescending(f => f.Intensity)
+            .Take(_parameters.TopFragmentCount + _parameters.ExtraFragmentCount).Select(f => ((double)f.Mz, (double)f.Intensity)).ToList();
     }
 }
 

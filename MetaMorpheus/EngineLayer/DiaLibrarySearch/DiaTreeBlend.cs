@@ -42,35 +42,11 @@ public static class DiaTreeBlend
         if (features.Count != n || isDecoy.Count != n || groupKeys.Count != n)
             throw new ArgumentException("Features, scores, decoy flags and group keys must have one entry per row.");
 
-        var foldOfGroup = groupKeys.Distinct().Order(StringComparer.Ordinal).Select((key, index) => (key, index))
-            .ToDictionary(group => group.key, group => group.index % Folds, StringComparer.Ordinal);
-        int[] fold = groupKeys.Select(key => foldOfGroup[key]).ToArray();
+        double[]? treeScores = OutOfFoldMargins(features, scores, isDecoy, groupKeys, maxTrainingRows, Folds, BlendTrees, seed, threads);
+        if (treeScores is null)
+            return scores.ToArray();
+
         int[] byScore = Enumerable.Range(0, n).OrderByDescending(i => scores[i]).ThenBy(i => i).ToArray();
-
-        var folds = new (int[] Train, int[] Test)[Folds];
-        for (int f = 0; f < Folds; f++)
-        {
-            int current = f;
-            int[] train = byScore.Where(i => fold[i] != current).Take(maxTrainingRows).ToArray();
-            int[] test = Enumerable.Range(0, n).Where(i => fold[i] == current).ToArray();
-            int decoys = train.Count(i => isDecoy[i]);
-            if (decoys < MinimumRowsPerClass || train.Length - decoys < MinimumRowsPerClass || !test.Any(i => isDecoy[i]))
-                return scores.ToArray();
-            folds[f] = (train, test);
-        }
-
-        var treeScores = new double[n];
-        foreach (var (train, test) in folds)
-        {
-            double[] margins = TrainAndScore(features, isDecoy, train, test, seed, threads);
-            double[] decoyMargins = margins.Where((_, t) => isDecoy[test[t]]).Order().ToArray();
-            double median = decoyMargins[decoyMargins.Length / 2];
-            double spread = decoyMargins[(int)(0.99 * (decoyMargins.Length - 1))] - median;
-            // Each fold has its own trees, so put their outputs on one scale before ranking them together
-            for (int t = 0; t < test.Length; t++)
-                treeScores[test[t]] = (margins[t] - median) / (spread > 0 ? spread : 1);
-        }
-
         double[] scoreRanks = Ranks(scores);
         double[] treeRanks = Ranks(treeScores);
         int[] blendedOrder = Enumerable.Range(0, n).OrderByDescending(i => scoreRanks[i] + treeRanks[i]).ThenByDescending(i => scores[i]).ThenBy(i => i).ToArray();
@@ -80,7 +56,51 @@ public static class DiaTreeBlend
         return blended;
     }
 
-    private static double[] TrainAndScore(IReadOnlyList<double[]> features, IReadOnlyList<bool> isDecoy, int[] train, int[] test, int seed, int threads)
+    /// <summary>How a set of trees learns.</summary>
+    internal readonly record struct Trees(int Count, int Leaves, int MinimumPerLeaf, double LearningRate, double FeatureFraction, double BaggingFraction);
+
+    private static readonly Trees BlendTrees = new(Count: 400, Leaves: 128, MinimumPerLeaf: 10, LearningRate: 0.08, FeatureFraction: 0.8, BaggingFraction: 0.8);
+
+    /// <summary>
+    /// Each row's margin from trees that never saw its group, every fold's on one scale: 0 at the fold's median decoy, 1 at its 99th percentile.
+    /// </summary>
+    /// <returns>The margins, or null when a fold has too little to learn from.</returns>
+    internal static double[]? OutOfFoldMargins(IReadOnlyList<double[]> features, IReadOnlyList<double> scores, IReadOnlyList<bool> isDecoy, IReadOnlyList<string> groupKeys,
+        int maxTrainingRows, int foldCount, Trees trees, int seed, int threads)
+    {
+        int n = scores.Count;
+        var foldOfGroup = groupKeys.Distinct().Order(StringComparer.Ordinal).Select((key, index) => (key, index))
+            .ToDictionary(group => group.key, group => group.index % foldCount, StringComparer.Ordinal);
+        int[] fold = groupKeys.Select(key => foldOfGroup[key]).ToArray();
+        int[] byScore = Enumerable.Range(0, n).OrderByDescending(i => scores[i]).ThenBy(i => i).ToArray();
+
+        var folds = new (int[] Train, int[] Test)[foldCount];
+        for (int f = 0; f < foldCount; f++)
+        {
+            int current = f;
+            int[] train = byScore.Where(i => fold[i] != current).Take(maxTrainingRows).ToArray();
+            int[] test = Enumerable.Range(0, n).Where(i => fold[i] == current).ToArray();
+            int decoys = train.Count(i => isDecoy[i]);
+            if (decoys < MinimumRowsPerClass || train.Length - decoys < MinimumRowsPerClass || !test.Any(i => isDecoy[i]))
+                return null;
+            folds[f] = (train, test);
+        }
+
+        var treeScores = new double[n];
+        foreach (var (train, test) in folds)
+        {
+            double[] margins = TrainAndScore(features, isDecoy, train, test, trees, seed, threads);
+            double[] decoyMargins = margins.Where((_, t) => isDecoy[test[t]]).Order().ToArray();
+            double median = decoyMargins[decoyMargins.Length / 2];
+            double spread = decoyMargins[(int)(0.99 * (decoyMargins.Length - 1))] - median;
+            // Each fold has its own trees, so put their outputs on one scale before ranking them together
+            for (int t = 0; t < test.Length; t++)
+                treeScores[test[t]] = (margins[t] - median) / (spread > 0 ? spread : 1);
+        }
+        return treeScores;
+    }
+
+    private static double[] TrainAndScore(IReadOnlyList<double[]> features, IReadOnlyList<bool> isDecoy, int[] train, int[] test, Trees trees, int seed, int threads)
     {
         var context = new MLContext(seed);
         var schema = SchemaDefinition.Create(typeof(Row));
@@ -90,13 +110,13 @@ public static class DiaTreeBlend
         var model = context.BinaryClassification.Trainers.FastTree(new FastTreeBinaryTrainer.Options
         {
             NumberOfThreads = threads,
-            NumberOfTrees = 400,
-            NumberOfLeaves = 128,
-            MinimumExampleCountPerLeaf = 10,
-            LearningRate = 0.08,
-            FeatureFraction = 0.8,
-            BaggingSize = 1,
-            BaggingExampleFraction = 0.8,
+            NumberOfTrees = trees.Count,
+            NumberOfLeaves = trees.Leaves,
+            MinimumExampleCountPerLeaf = trees.MinimumPerLeaf,
+            LearningRate = trees.LearningRate,
+            FeatureFraction = trees.FeatureFraction,
+            BaggingSize = trees.BaggingFraction < 1 ? 1 : 0,
+            BaggingExampleFraction = trees.BaggingFraction < 1 ? trees.BaggingFraction : 0.7,
             LabelColumnName = nameof(Row.Label),
             FeatureColumnName = nameof(Row.Features),
             Seed = seed,

@@ -183,6 +183,10 @@ namespace EngineLayer.DiaLibrarySearch;
 /// With <see cref="InterferenceOwnIonFloor"/> on, only a winner whose own ions carry no more than this share of its library intensity is judged (<see cref="DiaInterferenceRemoval.OwnIonShare"/>):
 /// one with almost nothing of its own cannot be told from its rival, and one with much of its own that reads poorly is usually real. 1 judges every winner.
 /// </param>
+/// <param name="NeighbourEvidence">
+/// After the tree blend, measure how much of each near-threshold precursor's fragment signal confident precursors eluting with it already explain, and re-rank on the score and that
+/// evidence (<see cref="DiaNeighbourEvidence"/>). Off by default.
+/// </param>
 /// <param name="ClassifierModel">The model the rescorer fits in each fold: a linear discriminant, or a small neural-network ensemble (DIA-NN's approach).</param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
     int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 30, double ClassifierTrainingQValue = 0.01,
@@ -234,7 +238,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool ClassifierTreeBlend = true,
     bool CandidatePeaksFromSummedCore = true,
     double InterferenceOwnIonFloor = 0,
-    double InterferenceOwnIonShareCeiling = 1)
+    double InterferenceOwnIonShareCeiling = 1,
+    bool NeighbourEvidence = false)
 {
     /// <summary>
     /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual

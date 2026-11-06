@@ -1476,6 +1476,37 @@ public class DiaLibrarySearchEngineTests
         Assert.That(new DiaLibrarySearchParameters().InterferenceOwnIonFloor, Is.EqualTo(0));
     }
 
+    /// <summary>The step sits after the blend and before the q-values, off by default and off in calibration. On, a search still reports the planted targets, and says it ran.</summary>
+    [Test]
+    public void NeighbourEvidenceRunsInTheSearchWhenAskedFor()
+    {
+        Assert.That(new DiaLibrarySearchParameters().NeighbourEvidence, Is.False);
+        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new(NeighbourEvidence: true)).NeighbourEvidence, Is.False);
+
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 300);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        DiaLibrarySearchResults Search(bool on) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(ClassifierNetworkMembers: 3, ClassifierTreeBlend: false, NeighbourEvidence: on), new CommonParameters(), [], []).Run();
+        var lines = new List<string>();
+        void Listen(object? sender, StringEventArgs e) => lines.Add(e.S);
+        MetaMorpheusEngine.OutLabelStatusHandler += Listen;
+        DiaLibrarySearchResults off, on;
+        try
+        {
+            off = Search(false);
+            Assert.That(lines, Has.None.Contains("neighbour evidence"));
+            on = Search(true);
+        }
+        finally
+        {
+            MetaMorpheusEngine.OutLabelStatusHandler -= Listen;
+        }
+
+        Assert.That(lines, Has.Some.Contains("neighbour evidence"));
+        Assert.That(on.Matches.Where(m => !m.IsDecoy && m.QValue <= 0.01).Select(m => m.FullSequence).Intersect(run.PlantedSequences).Count(),
+            Is.GreaterThanOrEqualTo(off.Matches.Where(m => !m.IsDecoy && m.QValue <= 0.01).Select(m => m.FullSequence).Intersect(run.PlantedSequences).Count() * 9 / 10));
+    }
+
     /// <summary>
     /// A run where each of 30 planted targets has a rival on the library: its m/z and iRT and five of its six fragments, with a sixth of its own that is not in the run.
     /// The target's own ion is really there, so it is what tells the two apart. Returns the search at each floor, and the sequences of the target winners with no floor.
