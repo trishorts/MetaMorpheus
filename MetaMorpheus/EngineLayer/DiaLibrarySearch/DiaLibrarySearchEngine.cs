@@ -155,7 +155,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     private IEnumerable<DiaPrecursorMatch> ScoreCandidates(MslPrecursorIndexEntry candidate, MslLibraryEntry entry, MsDataScan[] scans,
         double[] scanIrts, PpmTolerance tolerance)
     {
-        var allIntensities = entry.MatchedFragmentIons.Select(f => (double)f.Intensity).ToArray();
+        var allIntensities = entry.MatchedFragmentIons.Select(LibraryIntensity).ToArray();
         // DIA-NN's fragment rule (DiaNnFragmentFilter): ineligible fragments are never picked, unless fewer than 3 qualify
         int eligible = allIntensities.Length;
         if (_parameters.DiaNnFragmentFilter)
@@ -173,7 +173,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         }
         var fragments = FragmentCoElution.TopIndices(allIntensities, Math.Min(_parameters.TopFragmentCount, eligible))
             .Select(i => entry.MatchedFragmentIons[i]).ToList();
-        double[] libraryIntensities = fragments.Select(f => (double)f.Intensity).ToArray();
+        double[] libraryIntensities = fragments.Select(LibraryIntensity).ToArray();
         // Fragments after the top N, by library intensity, read only as their own features (ExtraFragmentCount)
         var extraFragments = _parameters.ExtraFragmentCount == 0 ? [] : Enumerable.Range(0, allIntensities.Length)
             .Where(i => !double.IsNegativeInfinity(allIntensities[i]))
@@ -691,8 +691,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 double[] correlations = FragmentCoElution.CorrelationsTo(extraTraces, reference, from, to);
                 extraCoElution = correlations.Average();
                 extraMatchedFraction = extraTraces.Count(trace => trace[apex] > 0) / (double)extraTraces.Length;
-                double weight = extraFragments.Sum(f => (double)f.Intensity);
-                extraWeightedCoElution = weight > 0 ? extraFragments.Select((f, x) => f.Intensity * correlations[x]).Sum() / weight : 0;
+                double weight = extraFragments.Sum(LibraryIntensity);
+                extraWeightedCoElution = weight > 0 ? extraFragments.Select((f, x) => LibraryIntensity(f) * correlations[x]).Sum() / weight : 0;
             }
             else if (_parameters.ExtraFragmentFallback && extraTraces.Length == 0)
             {
@@ -1222,7 +1222,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                         return w;
                 return -10;
             }
-            float[] FragmentMzs(int index) => _library.GetEntry(index)?.MatchedFragmentIons.OrderByDescending(f => f.Intensity)
+            float[] FragmentMzs(int index) => _library.GetEntry(index)?.MatchedFragmentIons.OrderByDescending(LibraryIntensity)
                 .Take(_parameters.TopFragmentCount).Select(f => f.Mz).ToArray() ?? [];
             double OwnIons(DiaPrecursorMatch winner, DiaPrecursorMatch rival)
             {
@@ -1284,9 +1284,12 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         var scorable = _parameters.DiaNnFragmentFilter
             ? ions.Where(f => IsDiaNnScorable(f, _parameters.FragmentMinimumMz, _parameters.FragmentMinimumResidues, _parameters.FragmentMaximumCharge, entry.ChargeState, _parameters.FragmentChargeBelowPrecursor)).ToList()
             : ions.ToList();
-        return (scorable.Count >= 3 ? scorable : ions.ToList()).OrderByDescending(f => f.Intensity)
-            .Take(_parameters.TopFragmentCount + _parameters.ExtraFragmentCount).Select(f => ((double)f.Mz, (double)f.Intensity)).ToList();
+        return (scorable.Count >= 3 ? scorable : ions.ToList()).OrderByDescending(LibraryIntensity)
+            .Take(_parameters.TopFragmentCount + _parameters.ExtraFragmentCount).Select(f => ((double)f.Mz, LibraryIntensity(f))).ToList();
     }
+
+    /// <summary>A fragment's library intensity, as this run reads it (<see cref="DiaLibrarySearchParameters.FragmentIntensities"/>).</summary>
+    private double LibraryIntensity(MslFragmentIon fragment) => _parameters.FragmentIntensities?.Intensity(fragment) ?? fragment.Intensity;
 }
 
 /// <summary>

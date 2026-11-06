@@ -1476,6 +1476,45 @@ public class DiaLibrarySearchEngineTests
         Assert.That(new DiaLibrarySearchParameters().InterferenceOwnIonFloor, Is.EqualTo(0));
     }
 
+    /// <summary>A table that disagrees with the run lowers what a planted target's spectrum reads against the library, so the search does read the library through it.</summary>
+    [Test]
+    public void TheIntensityTableReachesTheScoring()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 300);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        var wrong = DiaFragmentIntensityModel.Fit(run.Library.Where(e => !e.IsDecoy).Select(e =>
+            (IReadOnlyList<(MslFragmentIon Ion, double Observed)>)e.MatchedFragmentIons.Select(f => (f, f.Intensity * (f.FragmentNumber % 2 == 0 ? 50.0 : 1.0))).ToList()));
+        int cosine = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "ApexCosine");
+        double Median(DiaFragmentIntensityModel? table)
+        {
+            var results = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+                new DiaLibrarySearchParameters(ClassifierNetworkMembers: 3, ClassifierTreeBlend: false, FragmentIntensities: table), new CommonParameters(), [], []).Run();
+            double[] read = results.Matches.Where(m => run.PlantedSequences.Contains(m.FullSequence)).Select(m => m.Features[cosine]).Order().ToArray();
+            return read[read.Length / 2];
+        }
+
+        Assert.That(Median(wrong), Is.LessThan(Median(null) - 0.01));
+    }
+
+    /// <summary>A strong library ion that is not in the run takes a place among the fragments read. Marked down by the table, it gives that place up to one that is there.</summary>
+    [Test]
+    public void TheIntensityTableChoosesThePrecursorsFragments()
+    {
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 300);
+        foreach (var entry in run.Library)
+            entry.MatchedFragmentIons.Add(new MslFragmentIon { Mz = 1450.123f, Intensity = 1, ProductType = Omics.Fragmentation.ProductType.y, FragmentNumber = 14, ResiduePosition = 1, Charge = 1 });
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        var markedDown = DiaFragmentIntensityModel.Fit(run.Library.Where(e => !e.IsDecoy).Select(e =>
+            (IReadOnlyList<(MslFragmentIon Ion, double Observed)>)e.MatchedFragmentIons.Select(f => (f, f.FragmentNumber == 14 ? 0.0001 : (double)f.Intensity)).ToList()));
+        Assert.That(markedDown.Multiplier(run.Library[0].MatchedFragmentIons[^1]), Is.EqualTo(1 / DiaFragmentIntensityModel.MaximumMultiplier).Within(1e-9));
+        int matched = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "MatchedFraction");
+        double Mean(DiaFragmentIntensityModel? table) => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(TopFragmentCount: 3, ExtraFragmentCount: 0, ClassifierNetworkMembers: 3, ClassifierTreeBlend: false, DiaNnFragmentFilter: false, FragmentIntensities: table), new CommonParameters(), [], []).Run())
+            .Matches.Where(m => run.PlantedSequences.Contains(m.FullSequence)).Average(m => m.Features[matched]);
+
+        Assert.That(Mean(markedDown), Is.GreaterThan(Mean(null) + 0.05));
+    }
+
     /// <summary>The step sits after the blend and before the q-values, off by default and off in calibration. On, a search still reports the planted targets, and says it ran.</summary>
     [Test]
     public void NeighbourEvidenceRunsInTheSearchWhenAskedFor()

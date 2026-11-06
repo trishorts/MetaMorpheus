@@ -27,6 +27,12 @@ public sealed record DiaIrtCalibration(IrtCalibrationModel Model, double IrtHalf
     /// </summary>
     public Ms1OffsetModel? Ms1Offset { get; init; }
 
+    /// <summary>
+    /// What the last round's anchors say of the library's fragment intensities; null when calibration ran a single round. A search applies it through
+    /// <see cref="DiaLibrarySearchParameters.FragmentIntensities"/>.
+    /// </summary>
+    public DiaFragmentIntensityModel? FragmentIntensities { get; init; }
+
     /// <summary>The search's parameters with this calibration applied: its iRT window and its MS1 offset.</summary>
     public DiaLibrarySearchParameters ApplyTo(DiaLibrarySearchParameters parameters) =>
         parameters with { IrtHalfWindow = IrtHalfWindow, Ms1Offset = Ms1Offset };
@@ -106,7 +112,7 @@ public static class DiaIrtSelfCalibration
     public static DiaLibrarySearchParameters CalibrationParameters(DiaLibrarySearchParameters parameters) =>
         parameters with { DiaNnFragmentFilter = false, Ms1Offset = null, Ms1TolerancePpm = CalibrationMs1TolerancePpm, DiaNnSignalShare = false,
             InterferenceExplainedFragments = CalibrationInterferenceExplainedFragments, ClassifierNetworkLayers = [.. CalibrationNetworkLayers],
-            ClassifierTreeBlend = false, CandidatePeaksFromSummedCore = false, NeighbourEvidence = false,
+            ClassifierTreeBlend = false, CandidatePeaksFromSummedCore = false, NeighbourEvidence = false, FragmentIntensities = null,
             MaxToleranceCoElution = false, Ms1TightCorrelation = false, SqrtCoElution = false, Ms1PeakEnvelopeTight = false, Ms1PeakSignalFraction = false, Ms1PeakPoints = false, Ms1PeakFeatures = false };
 
     /// <summary>
@@ -197,9 +203,19 @@ public static class DiaIrtSelfCalibration
             {
                 Rounds = round,
                 Ms1Offset = Ms1OffsetModel.Fit(confident.Select(m => (m.ApexRt.Value, m.Ms1ApexErrorPpm))),
+                FragmentIntensities = FitFragmentIntensities(confident, scans, library, parameters),
             };
         }
         return calibration;
+    }
+
+    private static DiaFragmentIntensityModel FitFragmentIntensities(IReadOnlyList<DiaPrecursorMatch> confident, MsDataScan[] scans, MslLibrary library, DiaLibrarySearchParameters parameters)
+    {
+        var windows = scans.Where(s => s.MsnOrder == 2 && s.IsolationRange is not null).GroupBy(s => (s.IsolationRange.Minimum, s.IsolationRange.Maximum))
+            .Select(w => (w.Key.Minimum, w.Key.Maximum, Scans: w.OrderBy(s => s.RetentionTime).ToArray())).ToArray();
+        return DiaFragmentIntensityModel.Fit(confident.Select(m => (Match: m, Entry: library.GetEntry(m.PrecursorIndex))).Where(a => a.Entry is not null).Select(a =>
+            (IReadOnlyList<(Omics.SpectralMatch.MslSpectralLibrary.MslFragmentIon Ion, double Observed)>)DiaFragmentIntensityModel.ReadAnchor(a.Entry!, a.Match.ApexRt,
+                windows.Where(w => a.Match.PrecursorMz >= w.Minimum && a.Match.PrecursorMz < w.Maximum).Select(w => w.Scans).ToList(), parameters.FragmentTolerancePpm, parameters.MostIntenseFragmentPeak)));
     }
 
     /// <summary>The most confident main-search targets a <see cref="Refine"/> fit uses.</summary>

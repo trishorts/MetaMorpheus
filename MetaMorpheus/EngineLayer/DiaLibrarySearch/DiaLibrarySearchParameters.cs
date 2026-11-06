@@ -189,6 +189,10 @@ namespace EngineLayer.DiaLibrarySearch;
 /// After the tree blend, measure how much of each near-threshold precursor's fragment signal confident precursors eluting with it already explain, and re-rank on the score and that
 /// evidence (<see cref="DiaNeighbourEvidence"/>). Rows at the very top keep their places. Off by default.
 /// </param>
+/// <param name="FragmentIntensities">
+/// When set, the library's fragment intensities are read through this table, in choosing a precursor's strongest fragments as well as in scoring them (<see cref="DiaFragmentIntensityModel"/>).
+/// Calibration fits one (<see cref="DiaIrtCalibration.FragmentIntensities"/>). Null reads the library as it is.
+/// </param>
 /// <param name="ClassifierModel">The model the rescorer fits in each fold: a linear discriminant, or a small neural-network ensemble (DIA-NN's approach).</param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
     int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 30, double ClassifierTrainingQValue = 0.01,
@@ -241,7 +245,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool CandidatePeaksFromSummedCore = true,
     double InterferenceOwnIonFloor = 0,
     double InterferenceOwnIonShareCeiling = 1,
-    bool NeighbourEvidence = false)
+    bool NeighbourEvidence = false,
+    DiaFragmentIntensityModel? FragmentIntensities = null)
 {
     /// <summary>
     /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual
