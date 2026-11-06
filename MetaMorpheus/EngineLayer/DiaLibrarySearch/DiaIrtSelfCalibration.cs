@@ -39,9 +39,9 @@ public sealed record DiaIrtCalibration(IrtCalibrationModel Model, double IrtHalf
     /// </summary>
     public DiaIrtCompositionModel? IrtComposition { get; init; }
 
-    /// <summary>The search's parameters with this calibration applied: its iRT window and its MS1 offset.</summary>
+    /// <summary>The search's parameters with this calibration applied: its iRT window, its MS1 offset and its fragment intensity table.</summary>
     public DiaLibrarySearchParameters ApplyTo(DiaLibrarySearchParameters parameters) =>
-        parameters with { IrtHalfWindow = IrtHalfWindow, Ms1Offset = Ms1Offset };
+        parameters with { IrtHalfWindow = IrtHalfWindow, Ms1Offset = Ms1Offset, FragmentIntensities = FragmentIntensities };
 }
 
 /// <summary>

@@ -141,10 +141,12 @@ public class DiaIrtSelfCalibrationTests
         // Calibration reads MS1 at its own fixed tolerance (the offset is not known yet), whatever the search's
         Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters(Ms1TolerancePpm: 5)).Ms1TolerancePpm,
             Is.EqualTo(DiaIrtSelfCalibration.CalibrationMs1TolerancePpm));
-        // Applying a calibration sets the search's iRT window and MS1 offset together
+        // Applying a calibration sets the search's iRT window, MS1 offset and intensity table together
         var applied = calibration.ApplyTo(new DiaLibrarySearchParameters());
         Assert.That(applied.IrtHalfWindow, Is.EqualTo(calibration.IrtHalfWindow));
         Assert.That(applied.Ms1Offset, Is.SameAs(calibration.Ms1Offset));
+        Assert.That(calibration.FragmentIntensities, Is.Not.Null);
+        Assert.That(applied.FragmentIntensities, Is.SameAs(calibration.FragmentIntensities));
     }
 
     /// <summary>The first pass's confident identifications recover the run's true, nonlinear RT(iRT).</summary>
