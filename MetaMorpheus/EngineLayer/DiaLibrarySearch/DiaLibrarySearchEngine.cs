@@ -156,7 +156,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     private IEnumerable<DiaPrecursorMatch> ScoreCandidates(MslPrecursorIndexEntry candidate, MslLibraryEntry entry, MsDataScan[] scans,
         double[] scanIrts, PpmTolerance tolerance)
     {
-        double expectedIrt = candidate.Irt + (_parameters.IrtComposition?.Offset(entry.BaseSequence, entry.FullSequence, entry.ChargeState) ?? 0);
+        double expectedIrt = candidate.Irt + (_parameters.IrtComposition?.Offset(entry.BaseSequence) ?? 0);
         var allIntensities = entry.MatchedFragmentIons.Select(LibraryIntensity).ToArray();
         // DIA-NN's fragment rule (DiaNnFragmentFilter): ineligible fragments are never picked, unless fewer than 3 qualify
         int eligible = allIntensities.Length;

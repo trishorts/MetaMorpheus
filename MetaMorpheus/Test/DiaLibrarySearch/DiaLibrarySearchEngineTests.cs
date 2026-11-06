@@ -1482,7 +1482,7 @@ public class DiaLibrarySearchEngineTests
     {
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 300);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
-        var eight = DiaIrtCompositionModel.Fit(run.Library.Where(e => !e.IsDecoy).Select(e => new DiaIrtCompositionModel.Anchor(e.BaseSequence, e.FullSequence, e.ChargeState, 8)).ToList());
+        var eight = DiaIrtCompositionModel.Fit(run.Library.Where(e => !e.IsDecoy).Select(e => new DiaIrtCompositionModel.Anchor(e.BaseSequence, 8)).ToList());
         int error = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "AbsoluteDeltaIrt");
         List<DiaPrecursorMatch> Planted(DiaIrtCompositionModel? model) => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
             new DiaLibrarySearchParameters(ClassifierNetworkMembers: 3, ClassifierTreeBlend: false, NeighbourEvidence: false, IrtComposition: model), new CommonParameters(), [], []).Run()).Matches
@@ -1504,7 +1504,7 @@ public class DiaLibrarySearchEngineTests
         foreach (var entry in run.Library)
             entry.RetentionTime -= 30;
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
-        var thirty = DiaIrtCompositionModel.Fit(run.Library.Where(e => !e.IsDecoy).Select(e => new DiaIrtCompositionModel.Anchor(e.BaseSequence, e.FullSequence, e.ChargeState, 30)).ToList());
+        var thirty = DiaIrtCompositionModel.Fit(run.Library.Where(e => !e.IsDecoy).Select(e => new DiaIrtCompositionModel.Anchor(e.BaseSequence, 30)).ToList());
         DiaLibrarySearchResults Search(DiaIrtCompositionModel? model) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
             new DiaLibrarySearchParameters(IrtHalfWindow: 5, ClassifierNetworkMembers: 3, ClassifierTreeBlend: false, NeighbourEvidence: false, IrtComposition: model), new CommonParameters(), [], []).Run();
         int Found(DiaLibrarySearchResults results) => results.Matches.Count(m => !m.IsDecoy && m.QValue <= 0.05 && run.PlantedSequences.Contains(m.FullSequence));
@@ -1527,7 +1527,7 @@ public class DiaLibrarySearchEngineTests
         var past = run.Library.Where(e => !e.IsDecoy && run.PlantedSequences.Contains(e.FullSequence) && e.RetentionTime > top + 5 && e.RetentionTime < top + 15).ToList();
         Assert.That(past, Has.Count.GreaterThan(5), "the case needs planted precursors the query would not reach");
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
-        var back = DiaIrtCompositionModel.Fit(run.Library.Where(e => !e.IsDecoy).Select(e => new DiaIrtCompositionModel.Anchor(e.BaseSequence, e.FullSequence, e.ChargeState, -18)).ToList());
+        var back = DiaIrtCompositionModel.Fit(run.Library.Where(e => !e.IsDecoy).Select(e => new DiaIrtCompositionModel.Anchor(e.BaseSequence, -18)).ToList());
         var scored = ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
             new DiaLibrarySearchParameters(IrtHalfWindow: 5, ClassifierNetworkMembers: 3, ClassifierTreeBlend: false, NeighbourEvidence: false, IrtComposition: back), new CommonParameters(), [], []).Run())
             .Matches.Select(m => m.FullSequence).ToHashSet();
