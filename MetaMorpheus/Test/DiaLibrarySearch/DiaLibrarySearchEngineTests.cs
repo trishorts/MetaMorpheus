@@ -1515,11 +1515,11 @@ public class DiaLibrarySearchEngineTests
         Assert.That(Mean(markedDown), Is.GreaterThan(Mean(null) + 0.05));
     }
 
-    /// <summary>The step sits after the blend and before the q-values, off by default and off in calibration. On, a search still reports the planted targets, and says it ran.</summary>
+    /// <summary>The step sits after the blend and before the q-values, on by default and off in calibration. On, a search still reports the planted targets, and says it ran.</summary>
     [Test]
-    public void NeighbourEvidenceRunsInTheSearchWhenAskedFor()
+    public void NeighbourEvidenceRunsInTheSearchByDefault()
     {
-        Assert.That(new DiaLibrarySearchParameters().NeighbourEvidence, Is.False);
+        Assert.That(new DiaLibrarySearchParameters().NeighbourEvidence, Is.True);
         Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new(NeighbourEvidence: true)).NeighbourEvidence, Is.False);
 
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 300);

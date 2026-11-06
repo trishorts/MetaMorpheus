@@ -187,7 +187,8 @@ namespace EngineLayer.DiaLibrarySearch;
 /// </param>
 /// <param name="NeighbourEvidence">
 /// After the tree blend, measure how much of each near-threshold precursor's fragment signal confident precursors eluting with it already explain, and re-rank on the score and that
-/// evidence (<see cref="DiaNeighbourEvidence"/>). Rows at the very top keep their places. Off by default.
+/// evidence (<see cref="DiaNeighbourEvidence"/>). Rows at the very top keep their places. On by default: two-seed means gained 1.91% (PXD022589 HF-X) and 1.42% (PXD005573 1 h) at a matched paired
+/// entrapment FDP of 1%, and on a species arm that cannot reward removing near-isomers, 2.37% and 2.63%. DIA-NN's own list rises at fixed q. Calibration keeps it off.
 /// </param>
 /// <param name="FragmentIntensities">
 /// When set, the library's fragment intensities are read through this table, in choosing a precursor's strongest fragments as well as in scoring them (<see cref="DiaFragmentIntensityModel"/>).
@@ -245,7 +246,7 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool CandidatePeaksFromSummedCore = true,
     double InterferenceOwnIonFloor = 0,
     double InterferenceOwnIonShareCeiling = 1,
-    bool NeighbourEvidence = false,
+    bool NeighbourEvidence = true,
     DiaFragmentIntensityModel? FragmentIntensities = null)
 {
     /// <summary>
