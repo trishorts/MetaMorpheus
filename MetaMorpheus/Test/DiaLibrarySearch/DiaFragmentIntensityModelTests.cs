@@ -142,6 +142,35 @@ public class DiaFragmentIntensityModelTests
         Assert.That(Ratio(DiaFragmentIntensityModel.Fit(anchors), y3, y6), Is.EqualTo(2).Within(1e-6));
     }
 
+    /// <summary>An ion missing from most apexes is still judged on the ones it is in. Counted as nothing, it would read as far too weak.</summary>
+    [Test]
+    public void AnIonMostlyNotSeenIsJudgedWhereItIsSeen()
+    {
+        var y3 = Ion(ProductType.y, 3);
+        var y6 = Ion(ProductType.y, 6);
+        var anchors = Enumerable.Range(0, 160).Select(i =>
+            (IReadOnlyList<(MslFragmentIon Ion, double Observed)>)new List<(MslFragmentIon, double)> { (y3, i % 4 == 0 ? 2.0 : 0.0), (y6, 1.0) });
+
+        Assert.That(DiaFragmentIntensityModel.Fit(anchors).Multiplier(y3), Is.GreaterThan(1));
+    }
+
+    [Test]
+    public void BIonsAreInTheTable()
+    {
+        var b5 = Ion(ProductType.b, 5);
+        var y6 = Ion(ProductType.y, 6);
+
+        Assert.That(Fit(40, (b5, 3), (y6, 1)).Multiplier(b5), Is.GreaterThan(1));
+    }
+
+    [Test]
+    public void TheFitsBoundsAreAsBenchmarked()
+    {
+        Assert.That(DiaFragmentIntensityModel.MinimumIonsPerClass, Is.EqualTo(30));
+        Assert.That(DiaFragmentIntensityModel.LibraryFloor, Is.EqualTo(0.05));
+        Assert.That(DiaFragmentIntensityModel.MaximumMultiplier, Is.EqualTo(4));
+    }
+
     [Test]
     public void TheTableUsesTheMedian()
     {
