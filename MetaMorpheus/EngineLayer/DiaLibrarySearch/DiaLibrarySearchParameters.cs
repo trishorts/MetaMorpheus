@@ -197,7 +197,9 @@ namespace EngineLayer.DiaLibrarySearch;
 /// </param>
 /// <param name="IrtComposition">
 /// When set, a precursor is expected this far from its library iRT, in the window read as well as in the error scored (<see cref="DiaIrtCompositionModel"/>). Calibration fits one
-/// (<see cref="DiaIrtCalibration.IrtComposition"/>). Null expects it at its library value.
+/// (<see cref="DiaIrtCalibration.IrtComposition"/>), and applying a calibration sets it. Two-seed means with it gained 2.22% (PXD022589 HF-X) and 4.45% (PXD005573 1 h) at a matched paired
+/// entrapment FDP of 1%. On a species arm it gained 3.46% on HF-X and lost 0.92% on the 1 h run (two seeds), and gained 3.9-5.9% on four further PXD005573 HeLa runs. Null expects it at its
+/// library value.
 /// </param>
 /// <param name="ClassifierModel">The model the rescorer fits in each fold: a linear discriminant, or a small neural-network ensemble (DIA-NN's approach).</param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,

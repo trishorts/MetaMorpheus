@@ -12,7 +12,8 @@ namespace EngineLayer.DiaLibrarySearch;
 /// well as in the error it scores. Fitted on 1,000 anchors, the median error of the targets a search scores too low goes from 2.47 to 1.59 iRT on PXD022589 HF-X, and from 2.22 to 1.25 on PXD005573 1 h.
 /// </summary>
 /// <remarks>
-/// Only targets fit it, but it goes by composition alone, so a permuted decoy moves as its target does. Charge, oxidation and further length terms were tried and read the same out of sample.
+/// Only targets fit it. A permuted decoy keeps its target's composition and length, so those terms move it as its target; the terms on the first two residues read the decoy's own, as they would
+/// any peptide's. Charge, oxidation and further length terms were tried and read the same out of sample.
 /// </remarks>
 public sealed class DiaIrtCompositionModel
 {
