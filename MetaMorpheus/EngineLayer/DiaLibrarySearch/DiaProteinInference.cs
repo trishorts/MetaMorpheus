@@ -6,6 +6,7 @@ using Chemistry;
 using EngineLayer.FdrAnalysis;
 using MassSpectrometry;
 using MzLibUtil;
+using Omics.Digestion;
 using Omics.Fragmentation;
 using Omics.Modifications;
 using Proteomics;
@@ -73,13 +74,20 @@ public static class DiaProteinInference
     /// a decoy was made from, or null if none. Each decoy then takes its target's proteins, as decoy proteins. Null maps
     /// decoys by digesting the decoy proteins in <paramref name="proteins"/>.
     /// </param>
+    /// <param name="decoyAccessionsOf">
+    /// For a library whose decoys are digests of decoy proteins <paramref name="proteins"/> does not hold (permuted
+    /// ones, say): the decoy protein accessions the library records for a decoy full sequence, or null if it names none.
+    /// Each accession becomes one decoy protein holding exactly the decoy peptides that name it, so the decoy side keeps
+    /// the protein structure the library was built with, whatever made its decoys.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="ArgumentException">
-    /// A PEP q-value threshold is set. The DIA search has no PEP, so the protein engine would filter every peptide out.
+    /// A PEP q-value threshold is set (the DIA search has no PEP, so the protein engine would filter every peptide out),
+    /// or decoys are given two ways to map.
     /// </exception>
     public static DiaProteinInferenceResult Infer(IReadOnlyList<DiaPeptideMatch> peptides, IEnumerable<Protein> proteins,
         CommonParameters commonParameters, string fullFilePath, List<Modification> fixedModifications, List<Modification> variableModifications,
-        Func<string, string?>? targetSequenceOfDecoy = null)
+        Func<string, string?>? targetSequenceOfDecoy = null, Func<string, IReadOnlyList<string>?>? decoyAccessionsOf = null)
     {
         ArgumentNullException.ThrowIfNull(peptides);
         ArgumentNullException.ThrowIfNull(fullFilePath);
@@ -87,12 +95,19 @@ public static class DiaProteinInference
         {
             throw new ArgumentException("DIA protein inference filters on q-value; the DIA search computes no PEP, so a PEP q-value threshold is not supported.", nameof(commonParameters));
         }
+        if (targetSequenceOfDecoy is not null && decoyAccessionsOf is not null)
+        {
+            throw new ArgumentException("Give one way to map decoy peptides: by their targets or by their library accessions, not both.", nameof(decoyAccessionsOf));
+        }
 
         var needed = peptides
+            .Where(p => !p.IsDecoy || decoyAccessionsOf is null)
             .Select(p => p.IsDecoy && targetSequenceOfDecoy is not null ? targetSequenceOfDecoy(p.FullSequence) : p.FullSequence)
             .OfType<string>().ToHashSet();
         var index = IndexPeptides(proteins, commonParameters!, fixedModifications, variableModifications, needed);
-        var decoys = targetSequenceOfDecoy is null ? null : new InheritedDecoys(targetSequenceOfDecoy);
+        IDecoyMap? decoys = targetSequenceOfDecoy is not null ? new InheritedDecoys(targetSequenceOfDecoy)
+            : decoyAccessionsOf is not null ? new LibraryDecoys(peptides.Where(p => p.IsDecoy), decoyAccessionsOf, commonParameters!.DigestionParams)
+            : null;
         var matches = BuildSpectralMatches(peptides, index, decoys, commonParameters!, fullFilePath, out int unmapped);
 
         var parsimony = (ProteinParsimonyResults)new ProteinParsimonyEngine(matches, modPeptidesAreDifferent: false,
@@ -109,7 +124,7 @@ public static class DiaProteinInference
     /// shifted by one constant so the lowest is 1: MetaMorpheus ignores a match scored at or below zero.
     /// </summary>
     private static List<SpectralMatch> BuildSpectralMatches(IReadOnlyList<DiaPeptideMatch> peptides,
-        Dictionary<string, List<PeptideWithSetModifications>> index, InheritedDecoys? decoys, CommonParameters commonParameters,
+        Dictionary<string, List<PeptideWithSetModifications>> index, IDecoyMap? decoys, CommonParameters commonParameters,
         string fullFilePath, out int unmapped)
     {
         double shift = peptides.Count == 0 ? 0 : Math.Max(0, 1 - peptides.Min(p => p.Score));
@@ -159,11 +174,73 @@ public static class DiaProteinInference
             Array.Empty<IsotopicEnvelope>());
     }
 
+    /// <summary>Where decoy peptides go when digesting the database is not how the library made them.</summary>
+    private interface IDecoyMap
+    {
+        /// <summary>The decoy proteins' peptides a decoy full sequence is, or none.</summary>
+        List<PeptideWithSetModifications> Yields(string decoyFullSequence, Dictionary<string, List<PeptideWithSetModifications>> index);
+    }
+
+    /// <summary>
+    /// Decoy peptides placed by the decoy protein accessions their library entries record: one decoy protein per accession,
+    /// its sequence the decoys that name it laid end to end, each at its own positions.
+    /// </summary>
+    /// <remarks>
+    /// MetaMorpheus's picked protein FDR reads a decoy accession's text before its first '_' as the decoy identifier and
+    /// pairs groups by what is left (<see cref="ProteinScoringAndFdrEngine"/>). An accession not prefixed DECOY_ (say
+    /// P1_DECOY) would make each protein its own identifier and every stripped name the same, merging unrelated decoy
+    /// proteins, so such an accession is prefixed DECOY_. mzLib's own decoy and entrapment accessions already are.
+    /// </remarks>
+    private sealed class LibraryDecoys : IDecoyMap
+    {
+        private const string DecoyPrefix = "DECOY_";
+        private readonly Dictionary<string, List<PeptideWithSetModifications>> _placed = new(StringComparer.Ordinal);
+
+        public LibraryDecoys(IEnumerable<DiaPeptideMatch> decoys, Func<string, IReadOnlyList<string>?> accessionsOf, IDigestionParams digestionParams)
+        {
+            var byAccession = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            foreach (string sequence in decoys.Select(p => p.FullSequence).Distinct(StringComparer.Ordinal))
+            {
+                foreach (string given in accessionsOf(sequence) ?? [])
+                {
+                    string accession = given.StartsWith(DecoyPrefix, StringComparison.Ordinal) ? given : DecoyPrefix + given;
+                    if (!byAccession.TryGetValue(accession, out var list))
+                    {
+                        byAccession[accession] = list = [];
+                    }
+                    list.Add(sequence);
+                }
+            }
+            foreach (var (accession, sequences) in byAccession)
+            {
+                sequences.Sort(StringComparer.Ordinal);
+                var bases = sequences.Select(s => new PeptideWithSetModifications(s, GlobalVariables.AllModsKnownDictionary).BaseSequence).ToList();
+                var protein = new Protein(string.Concat(bases), accession, isDecoy: true);
+                int start = 1;
+                for (int i = 0; i < sequences.Count; i++)
+                {
+                    var peptide = new PeptideWithSetModifications(sequences[i], GlobalVariables.AllModsKnownDictionary, digestionParams: digestionParams, p: protein,
+                        oneBasedStartResidueInProtein: start, oneBasedEndResidueInProtein: start + bases[i].Length - 1, missedCleavages: 0,
+                        cleavageSpecificity: CleavageSpecificity.Full);
+                    if (!_placed.TryGetValue(sequences[i], out var placed))
+                    {
+                        _placed[sequences[i]] = placed = [];
+                    }
+                    placed.Add(peptide);
+                    start += bases[i].Length;
+                }
+            }
+        }
+
+        public List<PeptideWithSetModifications> Yields(string decoyFullSequence, Dictionary<string, List<PeptideWithSetModifications>> index) =>
+            _placed.TryGetValue(decoyFullSequence, out var placed) ? placed : [];
+    }
+
     /// <summary>
     /// Decoy peptides that take their target's proteins: one decoy protein per target protein (its reverse, accession
     /// prefixed DECOY_), with each decoy peptide placed where its target sits, mirrored.
     /// </summary>
-    private sealed class InheritedDecoys(Func<string, string?> targetSequenceOf)
+    private sealed class InheritedDecoys(Func<string, string?> targetSequenceOf) : IDecoyMap
     {
         private readonly Dictionary<Protein, Protein> _decoyProteins = new(ReferenceEqualityComparer.Instance);
 

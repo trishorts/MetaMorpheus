@@ -221,6 +221,75 @@ public class DiaProteinInferenceTests
         Assert.That(result.ProteinGroups, Is.All.Matches<ProteinGroup>(g => g.IsDecoy));
     }
 
+    /// <summary>
+    /// For decoys made from decoy proteins the database does not hold (permuted ones, say), the library's recorded
+    /// accessions place them: each decoy goes to every decoy protein its entry names, and only there. Here the database
+    /// has targets only, so digestion could place none of them.
+    /// </summary>
+    [Test]
+    public void ADecoyPeptideMapsToTheDecoyProteinsItsLibraryEntryNames()
+    {
+        // mzLib's permuted decoys are named DECOY_<target>_fold<n> (EntrapmentAccession.Format)
+        var accessions = new Dictionary<string, string[]>
+        {
+            ["ELEELK"] = ["DECOY_A_fold1", "DECOY_B_fold1"],
+            ["QQQQQR"] = ["DECOY_A_fold1"],
+            ["SSSSSK"] = ["DECOY_B_fold1"],
+            ["NNNNNR"] = ["DECOY_C_fold1"],
+        };
+        var peptides = accessions.Keys.Select((s, i) => Peptide(s, 0.001, isDecoy: true, index: i)).ToList();
+
+        var result = DiaProteinInference.Infer(peptides, Targets, Parameters, "run.raw", [], [],
+            decoyAccessionsOf: s => accessions.GetValueOrDefault(s));
+
+        Assert.That(result.UnmappedPeptides, Is.Zero);
+        Assert.That(result.ProteinGroups, Is.All.Matches<ProteinGroup>(g => g.IsDecoy));
+        Assert.That(result.ProteinGroups.Select(g => g.ProteinGroupName), Is.EquivalentTo(new[] { "DECOY_A_fold1", "DECOY_B_fold1", "DECOY_C_fold1" }));
+        var a = result.ProteinGroups.Single(g => g.ProteinGroupName == "DECOY_A_fold1");
+        Assert.That(a.AllPeptides.Select(p => p.FullSequence), Is.EquivalentTo(new[] { "ELEELK", "QQQQQR" }));
+        Assert.That(a.AllPeptides.Select(p => p.Parent.BaseSequence.Substring(p.OneBasedStartResidue - 1, p.Length)), Is.EquivalentTo(new[] { "ELEELK", "QQQQQR" }),
+            "each decoy sits in its decoy protein's sequence where its positions say");
+        var b = result.ProteinGroups.Single(g => g.ProteinGroupName == "DECOY_B_fold1");
+        Assert.That(b.AllPeptides.Select(p => p.FullSequence), Is.EquivalentTo(new[] { "ELEELK", "SSSSSK" }));
+    }
+
+    /// <summary>
+    /// Decoy accessions not prefixed DECOY_ (A_DECOY, B_DECOY) are prefixed, because the picked protein FDR reads the text
+    /// before the first '_' as the decoy identifier: unprefixed, every group would strip to "DECOY" and all but one be dropped.
+    /// </summary>
+    [Test]
+    public void UnprefixedDecoyAccessionsArePrefixedSoPickedFdrKeepsThemApart()
+    {
+        var accessions = new Dictionary<string, string[]> { ["QQQQQR"] = ["A_DECOY"], ["SSSSSK"] = ["B_DECOY"], ["NNNNNR"] = ["C_DECOY"] };
+        var peptides = accessions.Keys.Select((s, i) => Peptide(s, 0.001, isDecoy: true, index: i)).ToList();
+
+        var result = DiaProteinInference.Infer(peptides, Targets, Parameters, "run.raw", [], [],
+            decoyAccessionsOf: s => accessions.GetValueOrDefault(s));
+
+        Assert.That(result.ProteinGroups.Select(g => g.ProteinGroupName), Is.EquivalentTo(new[] { "DECOY_A_DECOY", "DECOY_B_DECOY", "DECOY_C_DECOY" }));
+    }
+
+    /// <summary>A decoy whose library entry names no protein is not evidence, and is counted, as an unmapped target is.</summary>
+    [Test]
+    public void ADecoyItsLibraryNamesNoProteinForIsCounted()
+    {
+        var peptides = new List<DiaPeptideMatch> { Peptide("ELEELK", 0.001, isDecoy: true, index: 0), Peptide("QQQQQR", 0.001, isDecoy: true, index: 1) };
+
+        var result = DiaProteinInference.Infer(peptides, Targets, Parameters, "run.raw", [], [],
+            decoyAccessionsOf: s => s == "ELEELK" ? ["A_DECOY"] : null);
+
+        Assert.That(result.UnmappedPeptides, Is.EqualTo(1));
+        Assert.That(result.SpectralMatches.Select(m => m.FullSequence), Is.EquivalentTo(new[] { "ELEELK" }));
+    }
+
+    [Test]
+    public void DecoysAreMappedOneWayOnly()
+    {
+        var e = Assert.Throws<ArgumentException>(() => DiaProteinInference.Infer([], Targets, Parameters, "run.raw", [], [],
+            targetSequenceOfDecoy: _ => null, decoyAccessionsOf: _ => null));
+        Assert.That(e!.Message, Does.Contain("decoy"));
+    }
+
     /// <summary>One decoy protein per target protein, whichever of its decoy peptides is seen; and with no other evidence, the shared decoy is explained by DECOY_A, as its target is by A.</summary>
     [Test]
     public void DecoysOfOneProteinShareOneDecoyProtein()
