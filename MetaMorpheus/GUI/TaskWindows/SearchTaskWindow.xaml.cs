@@ -1,6 +1,7 @@
 using EngineLayer;
 using EngineLayer.FdrAnalysis;
 using GuiFunctions;
+using GuiFunctions.Util;
 using MassSpectrometry;
 using MzLibUtil;
 using Nett;
@@ -325,6 +326,10 @@ namespace MetaMorpheusGUI
             RenameTCProteinsRadioBox.IsChecked = task.SearchParameters.TCAmbiguity == TargetContaminantAmbiguity.RenameProtein;
             AllAmbiguity.IsChecked = task.CommonParameters.ReportAllAmbiguity;
             MinScoreAllowed.Text = task.CommonParameters.ScoreCutoff.ToString(CultureInfo.InvariantCulture);
+            MinRetentionTimeTextBox.Text = task.CommonParameters.RetentionTimeRange.Minimum.ToString(CultureInfo.InvariantCulture);
+            MaxRetentionTimeTextBox.Text = task.CommonParameters.RetentionTimeRange.Maximum == double.MaxValue
+                ? ""
+                : task.CommonParameters.RetentionTimeRange.Maximum.ToString(CultureInfo.InvariantCulture);
             TrimMs1.IsChecked = task.CommonParameters.TrimMs1Peaks;
             TrimMsMs.IsChecked = task.CommonParameters.TrimMsMsPeaks;
             AddTruncationsCheckBox.IsChecked = task.CommonParameters.AddTruncations;
@@ -354,6 +359,15 @@ namespace MetaMorpheusGUI
                 QValueThresholdTextBox.Text = "0.01";
             }
 
+            // A task still at the bottom-up default starts from the default for its search type
+            double pepTrainingQ = task.CommonParameters.QValueCutoffForPepCalculation;
+            if (pepTrainingQ == PepAnalysisEngine.DefaultQValueCutoffForPepCalculation(false, false))
+            {
+                pepTrainingQ = PepAnalysisEngine.DefaultQValueCutoffForPepCalculation(GuiGlobalParamsViewModel.Instance.IsRnaMode,
+                    task.CommonParameters.DigestionParams.DigestionAgent.Name == "top-down");
+            }
+            PepTrainingQValueTextBox.Text = pepTrainingQ.ToString(CultureInfo.InvariantCulture);
+
             if (task.CommonParameters.PepQValueThreshold < 1)
             {
                 PepQValueThresholdTextBox.Text = task.CommonParameters.PepQValueThreshold.ToString(CultureInfo.InvariantCulture);
@@ -377,6 +391,7 @@ namespace MetaMorpheusGUI
             CompressIndividualResultsCheckBox.IsChecked = task.SearchParameters.CompressIndividualFiles;
             IncludeMotifInModNamesCheckBox.IsChecked = task.SearchParameters.IncludeModMotifInMzid;
             WriteTargetDecoyFastaCheckBox.IsChecked = task.SearchParameters.WriteTargetDecoyFasta;
+            WriteSdrfCheckBox.IsChecked = task.SearchParameters.WriteSdrf;
 
             foreach (var mod in task.CommonParameters.ListOfModsFixed)
             {
@@ -545,16 +560,12 @@ namespace MetaMorpheusGUI
             }
             else
             {
-                digestionParamsToSave = new DigestionParams(
-                    protease: protease.Name,
-                    maxMissedCleavages: maxMissedCleavages,
-                    minPeptideLength: minPeptideLengthValue,
-                    maxPeptideLength: maxPeptideLengthValue,
-                    maxModificationIsoforms: maxModificationIsoformsValue,
-                    initiatorMethionineBehavior: initiatorMethionineBehavior,
+                // pass only what this window shows; every other digestion setting is kept from the loaded task
+                digestionParamsToSave = TaskWindowDigestionParams.ForSave(TheTask.CommonParameters.DigestionParams,
+                    protease.Name, maxMissedCleavages, minPeptideLengthValue, maxPeptideLengthValue, maxModificationIsoformsValue,
                     maxModsForPeptides: maxModsForPeptideValue,
-                    searchModeType: searchModeType,
-                    fragmentationTerminus: fragmentationTerminus,
+                    initiatorMethionineBehavior: initiatorMethionineBehavior,
+                    searchMode: (searchModeType, fragmentationTerminus),
                     generateUnlabeledProteinsForSilac: CheckBoxQuantifyUnlabeledForSilac.IsChecked.Value);
             }
                 
@@ -600,6 +611,12 @@ namespace MetaMorpheusGUI
             bool TrimMs1Peaks = TrimMs1.IsChecked.Value;
             bool TrimMsMsPeaks = TrimMsMs.IsChecked.Value;
             bool AddTruncations = AddTruncationsCheckBox.IsChecked.Value;
+
+            if (!TaskValidator.CheckRetentionTimeRange(MinRetentionTimeTextBox.Text, MaxRetentionTimeTextBox.Text,
+                out double minRetentionTime, out double maxRetentionTime))
+            {
+                return;
+            }
 
             int? numPeaksToKeep = null;
             if (int.TryParse(NumberOfPeaksToKeepPerWindowTextBox.Text, out int numberOfPeaksToKeeep))
@@ -650,6 +667,7 @@ namespace MetaMorpheusGUI
                 useProvidedPrecursorInfo: useProvidedPrecursorInfo,
                 qValueThreshold: !PepQValueThresholdCheckbox.IsChecked.Value ? double.Parse(QValueThresholdTextBox.Text, CultureInfo.InvariantCulture) : 1.0,
                 pepQValueThreshold: PepQValueThresholdCheckbox.IsChecked.Value ? double.Parse(PepQValueThresholdTextBox.Text, CultureInfo.InvariantCulture) : 1.0,
+                qValueCutoffForPepCalculation: double.Parse(PepTrainingQValueTextBox.Text, CultureInfo.InvariantCulture),
                 scoreCutoff: double.Parse(MinScoreAllowed.Text, CultureInfo.InvariantCulture),
                 listOfModsFixed: listOfModsFixed,
                 listOfModsVariable: listOfModsVariable,
@@ -674,6 +692,7 @@ namespace MetaMorpheusGUI
                 productDeconParams: productDeconvolutionParameters,
                 precursorMassMatchMode: _massDifferenceAcceptorViewModel.PrecursorMassMatchMode,
                 fragmentationParams: _fragmentationParamsViewModel.ToFragmentationParams(),
+                retentionTimeRange: new DoubleRange(minRetentionTime, maxRetentionTime),
                 rtPredictorName: rtPredictorModelName);
 
             if (ClassicSearchRadioButton.IsChecked.Value)
@@ -720,6 +739,7 @@ namespace MetaMorpheusGUI
             TheTask.SearchParameters.IncludeModMotifInMzid = IncludeMotifInModNamesCheckBox.IsChecked.Value;
             TheTask.SearchParameters.WriteDigestionProductCountFile = WriteDigestCountCheckBox.IsChecked.Value;
             TheTask.SearchParameters.WriteTargetDecoyFasta = WriteTargetDecoyFastaCheckBox.IsChecked.Value;
+            TheTask.SearchParameters.WriteSdrf = WriteSdrfCheckBox.IsChecked.Value;
 
             if (RemoveContaminantRadioBox.IsChecked.Value)
             {
@@ -937,6 +957,8 @@ namespace MetaMorpheusGUI
                     case "top-down":
                         if (UpdateGUISettings.UseTopDownRecommendedSettings())
                         {
+                            PepTrainingQValueTextBox.Text = PepAnalysisEngine.DefaultQValueCutoffForPepCalculation(isRnaMode, true)
+                                .ToString(CultureInfo.InvariantCulture);
                             DeconHostViewModel.DoPrecursorDeconvolution = true;
                             DeconHostViewModel.UseProvidedPrecursors = false;
                             if (isRnaMode)

@@ -50,4 +50,17 @@ public class DiaPrecursorFdrTests
         foreach (var m in run.Where(m => !m.IsDecoy))
             Assert.That(global[m.PrecursorIndex], Is.EqualTo(m.QValue));
     }
+
+    /// <summary>With no decoy scored in any run, D is 0 and (D+1)/T gives every target 1/T, as each run's own q-values do; never 0.</summary>
+    [Test]
+    public void WithNoDecoyScoredEveryTargetGetsOneOverT()
+    {
+        var run1 = new List<DiaPrecursorMatch> { Match(1, false, 0.9), Match(2, false, 0.2) };
+        var run2 = new List<DiaPrecursorMatch> { Match(2, false, 0.8), Match(3, false, 0.3), Match(4, false, 0.1) };
+
+        var global = DiaPrecursorFdr.GlobalQValues([run1, run2]);
+
+        Assert.That(global.Keys, Is.EquivalentTo(new[] { 1, 2, 3, 4 }));
+        Assert.That(global.Values, Is.All.EqualTo(1.0 / 4));
+    }
 }

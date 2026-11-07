@@ -76,7 +76,8 @@ public class DiaProteinInferenceTests
         Assert.That(names, Is.EquivalentTo(new[] { "A", "C" }));
         var a = result.ProteinGroups.Single(g => g.ProteinGroupName == "A");
         Assert.That(a.AllPeptides.Select(p => p.FullSequence), Is.EquivalentTo(new[] { "LLLLLK", "EEEEER" }));
-        Assert.That(a.UniquePeptides.Select(p => p.FullSequence), Is.EquivalentTo(new[] { "EEEEER" }));
+        // Unique among the groups reported: B is dropped, so the shared LLLLLK is A's alone (mzLib #1463, MetaMorpheus 1.1.13)
+        Assert.That(a.UniquePeptides.Select(p => p.FullSequence), Is.EquivalentTo(new[] { "LLLLLK", "EEEEER" }));
         Assert.That(result.UnmappedPeptides, Is.EqualTo(0));
     }
 

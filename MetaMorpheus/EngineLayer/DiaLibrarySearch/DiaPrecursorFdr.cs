@@ -41,6 +41,9 @@ public static class DiaPrecursorFdr
             var targets = _best.Where(p => !p.Value.IsDecoy).ToList();
             var decoyScores = _best.Values.Where(v => v.IsDecoy).Select(v => v.Score).ToList();
             double[] q = DeconvolutionQValueCalculator.AssignQValues(targets.Select(p => p.Value.Score).ToList(), decoyScores);
+            // As in each run (DiaLibrarySearchEngine): with no decoy scored, (D+1)/T gives every target 1/T, not mzLib's 0
+            if (decoyScores.Count == 0 && targets.Count > 0)
+                System.Array.Fill(q, 1.0 / targets.Count);
             return targets.Select((p, i) => (p.Key, Q: q[i])).ToDictionary(t => t.Key, t => t.Q);
         }
     }

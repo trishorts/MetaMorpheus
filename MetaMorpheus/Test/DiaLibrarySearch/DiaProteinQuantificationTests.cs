@@ -22,7 +22,8 @@ namespace Test.DiaLibrarySearch;
 [ExcludeFromCodeCoverage]
 public class DiaProteinQuantificationTests
 {
-    // A has EEEEER of its own, C has VVVVVK and TTTTTR; LLLLLK is shared by A and B.
+    // A has EEEEER of its own, C has VVVVVK and TTTTTR; LLLLLK is in A and B. Parsimony drops B, so among the groups
+    // reported LLLLLK is A's alone: group-level uniqueness (mzLib #1463, MetaMorpheus 1.1.13, DEF-PROT-UNIQUE v3.14).
     private static readonly List<Protein> Targets =
     [
         new("LLLLLKEEEEER", "A"),
@@ -71,7 +72,7 @@ public class DiaProteinQuantificationTests
         Assert.That(e2.Accession, Is.EqualTo("A"));
         Assert.That(e2.IsDecoy, Is.False);
         Assert.That(e2.GetIdentifiedBioPolymersWithSetMods().Single(),
-            Is.SameAs(inference.ProteinGroups.Single(g => g.ProteinGroupName == "A").UniquePeptides.Single()));
+            Is.SameAs(inference.ProteinGroups.Single(g => g.ProteinGroupName == "A").UniquePeptides.Single(p => p.FullSequence == "EEEEER")));
     }
 
     /// <summary>A shared peptide is still attributed to one peptide, never left ambiguous for the engine to drop.</summary>
@@ -125,7 +126,8 @@ public class DiaProteinQuantificationTests
         Assert.That(results.Success, Is.True, results.Summary);
         var a = results.ProteinIntensities.Single(p => p.Key.BioPolymerGroupName == "A").Value;
         var c = results.ProteinIntensities.Single(p => p.Key.BioPolymerGroupName == "C").Value;
-        Assert.That(a.OrderBy(kv => ((SpectraFileInfo)kv.Key).FullFilePathWithExtension).Select(kv => kv.Value), Is.EqualTo(new[] { 150.0, 300.0 }));
+        // Run 1: EEEEER 100 + 50, and LLLLLK 1000, unique to A once B is dropped. Run 2: EEEEER 300.
+        Assert.That(a.OrderBy(kv => ((SpectraFileInfo)kv.Key).FullFilePathWithExtension).Select(kv => kv.Value), Is.EqualTo(new[] { 1150.0, 300.0 }));
         Assert.That(c.OrderBy(kv => ((SpectraFileInfo)kv.Key).FullFilePathWithExtension).Select(kv => kv.Value), Is.EqualTo(new[] { 100.0, 10.0 }));
         Assert.That(results.AmbiguousSpectralMatchesExcluded, Is.EqualTo(0));
         Assert.That(results.WrittenFiles, Is.Empty);
