@@ -282,6 +282,38 @@ public class DiaProteinInferenceTests
         Assert.That(result.SpectralMatches.Select(m => m.FullSequence), Is.EquivalentTo(new[] { "ELEELK" }));
     }
 
+    /// <summary>
+    /// Picked protein FDR (PLAN D4) on a hand-built pair: a protein and its decoy compete, and only the better of the two
+    /// counts. With the target better, its decoy is picked away and the target passes; with the decoy better, the decoy is
+    /// kept. MetaMorpheus then adds the losing target back with its classic q-value; that value is not asserted, because
+    /// the classic pass sorts on BestPeptideQValue and BestPeptideScore before they are set (ProteinScoringAndFdrEngine
+    /// assigns them only in the picked loop), so it ranks groups in input order and here gives the losing target 0.
+    /// </summary>
+    [TestCase(false)]
+    [TestCase(true)]
+    public void PickedProteinFdrKeepsTheBetterOfATargetAndItsDecoy(bool decoyBetter)
+    {
+        string decoy = DecoySequenceOf("A");
+        var peptides = new List<DiaPeptideMatch>
+        {
+            Peptide("EEEEER", decoyBetter ? 0.002 : 0.001, score: decoyBetter ? 8 : 10, index: 0),
+            Peptide(decoy, decoyBetter ? 0.001 : 0.002, score: decoyBetter ? 10 : 8, isDecoy: true, index: 1),
+        };
+
+        var result = DiaProteinInference.Infer(peptides, TargetsAndDecoys(), Parameters, "run.raw", [], []);
+
+        var names = result.ProteinGroups.Select(g => g.ProteinGroupName).ToList();
+        if (decoyBetter)
+        {
+            Assert.That(names, Does.Contain("DECOY_A"), "the better decoy is kept");
+        }
+        else
+        {
+            Assert.That(names, Does.Not.Contain("DECOY_A"), "the worse decoy is picked away");
+            Assert.That(result.ProteinGroups.Single(g => g.ProteinGroupName == "A").QValue, Is.Zero);
+        }
+    }
+
     [Test]
     public void DecoysAreMappedOneWayOnly()
     {
