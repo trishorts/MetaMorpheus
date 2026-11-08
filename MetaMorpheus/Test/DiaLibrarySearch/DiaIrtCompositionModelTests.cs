@@ -138,40 +138,7 @@ public class DiaIrtCompositionModelTests
         Assert.That(model.Offset("AAAAAAAAKK") - model.Offset("AAAAAAAAAK"), Is.EqualTo(-2).Within(0.2));
     }
 
-    /// <summary>The library is moved 5 iRT earlier per W after the run was made, so the run reads those precursors 5 iRT later than it says, and calibration's fit says so.</summary>
-    [Test]
-    public void CalibrationFitsItFromItsAnchors()
-    {
-        string directory = System.IO.Path.Combine(TestContext.CurrentContext.WorkDirectory, $"DiaIrtCompositionModelTests_{Guid.NewGuid():N}");
-        System.IO.Directory.CreateDirectory(directory);
-        try
-        {
-            var run = SyntheticDiaRun.Build(1000, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 60);
-            foreach (var entry in run.Library.Where(e => e.BaseSequence.Contains('W')))
-                entry.RetentionTime -= 5 * entry.BaseSequence.Count(c => c == 'W');
-            using var library = Readers.SpectralLibrary.MslLibrary.Load(run.WriteLibrary(directory));
-
-            var calibration = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new EngineLayer.CommonParameters());
-
-            Assert.That(calibration.IrtComposition, Is.Not.Null);
-            Assert.That(calibration.IrtComposition!.Offset("AAAAWAAAAK") - calibration.IrtComposition.Offset("AAAAAAAAAK"), Is.EqualTo(5).Within(1.5));
-
-            var oneRound = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new EngineLayer.CommonParameters(), rounds: 1);
-            Assert.That(oneRound.IrtComposition, Is.Null, "as with the MS1 offset, only a later round fits one");
-        }
-        finally
-        {
-            System.IO.Directory.Delete(directory, true);
-        }
-    }
-
-    [Test]
-    public void CalibrationIgnoresAModelPassedToIt()
-    {
-        var model = DiaIrtCompositionModel.Fit([]);
-
-        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters(IrtComposition: model)).IrtComposition, Is.Null);
-    }
+    // Calibration fitting the model: DiaIrtSelfCalibrationTests
 
     [Test]
     public void AnEmptySequenceDoesNotThrow()

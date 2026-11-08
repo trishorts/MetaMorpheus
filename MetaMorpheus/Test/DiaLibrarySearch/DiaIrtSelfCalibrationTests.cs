@@ -7,6 +7,7 @@ using EngineLayer;
 using EngineLayer.DiaLibrarySearch;
 using MzLibUtil;
 using NUnit.Framework;
+using Omics.Fragmentation;
 using Readers.SpectralLibrary;
 
 namespace Test.DiaLibrarySearch;
@@ -149,6 +150,61 @@ public class DiaIrtSelfCalibrationTests
         Assert.That(applied.FragmentIntensities, Is.SameAs(calibration.FragmentIntensities));
         Assert.That(calibration.IrtComposition, Is.Not.Null);
         Assert.That(applied.IrtComposition, Is.SameAs(calibration.IrtComposition));
+    }
+
+    /// <summary>The library halves one class's prediction after the run was made, so the run reads that class at twice what the library says, and calibration's table says so.</summary>
+    [Test]
+    public void CalibrationFitsTheIntensityTableFromItsAnchors()
+    {
+        var run = SyntheticDiaRun.Build(1000, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 60);
+        foreach (var ion in run.Library.SelectMany(e => e.MatchedFragmentIons).Where(f => f.FragmentNumber == 5))
+            ion.Intensity /= 2;
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+
+        var calibration = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new CommonParameters());
+
+        Assert.That(calibration.FragmentIntensities, Is.Not.Null);
+        double ratio = DiaFragmentIntensityModelTests.Ratio(calibration.FragmentIntensities!,
+            DiaFragmentIntensityModelTests.Ion(ProductType.y, 5), DiaFragmentIntensityModelTests.Ion(ProductType.y, 6));
+        Assert.That(ratio, Is.EqualTo(2).Within(0.3));
+
+        var oneRound = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new CommonParameters(), rounds: 1);
+        Assert.That(oneRound.FragmentIntensities, Is.Null, "as with the MS1 offset, only a later round fits one");
+    }
+
+    /// <summary>The library is moved 5 iRT earlier per W after the run was made, so the run reads those precursors 5 iRT later than it says, and calibration's fit says so.</summary>
+    [Test]
+    public void CalibrationFitsTheIrtCompositionFromItsAnchors()
+    {
+        var run = SyntheticDiaRun.Build(1000, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 60);
+        foreach (var entry in run.Library.Where(e => e.BaseSequence.Contains('W')))
+            entry.RetentionTime -= 5 * entry.BaseSequence.Count(c => c == 'W');
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+
+        var calibration = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new CommonParameters());
+
+        Assert.That(calibration.IrtComposition, Is.Not.Null);
+        Assert.That(calibration.IrtComposition!.Offset("AAAAWAAAAK") - calibration.IrtComposition.Offset("AAAAAAAAAK"), Is.EqualTo(5).Within(1.5));
+
+        var oneRound = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new CommonParameters(), rounds: 1);
+        Assert.That(oneRound.IrtComposition, Is.Null, "as with the MS1 offset, only a later round fits one");
+    }
+
+    /// <summary>
+    /// Calibration searches with the settings it was benchmarked with: an intensity table or iRT composition fit passed in is
+    /// dropped (calibration fits its own), the main search's tree blend, summed-core candidates and neighbour evidence are
+    /// off, and it trains as many networks as the main search, as the A/B ran.
+    /// </summary>
+    [Test]
+    public void CalibrationLeavesOutWhatOnlyTheMainSearchUses()
+    {
+        var calibrationOf = DiaIrtSelfCalibration.CalibrationParameters;
+        Assert.That(calibrationOf(new DiaLibrarySearchParameters(FragmentIntensities: DiaFragmentIntensityModel.Fit([]))).FragmentIntensities, Is.Null);
+        Assert.That(calibrationOf(new DiaLibrarySearchParameters(IrtComposition: DiaIrtCompositionModel.Fit([]))).IrtComposition, Is.Null);
+        Assert.That(calibrationOf(new DiaLibrarySearchParameters(ClassifierTreeBlend: true)).ClassifierTreeBlend, Is.False);
+        Assert.That(calibrationOf(new DiaLibrarySearchParameters(CandidatePeaksFromSummedCore: true)).CandidatePeaksFromSummedCore, Is.False);
+        Assert.That(calibrationOf(new DiaLibrarySearchParameters(NeighbourEvidence: true)).NeighbourEvidence, Is.False);
+        Assert.That(calibrationOf(new DiaLibrarySearchParameters()).ClassifierNetworkMembers, Is.EqualTo(24));
     }
 
     /// <summary>The first pass's confident identifications recover the run's true, nonlinear RT(iRT).</summary>

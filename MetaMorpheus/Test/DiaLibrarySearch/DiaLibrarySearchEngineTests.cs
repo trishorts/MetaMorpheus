@@ -262,13 +262,12 @@ public class DiaLibrarySearchEngineTests
     /// <summary>
     /// The classifier's ensemble has 24 networks by default, twice DIA-NN's 12. At the 64-32-16 network, two-seed means at a
     /// matched entrapment FDP of 1% gained 0.12% on PXD022589 (HF-X) and 1.60% on PXD005573 1 h (held-out), whose two seeds
-    /// gained alike (1.63%, 1.57%). Calibration trains as many, as the A/B ran.
+    /// gained alike (1.63%, 1.57%). Calibration trains as many, as the A/B ran (DiaIrtSelfCalibrationTests).
     /// </summary>
     [Test]
     public void TheClassifierTrains24NetworksByDefault()
     {
         Assert.That(new DiaLibrarySearchParameters().ClassifierNetworkMembers, Is.EqualTo(24));
-        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new()).ClassifierNetworkMembers, Is.EqualTo(24));
     }
 
     /// <summary>
@@ -279,7 +278,6 @@ public class DiaLibrarySearchEngineTests
     public void TheTreeBlendIsOnByDefaultAndReordersTheFinalScores()
     {
         Assert.That(new DiaLibrarySearchParameters().ClassifierTreeBlend, Is.True);
-        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new(ClassifierTreeBlend: true)).ClassifierTreeBlend, Is.False);
         var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
         List<DiaPrecursorMatch> SearchWith(bool blend) => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
@@ -1315,7 +1313,6 @@ public class DiaLibrarySearchEngineTests
     public void CandidatePeaksFromTheSummedCoreReachTheSearch()
     {
         Assert.That(new DiaLibrarySearchParameters().CandidatePeaksFromSummedCore, Is.True);
-        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new(CandidatePeaksFromSummedCore: true)).CandidatePeaksFromSummedCore, Is.False);
         var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
         int Candidates(bool summed)
@@ -1658,7 +1655,6 @@ public class DiaLibrarySearchEngineTests
     public void NeighbourEvidenceRunsInTheSearchByDefault()
     {
         Assert.That(new DiaLibrarySearchParameters().NeighbourEvidence, Is.True);
-        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new(NeighbourEvidence: true)).NeighbourEvidence, Is.False);
 
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 300);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));

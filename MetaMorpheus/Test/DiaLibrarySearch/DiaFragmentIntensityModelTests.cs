@@ -21,7 +21,7 @@ namespace Test.DiaLibrarySearch;
 [ExcludeFromCodeCoverage]
 public class DiaFragmentIntensityModelTests
 {
-    private static MslFragmentIon Ion(ProductType type, int number, float intensity = 1, float mz = 500, int charge = 1, double neutralLoss = 0) =>
+    internal static MslFragmentIon Ion(ProductType type, int number, float intensity = 1, float mz = 500, int charge = 1, double neutralLoss = 0) =>
         new() { ProductType = type, FragmentNumber = number, Intensity = intensity, Mz = mz, Charge = charge, NeutralLoss = neutralLoss };
 
     /// <summary>One anchor per item: ions with their library intensities, each read at the given multiple of it.</summary>
@@ -29,7 +29,7 @@ public class DiaFragmentIntensityModelTests
         DiaFragmentIntensityModel.Fit(Enumerable.Range(0, anchors).Select(_ =>
             (IReadOnlyList<(MslFragmentIon Ion, double Observed)>)ions.Select(i => (i.Ion, i.Ion.Intensity * i.ObservedOverLibrary)).ToList()));
 
-    private static double Ratio(DiaFragmentIntensityModel model, MslFragmentIon a, MslFragmentIon b) => model.Multiplier(a) / model.Multiplier(b);
+    internal static double Ratio(DiaFragmentIntensityModel model, MslFragmentIon a, MslFragmentIon b) => model.Multiplier(a) / model.Multiplier(b);
 
     [Test]
     public void AClassReadingStrongerThanTheLibraryPredictsIsRaised()
@@ -315,41 +315,5 @@ public class DiaFragmentIntensityModelTests
         Assert.That(DiaFragmentIntensityModel.ReadAnchor(Entry(Ion(ProductType.y, 3)), new RtMinutes(10), [], 20, true), Is.Empty);
     }
 
-    // ---- Calibration ----
-
-    /// <summary>The library halves one class's prediction after the run was made, so the run reads that class at twice what the library says, and calibration's table says so.</summary>
-    [Test]
-    public void CalibrationFitsTheTableFromItsAnchors()
-    {
-        string directory = System.IO.Path.Combine(TestContext.CurrentContext.WorkDirectory, $"DiaFragmentIntensityModelTests_{Guid.NewGuid():N}");
-        System.IO.Directory.CreateDirectory(directory);
-        try
-        {
-            var run = SyntheticDiaRun.Build(1000, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 60);
-            foreach (var ion in run.Library.SelectMany(e => e.MatchedFragmentIons).Where(f => f.FragmentNumber == 5))
-                ion.Intensity /= 2;
-            using var library = MslLibrary.Load(run.WriteLibrary(directory));
-
-            var calibration = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new EngineLayer.CommonParameters());
-
-            Assert.That(calibration.FragmentIntensities, Is.Not.Null);
-            double ratio = Ratio(calibration.FragmentIntensities!, Ion(ProductType.y, 5), Ion(ProductType.y, 6));
-            Assert.That(ratio, Is.EqualTo(2).Within(0.3));
-
-            var oneRound = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new EngineLayer.CommonParameters(), rounds: 1);
-            Assert.That(oneRound.FragmentIntensities, Is.Null, "as with the MS1 offset, only a later round fits one");
-        }
-        finally
-        {
-            System.IO.Directory.Delete(directory, true);
-        }
-    }
-
-    [Test]
-    public void CalibrationIgnoresATablePassedToIt()
-    {
-        var table = DiaFragmentIntensityModel.Fit([]);
-
-        Assert.That(DiaIrtSelfCalibration.CalibrationParameters(new DiaLibrarySearchParameters(FragmentIntensities: table)).FragmentIntensities, Is.Null);
-    }
+    // Calibration fitting the table: DiaIrtSelfCalibrationTests
 }
