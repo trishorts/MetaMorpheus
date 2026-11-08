@@ -40,11 +40,24 @@ public class DiaLibrarySearchTaskTests
     }
 
     /// <summary>Writes a synthetic run as mzML and its library as .msl, as a user would hand them to the task.</summary>
+    /// <param name="accessions">
+    /// Gives each target the protein accession P00000, P00001, ... and its decoy DECOY_ and the same, as mzLib's library
+    /// builder names a decoy protein.
+    /// </param>
     private (string Mzml, string Library, SyntheticDiaRun Run) WriteInputs(string name, double noisePeaksPerScan = 60,
-        Func<Omics.SpectralMatch.MslSpectralLibrary.MslLibraryEntry, double>? abundance = null)
+        Func<Omics.SpectralMatch.MslSpectralLibrary.MslLibraryEntry, double>? abundance = null, bool accessions = false)
     {
         var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0, withMs1: true, noisePeaksPerScan: noisePeaksPerScan,
             abundance: abundance);
+        if (accessions)
+        {
+            // Build adds each target, then its decoy
+            for (int i = 0; i < run.Library.Count; i += 2)
+            {
+                run.Library[i].ProteinAccession = $"P{i / 2:D5}";
+                run.Library[i + 1].ProteinAccession = $"DECOY_P{i / 2:D5}";
+            }
+        }
         string folder = Path.Combine(_directory, name);
         Directory.CreateDirectory(folder);
         string mzml = Path.Combine(folder, name + ".mzML");
@@ -263,6 +276,151 @@ public class DiaLibrarySearchTaskTests
             Assert.That(row.BaseSequence, Is.EqualTo(entry.BaseSequence));
             Assert.That(row.ProteinAccession, Is.EqualTo(entry.ProteinAccession ?? ""), "no accession is an empty cell");
         }
+    }
+
+    /// <summary>
+    /// AllDiaPeptides.tsv (PLAN D4, "peptide, global"; mzLib's DiaPeptideFile): the target peptides at the threshold from a
+    /// fresh competition among peptides, each with its best precursor's run and charge, and their count in results.txt.
+    /// With no protein database there is no protein-group table and no protein line.
+    /// </summary>
+    [Test]
+    public void TheTaskWritesThePeptideTable()
+    {
+        var (_, results, run, matches) = RunTheTask("peptides");
+        string output = Path.Combine(_directory, "peptides", "output", "Task1");
+
+        var table = new DiaPeptideFile(Path.Combine(output, "AllDiaPeptides.tsv"));
+        table.LoadResults();
+
+        var expected = EngineLayer.DiaLibrarySearch.DiaPeptideFdr.Assign(matches).Where(p => !p.IsDecoy && p.QValue <= 0.01).ToList();
+        Assert.That(expected, Is.Not.Empty);
+        Assert.That(table.ContaminantsAssessed, Is.False);
+        Assert.That(table.Results.Select(r => (r.FullSequence, r.Score, r.QValuePeptideGlobal)),
+            Is.EquivalentTo(expected.Select(p => (p.FullSequence, p.Score, p.QValue))));
+        var precursors = matches.ToDictionary(m => m.PrecursorIndex);
+        foreach (var row in table.Results)
+        {
+            var best = precursors[expected.Single(p => p.FullSequence == row.FullSequence).BestPrecursorIndex];
+            Assert.That(row.FileName, Is.EqualTo("peptides.mzML"));
+            Assert.That(row.PrecursorCharge, Is.EqualTo(best.Charge));
+            Assert.That(row.Label, Is.EqualTo("T"));
+            Assert.That(row.BaseSequence, Is.EqualTo(run.Library.First(e => e.FullSequence == row.FullSequence).BaseSequence));
+        }
+        Assert.That(results, Does.Contain("All target peptides with q-value <= 0.01: " + expected.Count));
+        Assert.That(results, Does.Not.Contain("protein groups"));
+        Assert.That(File.Exists(Path.Combine(output, "AllDiaProteinGroups.tsv")), Is.False);
+    }
+
+    /// <summary>
+    /// Given a protein database beside the library, the task writes AllDiaProteinGroups.tsv in MetaMorpheus's protein-group
+    /// format (read back by mzLib's protein-group reader): the target groups at the threshold that MetaMorpheus's parsimony
+    /// and picked protein FDR infer from the peptides, decoys placed on the decoy proteins the library names. Precursors,
+    /// peptides and groups whose proteins are all in the contaminant database are labelled C, and the tables say
+    /// contaminants were assessed.
+    /// </summary>
+    [Test]
+    public void GivenAProteinDatabaseTheTaskWritesProteinGroups()
+    {
+        // Enough noise that decoys find peaks and are scored, as in a real run
+        var (mzml, library, run) = WriteInputs("proteins", noisePeaksPerScan: 1500, accessions: true);
+        string folder = Path.GetDirectoryName(mzml)!;
+        var targets = run.Library.Where(e => !e.IsDecoy).ToList();
+        bool IsContaminant(Omics.SpectralMatch.MslSpectralLibrary.MslLibraryEntry e) => SyntheticDiaRun.Bucket(e, 5) == 0;
+        string fasta = WriteFasta(Path.Combine(folder, "proteins.fasta"), targets.Where(e => !IsContaminant(e)));
+        string contaminants = WriteFasta(Path.Combine(folder, "contaminants.fasta"), targets.Where(IsContaminant));
+        var contaminantAccessions = targets.Where(IsContaminant).Select(e => e.ProteinAccession).ToHashSet();
+        string output = Path.Combine(folder, "output", "Task1");
+        Directory.CreateDirectory(output);
+        var commonParameters = new CommonParameters(listOfModsFixed: new List<(string, string)>());
+
+        new DiaLibrarySearchTask { CommonParameters = commonParameters }.RunTask(output,
+            [new DbForTask(library, false), new DbForTask(fasta, false), new DbForTask(contaminants, true)], [mzml], "Task1");
+
+        // The same inference by hand, on the hand-run engine's peptides
+        var scans = DiaLibrarySearchTask.LoadScans(mzml);
+        using var msl = Readers.SpectralLibrary.MslLibrary.Load(library);
+        var parameters = new DiaLibrarySearchTaskParameters().ToEngineParameters();
+        var calibration = EngineLayer.DiaLibrarySearch.DiaIrtSelfCalibration.Calibrate(scans, msl, parameters, commonParameters);
+        var matches = ((EngineLayer.DiaLibrarySearch.DiaLibrarySearchResults)new EngineLayer.DiaLibrarySearch.DiaLibrarySearchEngine(scans, msl,
+            calibration.Model, calibration.ApplyTo(parameters), commonParameters, [], []).Run()).Matches;
+        var peptides = EngineLayer.DiaLibrarySearch.DiaPeptideFdr.Assign(matches);
+        var proteins = UsefulProteomicsDatabases.ProteinDbLoader.LoadProteinFasta(fasta, true, UsefulProteomicsDatabases.DecoyType.None, false, out _)
+            .Concat(UsefulProteomicsDatabases.ProteinDbLoader.LoadProteinFasta(contaminants, true, UsefulProteomicsDatabases.DecoyType.None, true, out _)).ToList();
+        var variable = GlobalVariables.AllModsKnown.Where(m => commonParameters.ListOfModsVariable.Contains((m.ModificationType, m.IdWithMotif))).ToList();
+        var decoyAccessions = run.Library.Where(e => e.IsDecoy).ToDictionary(e => e.FullSequence, e => (IReadOnlyList<string>)[e.ProteinAccession]);
+        var inference = EngineLayer.DiaLibrarySearch.DiaProteinInference.Infer(peptides, proteins, commonParameters, mzml, [], variable,
+            decoyAccessionsOf: s => decoyAccessions.GetValueOrDefault(s));
+        var expected = inference.ProteinGroups.Where(g => !g.IsDecoy && g.QValue <= 0.01).ToList();
+        Assert.That(expected.Count, Is.GreaterThan(10));
+        Assert.That(inference.SpectralMatches.Count(m => m.IsDecoy), Is.GreaterThan(0),
+            $"decoys were placed: {peptides.Count(p => p.IsDecoy)} decoy peptides, {inference.UnmappedPeptides} unmapped, {inference.SpectralMatches.Count} matches, " +
+            $"{peptides.Where(p => p.IsDecoy).Count(p => decoyAccessions.ContainsKey(p.FullSequence))} decoys with accessions");
+
+        string groupsPath = Path.Combine(output, "AllDiaProteinGroups.tsv");
+        var groups = FileReader.ReadFile<ProteinGroupFromTsvFile>(groupsPath).Results;
+        Assert.That(groups.Select(g => (g.ProteinGroupName, g.QValue, g.DecoyContaminantTarget)),
+            Is.EquivalentTo(expected.Select(g => (g.ProteinGroupName, g.QValue, g.IsContaminant ? "C" : "T"))));
+        Assert.That(groups.Where(g => g.DecoyContaminantTarget == "C").Select(g => g.ProteinGroupName), Is.Not.Empty.And.All.Matches<string>(contaminantAccessions.Contains));
+        string results = File.ReadAllText(Path.Combine(output, "results.txt"));
+        Assert.That(results, Does.Contain("All target protein groups with q-value <= 0.01: " + groups.Count));
+
+        var precursorTable = new DiaPrecursorFile(Path.Combine(output, "AllDiaPrecursors.tsv"));
+        precursorTable.LoadResults();
+        var peptideTable = new DiaPeptideFile(Path.Combine(output, "AllDiaPeptides.tsv"));
+        peptideTable.LoadResults();
+        Assert.That(precursorTable.ContaminantsAssessed && peptideTable.ContaminantsAssessed);
+        foreach (var (accession, label) in precursorTable.Results.Select(r => (r.ProteinAccession, r.Label)).Concat(peptideTable.Results.Select(r => (r.ProteinAccession, r.Label))))
+            Assert.That(label, Is.EqualTo(contaminantAccessions.Contains(accession) ? "C" : "T"), accession);
+        Assert.That(peptideTable.Results.Count(r => r.Label == "C"), Is.GreaterThan(0));
+    }
+
+    /// <summary>
+    /// A library whose decoys name no protein gives protein FDR no decoys, so every group would pass. The task warns and
+    /// writes no protein-group table rather than q-values with no decoy evidence; the peptide table is still written.
+    /// </summary>
+    [Test]
+    public void ALibraryWhoseDecoysNameNoProteinWritesNoProteinGroups()
+    {
+        var (mzml, library, run) = WriteInputs("noDecoyProteins", noisePeaksPerScan: 1500);
+        string folder = Path.GetDirectoryName(mzml)!;
+        string fasta = WriteFasta(Path.Combine(folder, "proteins.fasta"), run.Library.Where(e => !e.IsDecoy));
+        string output = Path.Combine(folder, "output", "Task1");
+        Directory.CreateDirectory(output);
+        var warnings = new List<string>();
+        EventHandler<StringEventArgs> onWarn = (_, e) => warnings.Add(e.S);
+        MetaMorpheusTask.WarnHandler += onWarn;
+        try
+        {
+            new DiaLibrarySearchTask { CommonParameters = new CommonParameters(listOfModsFixed: new List<(string, string)>()) }
+                .RunTask(output, [new DbForTask(library, false), new DbForTask(fasta, false)], [mzml], "Task1");
+        }
+        finally
+        {
+            MetaMorpheusTask.WarnHandler -= onWarn;
+        }
+
+        // Decoys were scored, so it is their missing accessions, not their absence, that stops the protein groups
+        var warning = warnings.Single(w => w.Contains("No decoy peptide names a decoy protein"));
+        Assert.That(int.Parse(Regex.Match(warning, @"of (\d+) decoy peptides scored").Groups[1].Value), Is.GreaterThan(0), warning);
+        Assert.That(File.Exists(Path.Combine(output, "AllDiaProteinGroups.tsv")), Is.False);
+        Assert.That(File.ReadAllText(Path.Combine(output, "results.txt")), Does.Not.Contain("protein groups"));
+        var peptides = new DiaPeptideFile(Path.Combine(output, "AllDiaPeptides.tsv"));
+        peptides.LoadResults();
+        Assert.That(peptides.Results, Is.Not.Empty);
+    }
+
+    /// <summary>
+    /// A FASTA with one protein per library target, its accession the entry's (or one made from its position), so digesting
+    /// it yields exactly the library's target peptides.
+    /// </summary>
+    private static string WriteFasta(string path, IEnumerable<Omics.SpectralMatch.MslSpectralLibrary.MslLibraryEntry> targets)
+    {
+        File.WriteAllLines(path, targets.SelectMany((e, i) =>
+        {
+            string accession = string.IsNullOrEmpty(e.ProteinAccession) ? $"Q{i:D5}" : e.ProteinAccession;
+            return new[] { $">sp|{accession}|{accession}_SYNTH Synthetic protein OS=Synthetic OX=1 GN=G{accession}", e.BaseSequence };
+        }));
+        return path;
     }
 
     /// <summary>

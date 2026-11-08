@@ -82,5 +82,43 @@ public class DiaPeptideFdrTests
     {
         Assert.That(DiaPeptideFdr.Assign([]), Is.Empty);
         Assert.Throws<ArgumentNullException>(() => DiaPeptideFdr.Assign(null!));
+        Assert.That(new DiaPeptideFdr.BestPrecursors().Assign(), Is.Empty);
+    }
+
+    /// <summary>
+    /// Several runs (PLAN D4, "peptide, global"): kept a run at a time, each peptide's best precursor over the runs gives
+    /// the same peptides as pooling every run's matches, and each names the run its best precursor came from. A tie keeps
+    /// the earlier run, as the pooled order does.
+    /// </summary>
+    [Test]
+    public void PeptidesOverSeveralRunsAreThoseOfThePooledRuns()
+    {
+        var random = new Random(5);
+        var runs = Enumerable.Range(0, 3).Select(r => Enumerable.Range(0, 200).Select(i =>
+        {
+            bool decoy = i % 4 == 0;
+            int charge = 2 + i % 2;
+            // Precursor 6 scores the same in every run, so the tie rule shows
+            double score = i == 6 ? 2.0 : random.NextDouble() + (decoy ? 0 : 0.4);
+            return Match(i, $"PEP{i / 2:D3}K", charge, decoy, score);
+        }).ToList()).ToList();
+
+        var best = new DiaPeptideFdr.BestPrecursors();
+        for (int r = 0; r < runs.Count; r++)
+            best.Add($"run{r}.mzML", runs[r]);
+        var peptides = best.Assign();
+
+        var pooled = DiaPeptideFdr.Assign(runs.SelectMany(run => run).ToList());
+        Assert.That(peptides.Select(p => p.Peptide), Is.EqualTo(pooled));
+        foreach (var (peptide, precursor, run) in peptides)
+        {
+            Assert.That(precursor.PrecursorIndex, Is.EqualTo(peptide.BestPrecursorIndex));
+            Assert.That(precursor.Score, Is.EqualTo(peptide.Score));
+            int r = int.Parse(run[3..4]);
+            Assert.That(runs[r], Does.Contain(precursor), "the run named holds the best precursor");
+            Assert.That(runs.Take(r).SelectMany(x => x).Where(m => m.FullSequence == peptide.FullSequence && m.IsDecoy == peptide.IsDecoy),
+                Has.None.Matches<DiaPrecursorMatch>(m => m.Score >= peptide.Score), "no earlier run scored as well");
+        }
+        Assert.That(peptides.Single(p => p.Peptide.BestPrecursorIndex == 6).Run, Is.EqualTo("run0.mzML"));
     }
 }
