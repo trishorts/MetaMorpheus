@@ -723,7 +723,7 @@ public class DiaLibrarySearchEngineTests
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
         DiaLibrarySearchResults SearchWith(bool on) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
             new DiaLibrarySearchParameters(Ms1Intensity: on), new CommonParameters(), [], []).Run();
-        static double Median(IEnumerable<double> values)
+        static double Median(IEnumerable<float> values)
         {
             var sorted = values.Order().ToArray();
             Assert.That(sorted, Is.Not.Empty);
@@ -739,7 +739,8 @@ public class DiaLibrarySearchEngineTests
         var unplanted = on.Where(m => !run.PlantedSequences.Contains(m.FullSequence)).ToList();
         Assert.That(Median(planted.Select(m => m.Features[intensity])), Is.GreaterThan(Median(unplanted.Select(m => m.Features[intensity])) + 1));
         Assert.That(Median(planted.Select(m => m.Features[ratio])), Is.GreaterThan(Median(unplanted.Select(m => m.Features[ratio]))));
-        Assert.That(planted.Select(m => m.Features[intensity] - Math.Log10(1 + m.Quantity) - m.Features[ratio]), Has.All.EqualTo(0).Within(1e-9),
+        // Each feature is kept as a float, so each is within half a float step (about 5e-7 near 10) of its double
+        Assert.That(planted.Select(m => m.Features[intensity] - Math.Log10(1 + m.Quantity) - m.Features[ratio]), Has.All.EqualTo(0).Within(1e-5),
             "the ratio is the MS1 log less the fragments' log area");
     }
 
@@ -759,7 +760,7 @@ public class DiaLibrarySearchEngineTests
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
         DiaLibrarySearchResults SearchWith(bool on) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
             new DiaLibrarySearchParameters(Ms1PeakSignalFraction: on), new CommonParameters(), [], []).Run();
-        static double Median(IEnumerable<double> values)
+        static double Median(IEnumerable<float> values)
         {
             var sorted = values.Order().ToArray();
             Assert.That(sorted, Is.Not.Empty);
@@ -793,7 +794,7 @@ public class DiaLibrarySearchEngineTests
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
         DiaLibrarySearchResults SearchWith(bool on) => (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
             new DiaLibrarySearchParameters(Ms1PeakPoints: on), new CommonParameters(), [], []).Run();
-        static double Median(IEnumerable<double> values)
+        static double Median(IEnumerable<float> values)
         {
             var sorted = values.Order().ToArray();
             Assert.That(sorted, Is.Not.Empty);
@@ -844,7 +845,7 @@ public class DiaLibrarySearchEngineTests
         int Column(string name) => Array.IndexOf(DiaPrecursorMatch.FeatureNames, name);
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
-        Dictionary<(int, double), double[]> SearchWith(int? window) => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+        Dictionary<(int, double), float[]> SearchWith(int? window) => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
             new DiaLibrarySearchParameters(Ms1CorrelationHalfWidthScans: window), new CommonParameters(), [], []).Run()).Matches
             .ToDictionary(m => (m.PrecursorIndex, m.ApexRt.Value), m => m.Features);
 
@@ -894,7 +895,7 @@ public class DiaLibrarySearchEngineTests
         int coElution = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "CoElution");
         var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0);
         using var library = MslLibrary.Load(run.WriteLibrary(_directory));
-        Dictionary<(int, double), double> SearchWith(int apex, int? window) => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+        Dictionary<(int, double), float> SearchWith(int apex, int? window) => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
             new DiaLibrarySearchParameters(ApexHalfWidthScans: apex, CoElutionHalfWidthScans: window), new CommonParameters(), [], []).Run()).Matches
             .ToDictionary(m => (m.PrecursorIndex, m.ApexRt.Value), m => m.Features[coElution]);
 
@@ -996,7 +997,7 @@ public class DiaLibrarySearchEngineTests
 
         Assert.That(SearchWith(false).Matches.SelectMany(m => new[] { m.Features[error], m.Features[m2] }), Has.All.EqualTo(0));
         var planted = SearchWith(true).Matches.Where(m => run.PlantedSequences.Contains(m.FullSequence)).ToList();
-        double Median(IEnumerable<double> values) { var s = values.Order().ToArray(); return s[s.Length / 2]; }
+        double Median(IEnumerable<float> values) { var s = values.Order().ToArray(); return s[s.Length / 2]; }
         Assert.That(planted, Is.Not.Empty);
         Assert.That(Median(planted.Select(m => m.Features[error])), Is.LessThan(1));
         Assert.That(Median(planted.Select(m => m.Features[m2])), Is.GreaterThan(0.5));
@@ -1026,8 +1027,8 @@ public class DiaLibrarySearchEngineTests
         Assert.That(none, Is.Not.Empty);
         Assert.That(Median(none.Select(m => Math.Abs(m.Ms1ApexErrorPpm))), Is.LessThan(1));
         Assert.That(Median(shifted.Select(m => Math.Abs(m.Ms1ApexErrorPpm))), Is.LessThan(1), "the raw error does not depend on the offset");
-        Assert.That(Median(none.Select(m => m.Features[error])), Is.LessThan(1));
-        Assert.That(Median(shifted.Select(m => m.Features[error])), Is.EqualTo(3).Within(0.6));
+        Assert.That(Median(none.Select(m => (double)m.Features[error])), Is.LessThan(1));
+        Assert.That(Median(shifted.Select(m => (double)m.Features[error])), Is.EqualTo(3).Within(0.6));
     }
 
     /// <summary>
@@ -1453,7 +1454,7 @@ public class DiaLibrarySearchEngineTests
         int sibling = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "SiblingCoElution");
         int delta = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "SiblingApexDeltaMinutes");
         Assert.That(new[] { sibling, delta }, Is.All.GreaterThanOrEqualTo(0));
-        double Median(IEnumerable<double> values) { var s = values.Order().ToArray(); return s[s.Length / 2]; }
+        double Median(IEnumerable<float> values) { var s = values.Order().ToArray(); return s[s.Length / 2]; }
         var plantedPairs = matches.Where(m => run.PlantedSequences.Contains(m.FullSequence) && withSibling.Contains((m.FullSequence, m.IsDecoy))).ToList();
         var chancePairs = matches.Where(m => !run.PlantedSequences.Contains(m.FullSequence) && withSibling.Contains((m.FullSequence, m.IsDecoy))).ToList();
         var alone = matches.Where(m => !withSibling.Contains((m.FullSequence, m.IsDecoy))).ToList();
@@ -1485,7 +1486,7 @@ public class DiaLibrarySearchEngineTests
         int ppm = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1MassErrorPpm");
         int share = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Ms1ApexShare");
         Assert.That(new[] { envelope, ppm, share }, Is.All.GreaterThanOrEqualTo(0));
-        double Median(IEnumerable<double> values) { var s = values.Order().ToArray(); return s[s.Length / 2]; }
+        double Median(IEnumerable<float> values) { var s = values.Order().ToArray(); return s[s.Length / 2]; }
         var planted = matches.Where(m => run.PlantedSequences.Contains(m.FullSequence)).ToList();
         var chance = matches.Where(m => !run.PlantedSequences.Contains(m.FullSequence)).ToList();
         Assert.That(planted, Has.Count.GreaterThan(50));
@@ -1624,7 +1625,7 @@ public class DiaLibrarySearchEngineTests
         {
             var results = (DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
                 new DiaLibrarySearchParameters(ClassifierNetworkMembers: 3, ClassifierTreeBlend: false, FragmentIntensities: table), new CommonParameters(), [], []).Run();
-            double[] read = results.Matches.Where(m => run.PlantedSequences.Contains(m.FullSequence)).Select(m => m.Features[cosine]).Order().ToArray();
+            float[] read = results.Matches.Where(m => run.PlantedSequences.Contains(m.FullSequence)).Select(m => m.Features[cosine]).Order().ToArray();
             return read[read.Length / 2];
         }
 
@@ -1862,7 +1863,7 @@ public class DiaLibrarySearchEngineTests
         var matches = Search(run).Matches;
 
         int coElution = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "CoElution");
-        double Median(IEnumerable<double> values) { var s = values.Order().ToArray(); return s[s.Length / 2]; }
+        double Median(IEnumerable<float> values) { var s = values.Order().ToArray(); return s[s.Length / 2]; }
         var planted = matches.Where(m => run.PlantedSequences.Contains(m.FullSequence)).Select(m => m.Features[coElution]).ToList();
         var noise = matches.Where(m => !run.PlantedSequences.Contains(m.FullSequence)).Select(m => m.Features[coElution]).ToList();
         Assert.That(planted, Has.Count.GreaterThan(50));
@@ -2116,29 +2117,6 @@ public class DiaLibrarySearchEngineTests
         Assert.That(matches.Select(m => m.FullSequence), Does.Contain(template.FullSequence), "its neighbour, at the same m/z, is still scored");
         Assert.That(matches.Select(m => m.FullSequence), Does.Not.Contain(untimed.FullSequence));
         Assert.That(matches, Has.All.Matches<DiaPrecursorMatch>(m => double.IsFinite(m.LibraryIrt.Value)));
-    }
-
-    /// <summary>
-    /// Single-precision features: every feature the classifier sees is rounded to the nearest float, which is what storing them
-    /// as float (design D3) would give, so the effect on identifications is measured before the memory change is made. Off by
-    /// default, and off leaves features that are not floats.
-    /// </summary>
-    [Test]
-    public void SinglePrecisionFeaturesAreRoundedBeforeTheClassifier()
-    {
-        Assert.That(new DiaLibrarySearchParameters().SinglePrecisionFeatures, Is.False);
-        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
-        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
-        List<DiaPrecursorMatch> SearchWith(bool on) => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
-            new DiaLibrarySearchParameters(SinglePrecisionFeatures: on), new CommonParameters(), [], []).Run()).Matches;
-        static bool IsFloat(double v) => (double)(float)v == v;
-
-        var off = SearchWith(false);
-        Assert.That(off.SelectMany(m => m.Features).Any(v => !IsFloat(v)), Is.True, "off, some features are not floats, or this test proves nothing");
-
-        var on = SearchWith(true);
-        Assert.That(on, Is.Not.Empty);
-        Assert.That(on.SelectMany(m => m.Features), Has.All.Matches<double>(IsFloat));
     }
 
     /// <summary>Stop, pressed before the search reaches a window, leaves every window unsearched.</summary>

@@ -12,7 +12,11 @@ namespace EngineLayer.DiaLibrarySearch;
 /// The combined score the q-values are computed on: mzLib's semi-supervised TargetDecoyRescorer over
 /// <paramref name="Features"/>. Before rescoring it holds the apex cosine × co-elution.
 /// </param>
-/// <param name="Features">The peak group's features, in <see cref="DiaPrecursorMatch.FeatureNames"/> order.</param>
+/// <param name="Features">
+/// The peak group's features, in <see cref="DiaPrecursorMatch.FeatureNames"/> order, each rounded once to a float: a search
+/// holds tens of millions of candidates, and their features were most of its live memory as doubles. Computed in doubles,
+/// and read back by the classifier and the trees as the same values (two-seed A/B, 2026-11-09).
+/// </param>
 /// <param name="QValue">
 /// Target-decoy q-value among targets; NaN for a decoy, which competes but is not itself reported.
 /// </param>
@@ -30,7 +34,7 @@ public sealed record DiaPrecursorMatch(
     RtMinutes ApexRt,
     Irt ApexIrt,
     double Score,
-    double[] Features,
+    float[] Features,
     double QValue = double.NaN,
     double Quantity = double.NaN)
 {

@@ -38,16 +38,16 @@ public class DiaTreeBlendTests
     }
 
     /// <summary>Half targets. The score sees one signal, and only the features carry the other.</summary>
-    private static (List<double[]> Features, List<double> Scores, List<bool> IsDecoy, List<string> Keys) TwoSignals(int rows, int seed = 1)
+    private static (List<float[]> Features, List<double> Scores, List<bool> IsDecoy, List<string> Keys) TwoSignals(int rows, int seed = 1)
     {
         var random = new Random(seed);
-        var data = (Features: new List<double[]>(), Scores: new List<double>(), IsDecoy: new List<bool>(), Keys: new List<string>());
+        var data = (Features: new List<float[]>(), Scores: new List<double>(), IsDecoy: new List<bool>(), Keys: new List<string>());
         for (int i = 0; i < rows; i++)
         {
             bool decoy = i % 2 == 1;
             double seen = (decoy ? 0 : 1) + Gaussian(random);
             double unseen = (decoy ? 0 : 1) + Gaussian(random);
-            data.Features.Add([seen, unseen]);
+            data.Features.Add([(float)seen, (float)unseen]);
             data.Scores.Add(seen);
             data.IsDecoy.Add(decoy);
             data.Keys.Add($"P{i}");
@@ -88,7 +88,7 @@ public class DiaTreeBlendTests
     public void ARowIsNeverScoredByATreeThatSawItsGroup()
     {
         var random = new Random(3);
-        var features = new List<double[]>();
+        var features = new List<float[]>();
         var scores = new List<double>();
         var isDecoy = new List<bool>();
         var keys = new List<string>();
@@ -97,7 +97,7 @@ public class DiaTreeBlendTests
             bool decoy = random.Next(2) == 0;
             for (int row = 0; row < 3; row++)
             {
-                features.Add([group + 0.1 * random.NextDouble()]);
+                features.Add([(float)(group + 0.1 * random.NextDouble())]);
                 scores.Add(random.NextDouble());
                 isDecoy.Add(decoy);
                 keys.Add($"G{group}");
@@ -117,7 +117,7 @@ public class DiaTreeBlendTests
     public void TheTreesLearnFromTheTopRowsByScore()
     {
         var random = new Random(5);
-        var features = new List<double[]>();
+        var features = new List<float[]>();
         var scores = new List<double>();
         var isDecoy = new List<bool>();
         var keys = new List<string>();
@@ -126,7 +126,7 @@ public class DiaTreeBlendTests
             bool high = i < 1000;
             bool decoy = i % 2 == 1;
             bool featurePointsToTarget = high != decoy;
-            features.Add([(featurePointsToTarget ? 1 : 0) + 0.5 * Gaussian(random)]);
+            features.Add([(float)((featurePointsToTarget ? 1 : 0) + 0.5 * Gaussian(random))]);
             scores.Add((high ? 2 : 0) + random.NextDouble());
             isDecoy.Add(decoy);
             keys.Add($"P{i}");

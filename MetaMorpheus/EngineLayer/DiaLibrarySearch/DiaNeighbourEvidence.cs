@@ -250,7 +250,8 @@ public static class DiaNeighbourEvidence
         int n = scores.Count;
         if (columns.Count != n || isDecoy.Count != n || groupKeys.Count != n)
             throw new ArgumentException("Scores, columns, decoy flags and group keys must have one entry per row.");
-        double[][] features = scores.Select((score, i) => columns[i].Prepend(score).ToArray()).ToArray();
+        // The trees read floats: each value rounded once, as the trees always rounded it
+        float[][] features = scores.Select((score, i) => columns[i].Prepend(score).Select(v => (float)v).ToArray()).ToArray();
         double[]? margins = DiaTreeBlend.OutOfFoldMargins(features, scores, isDecoy, groupKeys, n, StackFolds, StackTrees, seed, threads);
         if (margins is null)
             return scores.ToArray();

@@ -420,8 +420,8 @@ public class DiaIrtSelfCalibrationTests
         // Poison: wrong apexes far from the curve, as a weak target and as a decoy
         var poisoned = results.Matches.Concat(Enumerable.Range(0, 50).SelectMany(i => new[]
         {
-            new DiaPrecursorMatch(100_000 + i, "POISONK", 2, 500, false, new Irt(100), new RtMinutes(1), new Irt(0), 1, [1.0], QValue: 0.5),
-            new DiaPrecursorMatch(200_000 + i, "KNOSIOP", 2, 500, true, new Irt(100), new RtMinutes(1), new Irt(0), 99, [1.0]),
+            new DiaPrecursorMatch(100_000 + i, "POISONK", 2, 500, false, new Irt(100), new RtMinutes(1), new Irt(0), 1, [1f], QValue: 0.5),
+            new DiaPrecursorMatch(200_000 + i, "KNOSIOP", 2, 500, true, new Irt(100), new RtMinutes(1), new Irt(0), 99, [1f]),
         })).ToList();
 
         var refined = DiaIrtSelfCalibration.Refine(poisoned);

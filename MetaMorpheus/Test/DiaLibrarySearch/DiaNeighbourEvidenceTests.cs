@@ -480,7 +480,7 @@ public class DiaNeighbourEvidenceTests
 
     // 300 confident targets over two isolation windows and 21 scans, then the row under test, then decoys below all of them
     private static DiaPrecursorMatch Match(int index, double score, bool isDecoy = false, double rt = 10, double mz = 500) =>
-        new(index, $"PEPTIDE{index}K", 2, mz, isDecoy, new Irt(0), new RtMinutes(rt), new Irt(0), score, [score]);
+        new(index, $"PEPTIDE{index}K", 2, mz, isDecoy, new Irt(0), new RtMinutes(rt), new Irt(0), score, [(float)score]);
 
     private static List<DiaPrecursorMatch> Crowd() =>
         Enumerable.Range(1000, 300).Select(i => Match(i, 10 + i / 1000.0, rt: 1)).ToList();

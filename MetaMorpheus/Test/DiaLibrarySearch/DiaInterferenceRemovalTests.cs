@@ -29,7 +29,7 @@ public class DiaInterferenceRemovalTests
     private static float[] Sharing(int shared) => Base.Take(shared).Concat(Enumerable.Range(0, 6 - shared).Select(i => 1100f + 37 * i)).ToArray();
 
     private static DiaPrecursorMatch Match(int index, double score, bool isDecoy = false, double rt = 10, double mz = 500) =>
-        new(index, $"PEPTIDE{index}K", 2, mz, isDecoy, new Irt(0), new RtMinutes(rt), new Irt(0), score, [score]);
+        new(index, $"PEPTIDE{index}K", 2, mz, isDecoy, new Irt(0), new RtMinutes(rt), new Irt(0), score, [(float)score]);
 
     // 200 unrelated, well-separated targets keep the provisional floor low, so the cases under test take part
     private static List<DiaPrecursorMatch> Background() =>

@@ -37,7 +37,7 @@ public class DiaProteinQuantificationTests
         Targets.Concat(DecoyProteinGenerator.GenerateDecoys(Targets, DecoyType.Reverse)).ToList();
 
     private static DiaPrecursorMatch Precursor(int index, string sequence, int charge, double quantity, double qValue = 0.001) =>
-        new(index, sequence, charge, 500, false, new Irt(0), new RtMinutes(10), new Irt(0), 5, [5.0], qValue, quantity);
+        new(index, sequence, charge, 500, false, new Irt(0), new RtMinutes(10), new Irt(0), 5, [5f], qValue, quantity);
 
     private static readonly List<DiaPrecursorMatch> Run1 =
     [

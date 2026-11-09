@@ -202,10 +202,6 @@ namespace EngineLayer.DiaLibrarySearch;
 /// library value.
 /// </param>
 /// <param name="ClassifierModel">The model the rescorer fits in each fold: a linear discriminant, or a small neural-network ensemble (DIA-NN's approach).</param>
-/// <param name="SinglePrecisionFeatures">
-/// Round every feature to the nearest float before the classifier, which is what storing them as float (design D3) would give: half the features' memory, which is
-/// most of a search's live data. Measured here before that change is made. Off by default.
-/// </param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
     int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 30, double ClassifierTrainingQValue = 0.01,
     StatisticalModels.RescoreModel ClassifierModel = StatisticalModels.RescoreModel.NeuralNetworkEnsemble,
@@ -259,8 +255,7 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     double InterferenceOwnIonShareCeiling = 1,
     bool NeighbourEvidence = true,
     DiaFragmentIntensityModel? FragmentIntensities = null,
-    DiaIrtCompositionModel? IrtComposition = null,
-    bool SinglePrecisionFeatures = false)
+    DiaIrtCompositionModel? IrtComposition = null)
 {
     /// <summary>
     /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual

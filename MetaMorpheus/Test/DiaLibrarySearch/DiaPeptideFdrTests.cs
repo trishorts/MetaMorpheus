@@ -20,7 +20,7 @@ namespace Test.DiaLibrarySearch;
 public class DiaPeptideFdrTests
 {
     private static DiaPrecursorMatch Match(int index, string sequence, int charge, bool isDecoy, double score) =>
-        new(index, sequence, charge, 500, isDecoy, new Irt(0), new RtMinutes(10), new Irt(0), score, [score], QValue: 0.5);
+        new(index, sequence, charge, 500, isDecoy, new Irt(0), new RtMinutes(10), new Irt(0), score, [(float)score], QValue: 0.5);
 
     [Test]
     public void ChargeStatesCollapseToThePeptidesBestPrecursor()

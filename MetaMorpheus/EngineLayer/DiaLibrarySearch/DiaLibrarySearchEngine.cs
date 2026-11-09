@@ -144,14 +144,6 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         double cycleMinutes = windows.Select(w => w.Select(s => s.RetentionTime).Order().ToArray())
             .Where(rts => rts.Length > 1).Select(rts => rts[rts.Length / 2] - rts[rts.Length / 2 - 1]).DefaultIfEmpty(0).Average();
         AddSiblingFeatures(rows, (_parameters.ApexHalfWidthScans + 1) * cycleMinutes, _parameters.SiblingTopCandidateOnly);
-        if (_parameters.SinglePrecisionFeatures)
-        {
-            // What float storage would give: every feature is final here, and the sibling features above are a maximum of
-            // co-elutions and a gap in retention time, which rounding the stored values would not change
-            foreach (var row in rows)
-                for (int j = 0; j < row.Features.Length; j++)
-                    row.Features[j] = (float)row.Features[j];
-        }
         MsDataScan[][] windowScans = _parameters.InterferenceOwnIonFloor > 0 || _parameters.NeighbourEvidence ? windows.Select(w => w.OrderBy(s => s.RetentionTime).ToArray()).ToArray() : [];
         var matches = AssignQValues(rows, windowBounds, windowScans, cycleMinutes, out var removed, out var losing);
         var peptides = DiaPeptideFdr.Assign(matches);
@@ -826,6 +818,10 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1PeakPointFraction,
                 _parameters.LibraryIrtFeature ? candidate.Irt : 0,
             ];
+            // Computed in doubles, kept as floats (each rounded once): half the memory of a search's largest data
+            float[] stored = new float[features.Length];
+            for (int j = 0; j < features.Length; j++)
+                stored[j] = (float)features[j];
 
             yield return new DiaPrecursorMatch(
                 candidate.PrecursorIdx,
@@ -837,7 +833,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 apexRt,
                 apexIrt,
                 cosine * coElution,
-                features,
+                stored,
                 Quantity: areaSum) { Ms1ApexErrorPpm = ms1ApexSignedErrorPpm, ApexScanNumber = scans[reachable[apex]].OneBasedScanNumber };
         }
     }
@@ -1114,8 +1110,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                     if (gap <= rtToleranceMinutes)
                         best = Math.Max(best, other.Features[coElution]);
                 }
-                row.Features[siblingCoElution] = best;
-                row.Features[siblingDelta] = nearest;
+                row.Features[siblingCoElution] = (float)best;
+                row.Features[siblingDelta] = (float)nearest;
             }
         }
     }
@@ -1297,7 +1293,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     private double[]? Rescore(List<DiaPrecursorMatch> matches)
     {
-        var rescored = TargetDecoyRescorer.Score(
+        var rescored = TargetDecoyRescorer.ScoreSinglePrecision(
             matches.Select(m => m.Features).ToList(),
             matches.Select(m => m.IsDecoy).ToList(),
             matches.Select(m => m.FullSequence).ToList(),

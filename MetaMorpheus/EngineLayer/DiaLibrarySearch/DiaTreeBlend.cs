@@ -35,7 +35,7 @@ public static class DiaTreeBlend
     /// <param name="maxTrainingRows">The most rows each fold's trees learn from, taken from the top by score.</param>
     /// <returns>The same score values as <paramref name="scores"/>, reordered, or a copy of it when there is too little to learn from.</returns>
     /// <exception cref="ArgumentException">The lists differ in length.</exception>
-    public static double[] Blend(IReadOnlyList<double[]> features, IReadOnlyList<double> scores, IReadOnlyList<bool> isDecoy,
+    public static double[] Blend(IReadOnlyList<float[]> features, IReadOnlyList<double> scores, IReadOnlyList<bool> isDecoy,
         IReadOnlyList<string> groupKeys, int maxTrainingRows, int seed, int threads = 1)
     {
         int n = scores.Count;
@@ -65,7 +65,7 @@ public static class DiaTreeBlend
     /// Each row's margin from trees that never saw its group, every fold's on one scale: 0 at the fold's median decoy, 1 at its 99th percentile.
     /// </summary>
     /// <returns>The margins, or null when a fold has too little to learn from.</returns>
-    internal static double[]? OutOfFoldMargins(IReadOnlyList<double[]> features, IReadOnlyList<double> scores, IReadOnlyList<bool> isDecoy, IReadOnlyList<string> groupKeys,
+    internal static double[]? OutOfFoldMargins(IReadOnlyList<float[]> features, IReadOnlyList<double> scores, IReadOnlyList<bool> isDecoy, IReadOnlyList<string> groupKeys,
         int maxTrainingRows, int foldCount, Trees trees, int seed, int threads)
     {
         int n = scores.Count;
@@ -100,12 +100,13 @@ public static class DiaTreeBlend
         return treeScores;
     }
 
-    private static double[] TrainAndScore(IReadOnlyList<double[]> features, IReadOnlyList<bool> isDecoy, int[] train, int[] test, Trees trees, int seed, int threads)
+    private static double[] TrainAndScore(IReadOnlyList<float[]> features, IReadOnlyList<bool> isDecoy, int[] train, int[] test, Trees trees, int seed, int threads)
     {
         var context = new MLContext(seed);
         var schema = SchemaDefinition.Create(typeof(Row));
         schema[nameof(Row.Features)].ColumnType = new VectorDataViewType(NumberDataViewType.Single, features[0].Length);
-        IEnumerable<Row> Rows(int[] indices) => indices.Select(i => new Row { Label = !isDecoy[i], Features = features[i].Select(v => (float)v).ToArray() });
+        // The trees read floats, so the rows go in as they are (they are only read)
+        IEnumerable<Row> Rows(int[] indices) => indices.Select(i => new Row { Label = !isDecoy[i], Features = features[i] });
 
         var model = context.BinaryClassification.Trainers.FastTree(new FastTreeBinaryTrainer.Options
         {
