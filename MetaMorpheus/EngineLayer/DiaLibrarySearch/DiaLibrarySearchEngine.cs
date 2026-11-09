@@ -144,6 +144,14 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         double cycleMinutes = windows.Select(w => w.Select(s => s.RetentionTime).Order().ToArray())
             .Where(rts => rts.Length > 1).Select(rts => rts[rts.Length / 2] - rts[rts.Length / 2 - 1]).DefaultIfEmpty(0).Average();
         AddSiblingFeatures(rows, (_parameters.ApexHalfWidthScans + 1) * cycleMinutes, _parameters.SiblingTopCandidateOnly);
+        if (_parameters.SinglePrecisionFeatures)
+        {
+            // What float storage would give: every feature is final here, and the sibling features above are a maximum of
+            // co-elutions and a gap in retention time, which rounding the stored values would not change
+            foreach (var row in rows)
+                for (int j = 0; j < row.Features.Length; j++)
+                    row.Features[j] = (float)row.Features[j];
+        }
         MsDataScan[][] windowScans = _parameters.InterferenceOwnIonFloor > 0 || _parameters.NeighbourEvidence ? windows.Select(w => w.OrderBy(s => s.RetentionTime).ToArray()).ToArray() : [];
         var matches = AssignQValues(rows, windowBounds, windowScans, cycleMinutes, out var removed, out var losing);
         var peptides = DiaPeptideFdr.Assign(matches);
