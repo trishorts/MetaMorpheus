@@ -2118,6 +2118,29 @@ public class DiaLibrarySearchEngineTests
         Assert.That(matches, Has.All.Matches<DiaPrecursorMatch>(m => double.IsFinite(m.LibraryIrt.Value)));
     }
 
+    /// <summary>
+    /// Single-precision features: every feature the classifier sees is rounded to the nearest float, which is what storing them
+    /// as float (design D3) would give, so the effect on identifications is measured before the memory change is made. Off by
+    /// default, and off leaves features that are not floats.
+    /// </summary>
+    [Test]
+    public void SinglePrecisionFeaturesAreRoundedBeforeTheClassifier()
+    {
+        Assert.That(new DiaLibrarySearchParameters().SinglePrecisionFeatures, Is.False);
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 2) == 0, noisePeaksPerScan: 3000, withMs1: true);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        List<DiaPrecursorMatch> SearchWith(bool on) => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+            new DiaLibrarySearchParameters(SinglePrecisionFeatures: on), new CommonParameters(), [], []).Run()).Matches;
+        static bool IsFloat(double v) => (double)(float)v == v;
+
+        var off = SearchWith(false);
+        Assert.That(off.SelectMany(m => m.Features).Any(v => !IsFloat(v)), Is.True, "off, some features are not floats, or this test proves nothing");
+
+        var on = SearchWith(true);
+        Assert.That(on, Is.Not.Empty);
+        Assert.That(on.SelectMany(m => m.Features), Has.All.Matches<double>(IsFloat));
+    }
+
     /// <summary>Stop, pressed before the search reaches a window, leaves every window unsearched.</summary>
     [Test]
     [NonParallelizable]
