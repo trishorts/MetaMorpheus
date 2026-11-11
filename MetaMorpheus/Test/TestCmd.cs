@@ -1622,7 +1622,7 @@ namespace Test
             var settings = new CommandLineSettings { SdrfConditionColumns = new[] { "genotype" }, GenerateDefaultTomls = true, OutputFolder = ScratchDataDirectory };
 
             var thrown = Assert.Throws<MetaMorpheusException>(() => settings.ValidateCommandLineSettings());
-            Assert.That(thrown.Message, Is.EqualTo("--sdrfCondition is only meaningful with --sdrfDesign."));
+            Assert.That(thrown.Message, Is.EqualTo("--sdrfCondition is only meaningful with --sdrfDesign, or in a run."));
         }
 
         [Test]
@@ -1631,7 +1631,7 @@ namespace Test
             var settings = new CommandLineSettings { SdrfSingleCondition = "all", GenerateDefaultTomls = true, OutputFolder = ScratchDataDirectory };
 
             var thrown = Assert.Throws<MetaMorpheusException>(() => settings.ValidateCommandLineSettings());
-            Assert.That(thrown.Message, Is.EqualTo("--sdrfSingleCondition is only meaningful with --sdrfDesign."));
+            Assert.That(thrown.Message, Is.EqualTo("--sdrfSingleCondition is only meaningful with --sdrfDesign, or in a run."));
         }
 
         [Test]
@@ -1640,7 +1640,7 @@ namespace Test
             var settings = new CommandLineSettings { SdrfUnknownFactorIsCondition = true, GenerateDefaultTomls = true, OutputFolder = ScratchDataDirectory };
 
             var thrown = Assert.Throws<MetaMorpheusException>(() => settings.ValidateCommandLineSettings());
-            Assert.That(thrown.Message, Is.EqualTo("--sdrfUnknownFactorIsCondition is only meaningful with --sdrfDesign."));
+            Assert.That(thrown.Message, Is.EqualTo("--sdrfUnknownFactorIsCondition is only meaningful with --sdrfDesign, or in a run."));
         }
 
         [Test]
@@ -1657,6 +1657,34 @@ namespace Test
 
             var thrown = Assert.Throws<MetaMorpheusException>(() => settings.ValidateCommandLineSettings());
             Assert.That(thrown.Message, Does.StartWith("--sdrfCondition and --sdrfSingleCondition were both given."));
+        }
+
+        /// <summary>
+        /// In a run, an SDRF beside the spectra files makes the design (the automatic design), so the switches that say how
+        /// it is grouped, and where its plex is written, are accepted there without --sdrfDesign or --sdrfTag. More than
+        /// one plex source is still refused.
+        /// </summary>
+        [Test]
+        public static void TestSdrfGroupingAndPlexSwitchesAreAcceptedInARun()
+        {
+            var (_, data) = WriteLabelFreeSdrf(("a1.raw", "WT", "DMSO", 1, 1));
+            string task = Path.Combine(TestContext.CurrentContext.TestDirectory, @"TestData\Task1-SearchTaskconfig.toml");
+            string database = Path.Combine(TestContext.CurrentContext.TestDirectory, @"TestData\gapdh.fasta");
+            CommandLineSettings Run(Action<CommandLineSettings> set)
+            {
+                var settings = new CommandLineSettings { _spectra = new[] { data }, _tasks = new[] { task }, _databases = new[] { database }, OutputFolder = ScratchDataDirectory };
+                set(settings);
+                return settings;
+            }
+
+            Assert.DoesNotThrow(() => Run(s => s.SdrfConditionColumns = new[] { "genotype" }).ValidateCommandLineSettings());
+            Assert.DoesNotThrow(() => Run(s => s.SdrfSingleCondition = "all").ValidateCommandLineSettings());
+            Assert.DoesNotThrow(() => Run(s => s.SdrfUnknownFactorIsCondition = true).ValidateCommandLineSettings());
+            Assert.DoesNotThrow(() => Run(s => s.SdrfPlexColumn = "comment[plex]").ValidateCommandLineSettings());
+
+            var twoPlexSources = Assert.Throws<MetaMorpheusException>(() =>
+                Run(s => { s.SdrfPlexColumn = "comment[plex]"; s.SdrfSinglePlex = "P1"; }).ValidateCommandLineSettings());
+            Assert.That(twoPlexSources.Message, Does.StartWith("Give at most one of --sdrfPlexColumn, --sdrfPlexPattern and --sdrfSinglePlex"));
         }
 
         /// <summary>
