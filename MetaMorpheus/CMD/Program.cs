@@ -516,9 +516,28 @@ namespace MetaMorpheusCommandLine
         public const string SdrfFileEnding = ".sdrf.tsv";
 
         /// <summary>
-        /// The automatic design (QuantProject gap AUTODESIGN, ruled 2026-11-07 and 2026-11-11): when an SDRF is beside the
-        /// spectra files, the run's experimental design is made from it, and the search's own SDRF is filled from it. With
-        /// no SDRF there nothing changes. Runs before <see cref="ResolveExperimentalDesign"/>, which then reads the design
+        /// A file named just this is an SDRF too (QuantProject, ruled 2026-11-13). It lacks the dot
+        /// <see cref="SdrfFileEnding"/> starts with, and it is the name a person most often gives one, so missing it would
+        /// make no design and say nothing.
+        /// </summary>
+        public const string SdrfBareFileName = "sdrf.tsv";
+
+        /// <summary>
+        /// True for a file the automatic design reads as an SDRF: a name ending <see cref="SdrfFileEnding"/>, or exactly
+        /// <see cref="SdrfBareFileName"/>. Case is ignored.
+        /// </summary>
+        public static bool IsSdrfFileName(string path)
+        {
+            string name = Path.GetFileName(path);
+            return name.EndsWith(SdrfFileEnding, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, SdrfBareFileName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// The automatic design (QuantProject gap AUTODESIGN, ruled 2026-11-07, 2026-11-11 and 2026-11-13): when an SDRF is
+        /// beside the spectra files (in the first spectra file's folder, named by <see cref="IsSdrfFileName"/>), the run's
+        /// experimental design is made from it, and the search's own SDRF is filled from it. With no SDRF there nothing
+        /// changes. Runs before <see cref="ResolveExperimentalDesign"/>, which then reads the design
         /// written here exactly as it reads one the user wrote.
         ///
         /// <list type="bullet">
@@ -568,7 +587,7 @@ namespace MetaMorpheusCommandLine
             }
 
             var sdrfs = Directory.GetFiles(designDirectory)
-                .Where(f => f.EndsWith(SdrfFileEnding, StringComparison.OrdinalIgnoreCase))
+                .Where(IsSdrfFileName)
                 .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             if (sdrfs.Count == 0)

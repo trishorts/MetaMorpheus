@@ -288,6 +288,53 @@ namespace Test
             Assert.That(File.Exists(DesignPath(folder)), Is.False);
         }
 
+        /// <summary>
+        /// Ruled 2026-11-13: a name ending .sdrf.tsv is an SDRF, and so is a file named just sdrf.tsv, case ignored. A name
+        /// that only contains "sdrf" is not, so nothing is made from it and nothing is said.
+        /// </summary>
+        [TestCase("deposit.sdrf.tsv", true)]
+        [TestCase("sdrf.tsv", true)]
+        [TestCase("SDRF.TSV", true)]
+        [TestCase("my_sdrf.tsv", false)]
+        [TestCase("sdrf.tsv.bak", false)]
+        public static void AnSdrfIsKnownByItsFileName(string name, bool isSdrf)
+        {
+            // Windows folder names ignore case, so the upper-case name gets a folder of its own.
+            string folder = NewFolder("Named_" + name.Replace('.', '_') + (name.Any(char.IsUpper) ? "_upper" : ""));
+            var spectra = Spectra(folder, "a1.mzML");
+            string written = WriteSdrf(folder, ("a1.raw", "WT", 1));
+            string renamed = Path.Combine(folder, name);
+            File.Move(written, renamed);
+            var task = new SearchTask();
+            var console = new List<string>();
+
+            Assert.That(Resolve(folder, spectra, SearchTasks(task), console), Is.EqualTo(Continue), string.Join("\n", console));
+
+            Assert.That(File.Exists(DesignPath(folder)), Is.EqualTo(isSdrf));
+            Assert.That(task.SearchParameters.InputSdrfPath, Is.EqualTo(isSdrf ? Path.GetFullPath(renamed) : null));
+            if (!isSdrf)
+            {
+                Assert.That(console, Is.Empty);
+            }
+        }
+
+        /// <summary>A file named just sdrf.tsv beside a named SDRF is two SDRFs: neither is chosen.</summary>
+        [Test]
+        public static void ABareSdrfBesideANamedOneIsNotChosenBetween()
+        {
+            string folder = NewFolder("TwoWithBare");
+            var spectra = Spectra(folder, "a1.mzML");
+            WriteSdrf(folder, ("a1.raw", "WT", 1));
+            File.Copy(Path.Combine(folder, "deposit.sdrf.tsv"), Path.Combine(folder, "sdrf.tsv"));
+            var task = new SearchTask();
+            var console = new List<string>();
+
+            Assert.That(Resolve(folder, spectra, SearchTasks(task), console, normalize: true), Is.EqualTo(Stop));
+            Assert.That(console.Single(), Does.StartWith("2 SDRF files are beside the spectra files (deposit.sdrf.tsv, sdrf.tsv)"));
+            Assert.That(task.SearchParameters.InputSdrfPath, Is.Null);
+            Assert.That(File.Exists(DesignPath(folder)), Is.False);
+        }
+
         // ---------------------------------------------------------------- the grouping the user states
 
         /// <summary>QP-S42 (b): the task file may state one group, and it is recorded as stated.</summary>
