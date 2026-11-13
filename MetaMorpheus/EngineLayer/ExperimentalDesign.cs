@@ -88,27 +88,68 @@ namespace EngineLayer
             return expDesign;
         }
 
+        /// <summary>The optional column mzLib writes when an SDRF marks a pooled reference ("reference" or "study sample").</summary>
+        public const string SampleTypeColumn = "Sample Type";
+
+        private const string StudySample = "study sample";
+
+        /// <summary>
+        /// Writes ExperimentalDesign.tsv beside the first file. A Sample Type column the file already has is kept, by file
+        /// name (QuantProject, ruled 2026-11-13): mzLib writes it when an SDRF marks a pooled reference, the design window
+        /// has no such column, and saving must not drop the marks. A file the column did not name is a study sample.
+        /// </summary>
         public static string WriteExperimentalDesignToFile(List<SpectraFileInfo> spectraFileInfos)
         {
             var dir = Directory.GetParent(spectraFileInfos.First().FullFilePathWithExtension).FullName;
             var filePath = Path.Combine(dir, GlobalVariables.ExperimentalDesignFileName);
+            var sampleTypes = ReadSampleTypes(filePath);
 
             using (StreamWriter output = new StreamWriter(filePath))
             {
-                output.WriteLine(ExperimentalDesignHeader);
+                output.WriteLine(ExperimentalDesignHeader + (sampleTypes != null ? "\t" + SampleTypeColumn : ""));
 
                 foreach (var spectraFile in spectraFileInfos)
                 {
+                    string fileName = Path.GetFileName(spectraFile.FullFilePathWithExtension);
                     output.WriteLine(
-                        Path.GetFileName(spectraFile.FullFilePathWithExtension) +
+                        fileName +
                         "\t" + spectraFile.Condition +
                         "\t" + (spectraFile.BiologicalReplicate + 1) +
                         "\t" + (spectraFile.Fraction + 1) +
-                        "\t" + (spectraFile.TechnicalReplicate + 1));
+                        "\t" + (spectraFile.TechnicalReplicate + 1) +
+                        (sampleTypes != null ? "\t" + (sampleTypes.TryGetValue(fileName, out var type) ? type : StudySample) : ""));
                 }
             }
 
             return filePath;
+        }
+
+        /// <summary>
+        /// The Sample Type of each file named in the design at <paramref name="path"/>, by file name; null when there is no
+        /// such file, it has no Sample Type column, or it cannot be read.
+        /// </summary>
+        public static Dictionary<string, string> ReadSampleTypes(string path)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                    return null;
+                var lines = File.ReadAllLines(path);
+                if (lines.Length == 0)
+                    return null;
+                int column = Array.FindIndex(lines[0].Split('\t'), h => string.Equals(h.Trim(), SampleTypeColumn, StringComparison.OrdinalIgnoreCase));
+                if (column < 0)
+                    return null;
+                return lines.Skip(1)
+                    .Select(l => l.Split('\t'))
+                    .Where(cells => cells.Length > column && cells[0].Length > 0)
+                    .GroupBy(cells => cells[0], StringComparer.Ordinal)
+                    .ToDictionary(g => g.Key, g => g.First()[column].Trim(), StringComparer.Ordinal);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                return null;
+            }
         }
 
         /// <summary>

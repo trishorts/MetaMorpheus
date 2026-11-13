@@ -40,6 +40,42 @@ namespace TaskLayer
             "Make the tasks' SdrfConditionColumns, SdrfSingleCondition and SdrfUnknownFactorIsCondition the same.";
     }
 
+    /// <summary>
+    /// The search-task settings <see cref="SdrfAutomaticDesign.Resolve"/> changes, taken before a run so the GUI can put
+    /// them back when it ends (QuantProject, ruled 2026-11-13): the SDRF describes the spectra files, not the task, so a
+    /// task loaded in the GUI must not keep pointing at one run's SDRF, or keep Write SDRF on, for the next run's files.
+    /// The run's own task files record the settings it used.
+    /// </summary>
+    public sealed class SdrfTaskSettingsSnapshot
+    {
+        private readonly List<(SearchParameters Parameters, string InputSdrfPath, bool WriteSdrf, List<string> ConditionColumns,
+            string SingleCondition, bool UnknownFactorIsCondition, string DesignWrittenFromSdrf)> _saved;
+
+        private SdrfTaskSettingsSnapshot(List<(SearchParameters, string, bool, List<string>, string, bool, string)> saved) =>
+            _saved = saved;
+
+        /// <summary>The SDRF settings of each of <paramref name="searchTasks"/> as they are now.</summary>
+        public static SdrfTaskSettingsSnapshot Take(IEnumerable<SearchTask> searchTasks) =>
+            new(searchTasks.Select(t => t.SearchParameters)
+                .Select(p => (p, p.InputSdrfPath, p.WriteSdrf, p.SdrfConditionColumns?.ToList(), p.SdrfSingleCondition,
+                    p.SdrfUnknownFactorIsCondition, p.DesignWrittenFromSdrf))
+                .ToList());
+
+        /// <summary>Puts every setting back as it was when the snapshot was taken.</summary>
+        public void Restore()
+        {
+            foreach (var s in _saved)
+            {
+                s.Parameters.InputSdrfPath = s.InputSdrfPath;
+                s.Parameters.WriteSdrf = s.WriteSdrf;
+                s.Parameters.SdrfConditionColumns = s.ConditionColumns?.ToList();
+                s.Parameters.SdrfSingleCondition = s.SingleCondition;
+                s.Parameters.SdrfUnknownFactorIsCondition = s.UnknownFactorIsCondition;
+                s.Parameters.DesignWrittenFromSdrf = s.DesignWrittenFromSdrf;
+            }
+        }
+    }
+
     /// <summary>What <see cref="SdrfAutomaticDesign.Resolve"/> did, and what a front end has to tell the user.</summary>
     public sealed class SdrfDesignOutcome
     {
@@ -169,6 +205,38 @@ namespace TaskLayer
         }
 
         /// <summary>
+        /// True for a file the GUI recognises when it is dropped, though it adds nothing to the run itself: an SDRF, an
+        /// experimental design file, or the marker. Each is read from the spectra files' folder, never from where it was
+        /// dropped (QuantProject, ruled 2026-11-13).
+        /// </summary>
+        public static bool IsDesignOrSdrfFile(string path)
+        {
+            string name = Path.GetFileName(path);
+            return IsSdrfFileName(path)
+                || string.Equals(name, GlobalVariables.ExperimentalDesignFileName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, GlobalVariables.TmtExperimentalDesignFileName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, SdrfDesignMarker.FileName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// The line to show for a dropped SDRF or design file that is not in <paramref name="designDirectory"/>, the folder of
+        /// the first spectra file, and so is not used; null when it is there.
+        /// </summary>
+        /// <param name="path">The dropped file.</param>
+        /// <param name="designDirectory">The first checked spectra file's folder; null when no spectra file is loaded.</param>
+        public static string NoteForDroppedFile(string path, string designDirectory)
+        {
+            string folder = Path.GetDirectoryName(Path.GetFullPath(path));
+            if (designDirectory != null && string.Equals(folder, Path.TrimEndingDirectorySeparator(Path.GetFullPath(designDirectory)),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+            return $"{Path.GetFileName(path)} is not used: SDRF and experimental design files are read from the folder of the first "
+                + "spectra file" + (designDirectory != null ? $" ({designDirectory}), and it is in {folder}." : ", and no spectra file is loaded.");
+        }
+
+        /// <summary>
         /// Makes the run's design from the SDRF beside the spectra files, when there is one (see the class summary), and says
         /// what it did. Changes the search tasks (their input SDRF, Write SDRF and grouping settings) and the design files
         /// beside the spectra; never the SDRF.
@@ -190,26 +258,11 @@ namespace TaskLayer
                 return new SdrfDesignOutcome(messages, null, null, null);
             }
 
-            var sdrfs = Directory.GetFiles(designDirectory)
-                .Where(IsSdrfFileName)
-                .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            if (sdrfs.Count == 0)
+            if (!TryFindSdrf(designDirectory, out string sdrf, out string several))
             {
-                return new SdrfDesignOutcome(messages, null, null, null);
+                return new SdrfDesignOutcome(messages, several, null, null);
             }
 
-            // Which SDRF, when a folder holds several, is not ruled (QuantProject, 2026-11-07): one is kept per group of
-            // files. So none is guessed.
-            if (sdrfs.Count > 1)
-            {
-                return new SdrfDesignOutcome(messages,
-                    $"{sdrfs.Count} SDRF files are beside the spectra files ({string.Join(", ", sdrfs.Select(Path.GetFileName))}), "
-                    + "and MetaMorpheus does not choose between them, so no experimental design was made from an SDRF. Keep "
-                    + "beside the spectra files only the SDRF that describes them.", null, null);
-            }
-
-            string sdrf = Path.GetFullPath(sdrfs[0]);
             HandSdrfToSearchTasks(sdrf, searchTasks, messages);
 
             // A search that quantifies nothing reads no design.
@@ -218,31 +271,10 @@ namespace TaskLayer
                 return new SdrfDesignOutcome(messages, null, sdrf, null);
             }
 
-            string labelFreePath = Path.Combine(designDirectory, GlobalVariables.ExperimentalDesignFileName);
-            string isobaricPath = Path.Combine(designDirectory, GlobalVariables.TmtExperimentalDesignFileName);
-            string existing = new[] { labelFreePath, isobaricPath }.Where(File.Exists).ToList() switch
-            {
-                { Count: 0 } => null,
-                { Count: 1 } one => one[0],
-                // both kinds: the design check stops the run, and neither is ours to choose between
-                _ => string.Empty,
-            };
-            if (existing == string.Empty)
+            if (!TryFindOurDesign(designDirectory, sdrf, messages, out string existing, out bool ours))
             {
                 return new SdrfDesignOutcome(messages, null, sdrf, null);
             }
-
-            var marker = SdrfDesignMarker.ReadFrom(designDirectory);
-            bool ours = existing != null && marker != null
-                && string.Equals(marker.DesignFileName, Path.GetFileName(existing), StringComparison.Ordinal)
-                && marker.DescribesUneditedDesignIn(designDirectory);
-            if (existing != null && !ours)
-            {
-                messages.Add($"{Path.GetFileName(existing)} is beside the spectra files and was not written by MetaMorpheus from an SDRF, "
-                    + $"or was edited since, so it is the design; the SDRF beside it ({sdrf}) is not read for the design.");
-                return new SdrfDesignOutcome(messages, null, sdrf, null);
-            }
-
             string removeOurs = ours ? existing : null;
 
             if (!TryReadGrouping(stated, searchTasks, wording, out var grouping, out string disagreement))
@@ -263,6 +295,8 @@ namespace TaskLayer
                     null, sdrf, removeOurs, designDirectory);
             }
 
+            // The kit is the search task's multiplex label. A design made with a kit guessed from the SDRF when the files
+            // were added is made again with it here; an SDRF naming a channel this kit does not have is refused by mzLib.
             MzLibIsobaricMassTag tag = null;
             if (kits[0] != null && !MzLibIsobaricMassTag.TryGetIsobaricMassTag(kits[0], GlobalVariables.AllModsKnown, out tag))
             {
@@ -271,6 +305,190 @@ namespace TaskLayer
                     null, sdrf, removeOurs, designDirectory);
             }
 
+            var outcome = MakeDesign(designDirectory, spectraFilePaths, sdrf, tag, grouping, stated, wording, existing, ours, messages);
+            if (outcome.DesignPath != null)
+            {
+                string record = SdrfDesignMarker.ReadFrom(designDirectory)?.Describe();
+                foreach (var (_, task) in searchTasks)
+                {
+                    task.SearchParameters.DesignWrittenFromSdrf = record;
+                }
+            }
+            return outcome;
+        }
+
+        /// <summary>
+        /// The GUI's automatic design when spectra files are added (QuantProject, ruled 2026-11-13), before any search task
+        /// need be loaded: the same SDRF, design and marker rules as <see cref="Resolve"/>, with the kit guessed from the
+        /// SDRF's channel labels (<see cref="GuessIsobaricKit"/>) and the condition from every factor value column, since no
+        /// task states one yet. Nothing is handed to a task; <see cref="Resolve"/> does that at Run, with the tasks' own kit
+        /// and grouping, making the design again when they differ. A design that cannot be made is returned as
+        /// <see cref="SdrfDesignOutcome.Refusal"/>, for the GUI to note; a kit that cannot be guessed only defers the design to
+        /// Run.
+        /// </summary>
+        /// <param name="designDirectory">The folder of the first checked spectra file, where a run reads its design.</param>
+        /// <param name="spectraFilePaths">Full paths of the checked spectra files.</param>
+        /// <param name="wording">How the front end names the ways to state a grouping.</param>
+        public static SdrfDesignOutcome ResolveOnAddingFiles(string designDirectory, List<string> spectraFilePaths,
+            SdrfDesignWording wording)
+        {
+            wording ??= new SdrfDesignWording();
+            var messages = new List<string>();
+
+            if (spectraFilePaths.Count == 0)
+            {
+                return new SdrfDesignOutcome(messages, null, null, null);
+            }
+            if (!TryFindSdrf(designDirectory, out string sdrf, out string several))
+            {
+                return new SdrfDesignOutcome(messages, several, null, null);
+            }
+
+            if (!TryFindOurDesign(designDirectory, sdrf, messages, out string existing, out bool ours))
+            {
+                return new SdrfDesignOutcome(messages, null, sdrf, null);
+            }
+
+            if (!GuessIsobaricKit(sdrf, out MzLibIsobaricMassTag tag, out string undecided))
+            {
+                messages.Add(undecided + " The experimental design is made from the SDRF at Run, with the search task's label.");
+                return new SdrfDesignOutcome(messages, null, sdrf, null);
+            }
+
+            var everyFactorColumn = new SdrfGrouping(new List<string>(), null, false);
+            return MakeDesign(designDirectory, spectraFilePaths, sdrf, tag, everyFactorColumn, new SdrfDesignStatements(), wording,
+                existing, ours, messages);
+        }
+
+        /// <summary>
+        /// The kit an SDRF's channel labels name, guessed (QuantProject, ruled 2026-11-13, for the GUI before a search task
+        /// is known): every comment[label] cell 'label free sample' is label-free (true, <paramref name="tag"/> null);
+        /// otherwise the kit with the fewest channels that holds every label (TMT10's TMT131 and TMT11's TMT131N/131C are told
+        /// apart by mzLib's label table, <c>SdrfIsobaricLabels</c>). False, with the reason, when the SDRF has no label
+        /// column, mixes label-free and labelled rows, or names labels no single kit holds.
+        /// </summary>
+        public static bool GuessIsobaricKit(string sdrfPath, out MzLibIsobaricMassTag tag, out string undecided)
+        {
+            tag = null;
+            undecided = null;
+            List<string> labels;
+            try
+            {
+                var lines = File.ReadLines(sdrfPath).Where(l => l.Length > 0).ToList();
+                var header = lines.Count == 0 ? Array.Empty<string>() : lines[0].TrimStart('\uFEFF').Split('\t');
+                int column = Array.FindIndex(header, h => string.Equals(h.Trim(), LabelColumn, StringComparison.OrdinalIgnoreCase));
+                if (column < 0)
+                {
+                    undecided = $"The SDRF {sdrfPath} has no {LabelColumn} column, so its kit cannot be told.";
+                    return false;
+                }
+                labels = lines.Skip(1).Select(l => l.Split('\t')).Where(cells => cells.Length > column)
+                    .Select(cells => cells[column].Trim()).Where(c => c.Length > 0)
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                undecided = $"The SDRF {sdrfPath} cannot be read: {e.Message}";
+                return false;
+            }
+
+            var labelFree = labels.Where(l => l.IndexOf(LabelFreeSample, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+            if (labels.Count > 0 && labelFree.Count == labels.Count)
+            {
+                return true;
+            }
+            if (labelFree.Count > 0 || labels.Count == 0)
+            {
+                undecided = $"The SDRF {sdrfPath} " + (labels.Count == 0 ? "names no labels" : "mixes label-free and labelled rows")
+                    + ", so its kit cannot be told.";
+                return false;
+            }
+
+            var kit = Enum.GetValues<Omics.Modifications.IsobaricMassTagType>()
+                .OrderBy(k => MzLibIsobaricMassTag.GetReporterIonLabels(k).Count)
+                .Cast<Omics.Modifications.IsobaricMassTagType?>()
+                .FirstOrDefault(k => labels.All(l => Readers.SdrfIsobaricLabels.TryGetChannel(k.Value, l, out _)));
+            if (kit == null || !MzLibIsobaricMassTag.TryGetIsobaricMassTag(kit.Value, out tag)) // mzLib's kit, as --sdrfDesign takes it
+            {
+                undecided = $"No isobaric kit holds every label the SDRF {sdrfPath} names ({string.Join(", ", labels)}), so its kit cannot be told.";
+                tag = null;
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>The SDRF column of each row's label, and the label of a label-free sample.</summary>
+        private const string LabelColumn = "comment[label]";
+        private const string LabelFreeSample = "label free sample";
+
+        /// <summary>
+        /// The one SDRF beside the spectra files. False with no SDRF (<paramref name="several"/> null) or with several
+        /// (<paramref name="several"/> says so): which SDRF, when a folder holds several, is not ruled (QuantProject,
+        /// 2026-11-07), so none is guessed.
+        /// </summary>
+        private static bool TryFindSdrf(string designDirectory, out string sdrf, out string several)
+        {
+            sdrf = null;
+            several = null;
+            var sdrfs = Directory.GetFiles(designDirectory)
+                .Where(IsSdrfFileName)
+                .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (sdrfs.Count == 1)
+            {
+                sdrf = Path.GetFullPath(sdrfs[0]);
+                return true;
+            }
+            if (sdrfs.Count > 1)
+            {
+                several = $"{sdrfs.Count} SDRF files are beside the spectra files ({string.Join(", ", sdrfs.Select(Path.GetFileName))}), "
+                    + "and MetaMorpheus does not choose between them, so no experimental design was made from an SDRF. Keep "
+                    + "beside the spectra files only the SDRF that describes them.";
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Whether the design beside the spectra files may be made from the SDRF: true with none there, or with one the
+        /// marker shows MetaMorpheus wrote, unedited (<paramref name="ours"/>). False when both kinds are there (the design
+        /// check stops the run, and neither is ours to choose between) or the design is the user's (a line says the SDRF
+        /// is not read for it).
+        /// </summary>
+        private static bool TryFindOurDesign(string designDirectory, string sdrf, List<string> messages, out string existing, out bool ours)
+        {
+            string labelFreePath = Path.Combine(designDirectory, GlobalVariables.ExperimentalDesignFileName);
+            string isobaricPath = Path.Combine(designDirectory, GlobalVariables.TmtExperimentalDesignFileName);
+            var present = new[] { labelFreePath, isobaricPath }.Where(File.Exists).ToList();
+            existing = present.Count == 1 ? present[0] : null;
+            ours = false;
+            if (present.Count > 1)
+            {
+                return false;
+            }
+
+            var marker = SdrfDesignMarker.ReadFrom(designDirectory);
+            ours = existing != null && marker != null
+                && string.Equals(marker.DesignFileName, Path.GetFileName(existing), StringComparison.Ordinal)
+                && marker.DescribesUneditedDesignIn(designDirectory);
+            if (existing != null && !ours)
+            {
+                messages.Add($"{Path.GetFileName(existing)} is beside the spectra files and was not written by MetaMorpheus from an SDRF, "
+                    + $"or was edited since, so it is the design; the SDRF beside it ({sdrf}) is not read for the design.");
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Reads the design from the SDRF and writes it with its marker, or refuses. A design of ours whose content would not
+        /// change is left as it is (QuantProject, ruled 2026-11-13: re-made only when it no longer fits), and its marker is
+        /// brought up to date.
+        /// </summary>
+        private static SdrfDesignOutcome MakeDesign(string designDirectory, List<string> spectraFilePaths, string sdrf,
+            MzLibIsobaricMassTag tag, SdrfGrouping grouping, SdrfDesignStatements stated, SdrfDesignWording wording,
+            string existing, bool ours, List<string> messages)
+        {
+            string removeOurs = ours ? existing : null;
             var plex = tag != null
                 ? PlexSource(sdrf, stated.PlexColumn, stated.PlexPattern, stated.SinglePlex)
                 : (stated.PlexColumn, stated.PlexPattern, stated.SinglePlex);
@@ -294,27 +512,44 @@ namespace TaskLayer
                     report, sdrf, removeOurs, designDirectory);
             }
 
-            string designPath = tag != null ? isobaricPath : labelFreePath;
-            if (existing != null && existing != designPath)
+            string designPath = Path.Combine(designDirectory,
+                tag != null ? GlobalVariables.TmtExperimentalDesignFileName : GlobalVariables.ExperimentalDesignFileName);
+            string newPath = designPath + ".new";
+            bool unchanged;
+            try
             {
-                File.Delete(existing); // ours, unedited, and of the other kind: the search's label changed
+                design.WriteDesign(newPath);
+                unchanged = ours && existing == designPath
+                    && SdrfDesignMarker.ContentSha256Of(newPath) == SdrfDesignMarker.ContentSha256Of(designPath);
+                if (!unchanged)
+                {
+                    if (existing != null && existing != designPath)
+                    {
+                        File.Delete(existing); // ours, unedited, and of the other kind: the search's label changed
+                    }
+                    File.Move(newPath, designPath, overwrite: true);
+                }
             }
-            design.WriteDesign(designPath);
+            finally
+            {
+                if (File.Exists(newPath))
+                {
+                    File.Delete(newPath);
+                }
+            }
 
             var newMarker = new SdrfDesignMarker(Path.GetFileName(designPath), SdrfDesignMarker.ContentSha256Of(designPath), sdrf,
                 SdrfDesignMarker.Sha256Of(sdrf), DescribeCondition(design, grouping));
             newMarker.WriteTo(designDirectory);
-            foreach (var (_, task) in searchTasks)
-            {
-                task.SearchParameters.DesignWrittenFromSdrf = newMarker.Describe();
-            }
 
             messages.Add(report.TrimEnd());
             if (tag?.TagType == Omics.Modifications.IsobaricMassTagType.TMT16)
             {
                 messages.Add(Tmt16Note);
             }
-            messages.Add($"Wrote {designPath} from the SDRF {sdrf}" + (ours ? ", again for this run's spectra files." : "."));
+            messages.Add(unchanged
+                ? $"{designPath}, made by MetaMorpheus from the SDRF {sdrf}, already fits this run's spectra files."
+                : $"Wrote {designPath} from the SDRF {sdrf}" + (ours ? ", again for this run's spectra files." : "."));
             return new SdrfDesignOutcome(messages, null, sdrf, designPath);
         }
 

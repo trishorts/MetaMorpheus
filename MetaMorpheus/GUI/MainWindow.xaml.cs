@@ -406,6 +406,9 @@ namespace MetaMorpheusGUI
                 ResetTasksButton.IsEnabled = true;
                 CancelTasksButton.IsEnabled = false;
 
+                // the SDRF settings the run gave its search tasks were for that run only (ruled 2026-11-13)
+                RestoreSdrfTaskSettings();
+
                 dataGridSpectraFiles.Items.Refresh();
                 spectraFileSummaryDataGrid.Items.Refresh();
             }
@@ -956,8 +959,38 @@ namespace MetaMorpheusGUI
                 .Where(p => p.metaMorpheusTask.TaskType == MyTask.Search)
                 .Select(p => (SearchTask)p.metaMorpheusTask);
 
-            string pathToExperDesign = Directory.GetParent(spectraFilePathsToUse.First()).FullName;
-            pathToExperDesign = Path.Combine(pathToExperDesign, GlobalVariables.ExperimentalDesignFileName);
+            // An SDRF beside the spectra files makes the design, as on the command line (TaskLayer.SdrfAutomaticDesign),
+            // before the design check reads it: with the search tasks' own label and grouping, made again only when it no
+            // longer fits. The task settings it changes are for this run only, and come back when the run ends.
+            string designDirectory = Directory.GetParent(spectraFilePathsToUse.First()).FullName;
+            var namedSearchTasks = PreRunTasks
+                .Where(p => p.metaMorpheusTask.TaskType == MyTask.Search)
+                .Select(p => (p.DisplayName, (SearchTask)p.metaMorpheusTask))
+                .ToList();
+            RestoreSdrfTaskSettings();
+            _sdrfTaskSettings = SdrfTaskSettingsSnapshot.Take(namedSearchTasks.Select(t => t.Item2));
+            var sdrfOutcome = SdrfAutomaticDesign.Resolve(designDirectory, spectraFilePathsToUse, namedSearchTasks, null, GuiSdrfWording);
+            ShowSdrfOutcome(sdrfOutcome, spectraFilePathsToUse);
+            SeedTmtExperimentalDesign();
+            if (sdrfOutcome.Refusal != null)
+            {
+                // as a design file that cannot be read: normalizing stops; otherwise ask whether to run without a design
+                if (searchTasks.Any(p => p.SearchParameters.Normalize))
+                {
+                    MessageBox.Show(sdrfOutcome.Refusal + "\nNormalization needs an experimental design, so the run does not start.");
+                    RestoreSdrfTaskSettings();
+                    return;
+                }
+                var answer = MessageBox.Show(sdrfOutcome.Refusal + "\nContinue without an experimental design?", "Experimental design",
+                    MessageBoxButton.YesNo);
+                if (answer != MessageBoxResult.Yes)
+                {
+                    RestoreSdrfTaskSettings();
+                    return;
+                }
+            }
+
+            string pathToExperDesign = Path.Combine(designDirectory, GlobalVariables.ExperimentalDesignFileName);
 
             if (!File.Exists(pathToExperDesign))
             {
@@ -965,6 +998,7 @@ namespace MetaMorpheusGUI
                 {
                     MessageBox.Show("Experimental design must be defined for normalization!\n" +
                     "Click the \"Set Experimental Design\" button in the the spectra files tab");
+                    RestoreSdrfTaskSettings();
                     return;
                 }
             }
@@ -977,6 +1011,7 @@ namespace MetaMorpheusGUI
                     if (searchTasks.Any(p => p.SearchParameters.Normalize))
                     {
                         MessageBox.Show(errors.First());
+                        RestoreSdrfTaskSettings();
                         return;
                     }
                     else
@@ -991,6 +1026,7 @@ namespace MetaMorpheusGUI
 
                         if (result != MessageBoxResult.Yes)
                         {
+                            RestoreSdrfTaskSettings();
                             return;
                         }
                     }
@@ -1720,8 +1756,109 @@ namespace MetaMorpheusGUI
                 AddPreRunFileRecursiveHelper(path);
             }
 
+            NoteDroppedDesignFiles();
+            MakeDesignFromSdrf();
             SeedTmtExperimentalDesign();
             UpdateGuiOnPreRunChange();
+        }
+
+        /// <summary>SDRF and design files dropped this time, noted once the spectra files' folder is known.</summary>
+        private readonly List<string> _droppedDesignFiles = new();
+
+        /// <summary>The checked spectra files, and the folder of the first, where a run reads its design (null with none).</summary>
+        private (List<string> Files, string DesignDirectory) CheckedSpectraFiles()
+        {
+            var files = SpectraFiles.Where(sf => sf.Use)
+                .Select(sf => sf.FilePath)
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .ToList();
+            return (files, files.Any() ? Directory.GetParent(files.First()).FullName : null);
+        }
+
+        /// <summary>
+        /// A dropped SDRF or design file is recognised rather than called an unrecognized file type; one that is not in the
+        /// spectra files' folder is not used, and a line says so (QuantProject, ruled 2026-11-13).
+        /// </summary>
+        private void NoteDroppedDesignFiles()
+        {
+            string designDirectory = CheckedSpectraFiles().DesignDirectory;
+            foreach (string dropped in _droppedDesignFiles.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                string note = SdrfAutomaticDesign.NoteForDroppedFile(dropped, designDirectory);
+                if (note != null)
+                {
+                    NotificationHandler(null, new StringEventArgs(note, null));
+                }
+            }
+            _droppedDesignFiles.Clear();
+        }
+
+        /// <summary>
+        /// When spectra files are added and an SDRF is beside them, the experimental design is made from it at once and
+        /// written beside the files with its marker, as if saved in the design window (QuantProject, ruled 2026-11-13), so the
+        /// design windows open filled in. The kit of a TMT SDRF is guessed from its labels; Run makes the design again with
+        /// the search task's own label and grouping. A design the user wrote or edited is never touched.
+        /// </summary>
+        private void MakeDesignFromSdrf()
+        {
+            var (files, designDirectory) = CheckedSpectraFiles();
+            if (designDirectory == null)
+            {
+                return;
+            }
+
+            SdrfDesignOutcome outcome;
+            try
+            {
+                outcome = SdrfAutomaticDesign.ResolveOnAddingFiles(designDirectory, files, GuiSdrfWording);
+            }
+            catch (Exception e)
+            {
+                NotificationHandler(null, new StringEventArgs("The experimental design could not be made from the SDRF: " + e.Message, null));
+                return;
+            }
+
+            ShowSdrfOutcome(outcome, files);
+            if (outcome.Refusal != null)
+            {
+                NotificationHandler(null, new StringEventArgs(outcome.Refusal, null));
+            }
+        }
+
+        /// <summary>
+        /// Writes what the automatic design did to the notifications panel, and, when it wrote or removed a design, lets the
+        /// TMT design window read the files' design from disk again.
+        /// </summary>
+        private void ShowSdrfOutcome(SdrfDesignOutcome outcome, List<string> files)
+        {
+            foreach (string message in outcome.Messages)
+            {
+                NotificationHandler(null, new StringEventArgs(message, null));
+            }
+            if (outcome.DesignPath != null || outcome.Refusal != null)
+            {
+                TmtExperimentalDesignWindow.ForgetFiles(files);
+            }
+        }
+
+        /// <summary>How the GUI names the ways to state a grouping: task settings only, which it has no field for yet.</summary>
+        private static readonly SdrfDesignWording GuiSdrfWording = new()
+        {
+            ReportHint = design => design.Refusals.Any(r => r.Contains("(SingleCondition)") || r.Contains("(UnknownFactorIsOwnCondition)"))
+                ? "These are stated in a search task's .toml file, as SdrfSingleCondition and SdrfUnknownFactorIsCondition; "
+                    + "the GUI has no field for them yet." + Environment.NewLine
+                : string.Empty,
+            HowToAgreeOnGrouping = "Make the tasks' SdrfConditionColumns, SdrfSingleCondition and SdrfUnknownFactorIsCondition "
+                + "(in their .toml files) the same.",
+        };
+
+        /// <summary>The search tasks' SDRF settings as they were before a run; put back when it ends (ruled 2026-11-13).</summary>
+        private SdrfTaskSettingsSnapshot _sdrfTaskSettings;
+
+        private void RestoreSdrfTaskSettings()
+        {
+            _sdrfTaskSettings?.Restore();
+            _sdrfTaskSettings = null;
         }
 
         /// <summary>
@@ -1805,6 +1942,14 @@ namespace MetaMorpheusGUI
             var theExtension = Path.GetExtension(filename).ToLowerInvariant();
             bool compressed = theExtension.EndsWith("gz"); // allows for .bgz and .tgz, too which are used on occasion
             theExtension = compressed ? Path.GetExtension(Path.GetFileNameWithoutExtension(filename)).ToLowerInvariant() : theExtension;
+
+            // An SDRF or a design file adds nothing to the run itself: each is read from the spectra files' folder. Noted once
+            // the files are all added, when that folder is known (AddPreRunFiles).
+            if (SdrfAutomaticDesign.IsDesignOrSdrfFile(filePath))
+            {
+                _droppedDesignFiles.Add(filePath);
+                return;
+            }
 
             switch (theExtension)
             {
