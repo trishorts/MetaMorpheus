@@ -184,7 +184,8 @@ namespace Test
 
         /// <summary>
         /// Ruled 2026-11-13: only a real edit makes a design the user's. The GUI's design window saves Windows line endings,
-        /// so a design saved unchanged differs from ours byte for byte; it is still ours, and written again for the run.
+        /// so a design saved unchanged differs from ours byte for byte; it is still ours. It still fits the run's files, so it
+        /// is left as it is (ruled 2026-11-13: re-made only when it no longer fits).
         /// </summary>
         [Test]
         public static void OurDesignSavedWithOtherLineEndingsIsStillOurs()
@@ -200,7 +201,8 @@ namespace Test
             var console = new List<string>();
             Assert.That(Resolve(folder, spectra, SearchTasks(new SearchTask()), console), Is.EqualTo(Continue));
 
-            Assert.That(console.Last(), Does.EndWith("again for this run's spectra files."));
+            Assert.That(console.Last(), Does.EndWith("already fits this run's spectra files."));
+            Assert.That(SdrfDesignMarker.Sha256Of(DesignPath(folder)), Is.Not.EqualTo(ourSha), "left as it is, not rewritten");
             Assert.That(SdrfDesignMarker.ReadFrom(folder).DescribesUneditedDesignIn(folder), Is.True);
         }
 

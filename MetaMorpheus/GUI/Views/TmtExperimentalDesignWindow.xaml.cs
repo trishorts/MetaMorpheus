@@ -393,6 +393,26 @@ namespace MetaMorpheusGUI
         private static readonly List<string> s_seedErrors = new();
 
         /// <summary>
+        /// Drops what this session holds for the given spectra files, and any plex no file still names, so the next
+        /// <see cref="SeedFromDesignFiles"/> reads their design from disk alone. Called when MetaMorpheus writes or removes a
+        /// design it made from an SDRF: <see cref="SeedFromDesignFiles"/> skips a folder with no TmtDesign.txt, so rows of
+        /// a design that is gone would otherwise stay in the window.
+        /// </summary>
+        public static void ForgetFiles(IEnumerable<string> rawFilePaths)
+        {
+            foreach (var path in rawFilePaths.Where(p => !string.IsNullOrWhiteSpace(p)))
+            {
+                s_fileState.Remove(Path.GetFullPath(path));
+            }
+            var named = new HashSet<string>(s_fileState.Values.Select(s => s.Plex).Where(p => !string.IsNullOrWhiteSpace(p)),
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var plex in s_plexAnnotations.Keys.Where(k => !named.Contains(k)).ToList())
+            {
+                s_plexAnnotations.Remove(plex);
+            }
+        }
+
+        /// <summary>
         /// Loads TmtDesign.txt from the folders holding the given spectra files and refreshes the
         /// per-file state and per-plex annotations from it.
         /// </summary>
