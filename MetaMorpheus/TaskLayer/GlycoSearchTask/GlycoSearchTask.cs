@@ -416,6 +416,14 @@ namespace TaskLayer
 
                         glycoSpectralMatch.Routes = localizationCandidates;
 
+                        // A non-specific search digests with singleN/singleC, which impose nothing, so it is left alone.
+                        if (_glycoSearchParameters.BreakLocalizationTiesByCleavageRule && localizationCandidates.Count > 1)
+                        {
+                            glycoSpectralMatch.Routes = GlycoSpectralMatch.RoutesMeetingCleavageConditions(localizationCandidates,
+                                glycoSpectralMatch.BestMatchingBioPolymersWithSetMods.Select(b => b.SpecificBioPolymer).OfType<PeptideWithSetModifications>(),
+                                glycoSpectralMatch.DigestionParams.DigestionAgent);
+                        }
+
                     }
 
                     if (glycoSpectralMatch.Routes != null)

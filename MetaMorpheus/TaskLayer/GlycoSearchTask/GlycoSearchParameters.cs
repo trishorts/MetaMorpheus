@@ -62,6 +62,14 @@ namespace TaskLayer
         public bool OxoniumIonFilt { get; set; }
 
         /// <summary>
+        /// When the spectrum scores several O-glycan placements equally, keep those the protease's cleavage rule allows: a
+        /// glycoprotease cut needs a glycan at its subsite (OpeRATOR at P1', StcE at P2), and IMPa forbids one at P1. A
+        /// placement the spectrum prefers is never overridden, and identifications do not change. Off by default; not for
+        /// a non-specific search. TOMLs written before this existed omit it and get off.
+        /// </summary>
+        public bool BreakLocalizationTiesByCleavageRule { get; set; }
+
+        /// <summary>
         /// With <see cref="OxoniumIonFilt"/> on, a custom-monosaccharide diagnostic ion (MonosaccharidesCustom.tsv) counts as
         /// observed only above this fraction of the HexNAc 138.055 ion. Within [0, 1]; default 0.02 (2%). The built-in NeuAc
         /// and HexNAc(1)Hex(1) rules always use 0.02. TOMLs written before this existed omit it and get the default.
