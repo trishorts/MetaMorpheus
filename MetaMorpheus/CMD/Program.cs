@@ -512,52 +512,13 @@ namespace MetaMorpheusCommandLine
             return 5;
         }
 
-        /// <summary>The ending every SDRF file name carries (the SDRF-Proteomics specification's).</summary>
-        public const string SdrfFileEnding = ".sdrf.tsv";
-
         /// <summary>
-        /// A file named just this is an SDRF too (QuantProject, ruled 2026-11-13). It lacks the dot
-        /// <see cref="SdrfFileEnding"/> starts with, and it is the name a person most often gives one, so missing it would
-        /// make no design and say nothing.
-        /// </summary>
-        public const string SdrfBareFileName = "sdrf.tsv";
-
-        /// <summary>
-        /// True for a file the automatic design reads as an SDRF: a name ending <see cref="SdrfFileEnding"/>, or exactly
-        /// <see cref="SdrfBareFileName"/>. Case is ignored.
-        /// </summary>
-        public static bool IsSdrfFileName(string path)
-        {
-            string name = Path.GetFileName(path);
-            return name.EndsWith(SdrfFileEnding, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(name, SdrfBareFileName, StringComparison.OrdinalIgnoreCase);
-        }
-
-        /// <summary>
-        /// The automatic design (QuantProject gap AUTODESIGN, ruled 2026-11-07, 2026-11-11 and 2026-11-13): when an SDRF is
-        /// beside the spectra files (in the first spectra file's folder, named by <see cref="IsSdrfFileName"/>), the run's
-        /// experimental design is made from it, and the search's own SDRF is filled from it. With no SDRF there nothing
-        /// changes. Runs before <see cref="ResolveExperimentalDesign"/>, which then reads the design
-        /// written here exactly as it reads one the user wrote.
-        ///
-        /// <list type="bullet">
-        /// <item>The SDRF is handed to every search task as its <see cref="SearchParameters.InputSdrfPath"/>, with
-        /// <see cref="SearchParameters.WriteSdrf"/> on, so the search's own SDRF carries every sample fact the input has. A
-        /// task that names a different SDRF of its own keeps it, and a line says so.</item>
-        /// <item>The design is read with mzLib's SdrfSearchDesign, for exactly the spectra files given, as --sdrfDesign reads
-        /// it. Its condition comes from --sdrfCondition, --sdrfSingleCondition and --sdrfUnknownFactorIsCondition when any
-        /// is given, else from the search tasks' settings of the same names, which must agree. The kit is the search tasks'
-        /// multiplex label; a plex is read only from --sdrfPlexColumn, --sdrfPlexPattern or --sdrfSinglePlex.</item>
-        /// <item>The design is written beside the first spectra file with a <see cref="SdrfDesignMarker"/> holding its and
-        /// the SDRF's sha256 (QP-S41). A design already there that the marker shows MetaMorpheus wrote, unedited, is
-        /// written again for this run's files; any other design there is the user's, is used as is and never touched, and
-        /// a line says the SDRF was not read for it.</item>
-        /// <item>A design that cannot be made (refused, unreadable, two SDRFs, search tasks that disagree) is handled as
-        /// <see cref="ResolveExperimentalDesign"/> handles a design file it cannot read: with normalization asked for, exit
-        /// 5 and every reason; otherwise the reasons and a y/n prompt to continue without a design; at verbosity none, the
-        /// run continues. Nothing is written then, and a design MetaMorpheus wrote before, which no longer fits, is
-        /// removed with its marker. The SDRF is never edited.</item>
-        /// </list>
+        /// The automatic design for a command-line run (<see cref="SdrfAutomaticDesign.Resolve"/>, shared with the GUI),
+        /// shown on the console. A design that cannot be made from the SDRF is handled as
+        /// <see cref="ResolveExperimentalDesign"/> handles a design file it cannot read (QuantProject's oracle verdict,
+        /// 2026-11-07): with normalization asked for, every reason and exit 5; at verbosity none, the run continues; otherwise
+        /// every reason and a y/n prompt to continue without a design. Runs before <see cref="ResolveExperimentalDesign"/>,
+        /// which then reads the design written here exactly as it reads one the user wrote.
         /// </summary>
         /// <param name="designDirectory">The folder of the first spectra file, where a run reads its design.</param>
         /// <param name="startingRawFilenameList">Full paths of the spectra files this run will search.</param>
@@ -581,273 +542,36 @@ namespace MetaMorpheusCommandLine
             write ??= Console.WriteLine;
             readLine ??= Console.ReadLine;
 
-            if (searchTasks.Count == 0)
-            {
-                return 0;
-            }
-
-            var sdrfs = Directory.GetFiles(designDirectory)
-                .Where(IsSdrfFileName)
-                .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            if (sdrfs.Count == 0)
-            {
-                return 0;
-            }
-
-            // Which SDRF, when a folder holds several, is not ruled (QuantProject, 2026-11-07): one is kept per group of
-            // files. So none is guessed.
-            if (sdrfs.Count > 1)
-            {
-                return ContinueWithoutSdrfDesign(
-                    $"{sdrfs.Count} SDRF files are beside the spectra files ({string.Join(", ", sdrfs.Select(Path.GetFileName))}), "
-                    + "and MetaMorpheus does not choose between them, so no experimental design was made from an SDRF. Keep "
-                    + "beside the spectra files only the SDRF that describes them.",
-                    report: null, normalizationRequested, reportToConsole, write, readLine);
-            }
-
-            string sdrf = Path.GetFullPath(sdrfs[0]);
-            HandSdrfToSearchTasks(sdrf, searchTasks, reportToConsole, write);
-
-            // A search that quantifies nothing reads no design.
-            if (!searchTasks.Any(t => t.Task.SearchParameters.DoLabelFreeQuantification || t.Task.SearchParameters.DoMultiplexQuantification))
-            {
-                return 0;
-            }
-
-            string labelFreePath = Path.Combine(designDirectory, GlobalVariables.ExperimentalDesignFileName);
-            string isobaricPath = Path.Combine(designDirectory, GlobalVariables.TmtExperimentalDesignFileName);
-            string existing = new[] { labelFreePath, isobaricPath }.Where(File.Exists).ToList() switch
-            {
-                { Count: 0 } => null,
-                { Count: 1 } one => one[0],
-                // both kinds: ResolveExperimentalDesign stops the run, and neither is ours to choose between
-                _ => string.Empty,
-            };
-            if (existing == string.Empty)
-            {
-                return 0;
-            }
-
-            var marker = SdrfDesignMarker.ReadFrom(designDirectory);
-            bool ours = existing != null && marker != null
-                && string.Equals(marker.DesignFileName, Path.GetFileName(existing), StringComparison.Ordinal)
-                && marker.DescribesUneditedDesignIn(designDirectory);
-            if (existing != null && !ours)
-            {
-                if (reportToConsole)
+            var outcome = SdrfAutomaticDesign.Resolve(designDirectory, startingRawFilenameList, searchTasks,
+                new SdrfDesignStatements
                 {
-                    write($"{Path.GetFileName(existing)} is beside the spectra files and was not written by MetaMorpheus from an SDRF, "
-                        + $"or was edited since, so it is the design; the SDRF beside it ({sdrf}) is not read for the design.");
-                }
-                return 0;
-            }
-
-            if (!TryReadGrouping(settings, searchTasks, out var grouping, out string disagreement))
-            {
-                return ContinueWithoutSdrfDesign(disagreement, report: null, normalizationRequested, reportToConsole, write, readLine,
-                    removeOurs: ours ? existing : null, designDirectory);
-            }
-
-            var kits = searchTasks
-                .Select(t => t.Task.SearchParameters.DoMultiplexQuantification ? t.Task.SearchParameters.MultiplexModId ?? string.Empty : null)
-                .Distinct()
-                .ToList();
-            if (kits.Count > 1)
-            {
-                return ContinueWithoutSdrfDesign(
-                    "The search tasks quantify differently (" + string.Join(", ", searchTasks.Select(t => t.Name + ": "
-                        + (t.Task.SearchParameters.DoMultiplexQuantification ? t.Task.SearchParameters.MultiplexModId : "label-free")))
-                    + "), and one experimental design cannot serve them all, so none was made from the SDRF.",
-                    report: null, normalizationRequested, reportToConsole, write, readLine, removeOurs: ours ? existing : null, designDirectory);
-            }
-
-            MzLibIsobaricMassTag tag = null;
-            if (kits[0] != null && !MzLibIsobaricMassTag.TryGetIsobaricMassTag(kits[0], GlobalVariables.AllModsKnown, out tag))
-            {
-                return ContinueWithoutSdrfDesign(
-                    $"The search's multiplex label '{kits[0]}' is not an isobaric kit mzLib knows, so the SDRF's channels cannot be read.",
-                    report: null, normalizationRequested, reportToConsole, write, readLine, removeOurs: ours ? existing : null, designDirectory);
-            }
-
-            var options = new SdrfSearchDesignOptions
-            {
-                Tag = tag,
-                PlexColumn = settings.SdrfPlexColumn,
-                PlexFileNamePattern = settings.SdrfPlexPattern,
-                SinglePlex = settings.SdrfSinglePlex,
-                ConditionColumns = grouping.Columns,
-                SingleCondition = grouping.SingleCondition,
-                UnknownFactorIsOwnCondition = grouping.UnknownIsOwnCondition,
-            };
-            var design = SdrfSearchDesign.Read(sdrf, startingRawFilenameList, options);
-            string report = design.Report() + SwitchesTheReportNames(design, inATaskFileToo: true);
-
-            if (!design.IsValid)
-            {
-                return ContinueWithoutSdrfDesign(
-                    $"An SDRF is beside the spectra files ({sdrf}), but no experimental design could be made from it, for the reasons above.",
-                    report, normalizationRequested, reportToConsole, write, readLine, removeOurs: ours ? existing : null, designDirectory);
-            }
-
-            string designPath = tag != null ? isobaricPath : labelFreePath;
-            if (existing != null && existing != designPath)
-            {
-                File.Delete(existing); // ours, unedited, and of the other kind: the search's label changed
-            }
-            design.WriteDesign(designPath);
-
-            var newMarker = new SdrfDesignMarker(Path.GetFileName(designPath), SdrfDesignMarker.Sha256Of(designPath), sdrf,
-                SdrfDesignMarker.Sha256Of(sdrf), DescribeCondition(design, grouping));
-            newMarker.WriteTo(designDirectory);
-            foreach (var (_, task) in searchTasks)
-            {
-                task.SearchParameters.DesignWrittenFromSdrf = newMarker.Describe();
-            }
+                    ConditionColumns = settings.SdrfConditionColumns?.ToList() ?? new List<string>(),
+                    SingleCondition = settings.SdrfSingleCondition,
+                    UnknownFactorIsOwnCondition = settings.SdrfUnknownFactorIsCondition,
+                    PlexColumn = settings.SdrfPlexColumn,
+                    PlexPattern = settings.SdrfPlexPattern,
+                    SinglePlex = settings.SdrfSinglePlex,
+                },
+                CommandLineWording);
 
             if (reportToConsole)
             {
-                write(report.TrimEnd());
-                if (tag?.TagType == Omics.Modifications.IsobaricMassTagType.TMT16)
+                foreach (string message in outcome.Messages)
                 {
-                    write(Tmt16Note);
-                }
-                write($"Wrote {designPath} from the SDRF {sdrf}" + (ours ? ", again for this run's spectra files." : "."));
-            }
-            return 0;
-        }
-
-        /// <summary>The grouping the user states for a design made from an SDRF: the columns, one condition, or neither.</summary>
-        private sealed record SdrfGrouping(List<string> Columns, string SingleCondition, bool UnknownIsOwnCondition);
-
-        /// <summary>
-        /// The command line's --sdrfCondition, --sdrfSingleCondition and --sdrfUnknownFactorIsCondition when any is given;
-        /// otherwise the search tasks' settings of the same names, which must be the same in every task, because one design
-        /// serves them all. The grouping used is written into every search task, so the task files the run writes record it.
-        /// </summary>
-        private static bool TryReadGrouping(CommandLineSettings settings, IReadOnlyList<(string Name, SearchTask Task)> searchTasks,
-            out SdrfGrouping grouping, out string disagreement)
-        {
-            disagreement = null;
-            bool fromCommandLine = settings.SdrfConditionColumns?.Any() == true || settings.SdrfSingleCondition != null
-                || settings.SdrfUnknownFactorIsCondition;
-            if (fromCommandLine)
-            {
-                grouping = new SdrfGrouping(settings.SdrfConditionColumns?.ToList() ?? new List<string>(), settings.SdrfSingleCondition,
-                    settings.SdrfUnknownFactorIsCondition);
-            }
-            else
-            {
-                var stated = searchTasks
-                    .Select(t => (t.Name, Grouping: new SdrfGrouping(t.Task.SearchParameters.SdrfConditionColumns?.ToList() ?? new List<string>(),
-                        t.Task.SearchParameters.SdrfSingleCondition, t.Task.SearchParameters.SdrfUnknownFactorIsCondition)))
-                    .ToList();
-                string Key(SdrfGrouping g) => string.Join("\u0001", g.Columns) + "\u0002" + g.SingleCondition + "\u0002" + g.UnknownIsOwnCondition;
-                if (stated.Select(s => Key(s.Grouping)).Distinct().Count() > 1)
-                {
-                    grouping = null;
-                    disagreement = "The search tasks build the SDRF's condition differently ("
-                        + string.Join("; ", stated.Select(s => $"{s.Name}: {DescribeGrouping(s.Grouping)}"))
-                        + "), and one experimental design serves them all, so none was made from the SDRF. Make the tasks' "
-                        + "SdrfConditionColumns, SdrfSingleCondition and SdrfUnknownFactorIsCondition the same, or give "
-                        + "--sdrfCondition, --sdrfSingleCondition or --sdrfUnknownFactorIsCondition.";
-                    return false;
-                }
-                grouping = stated[0].Grouping;
-            }
-
-            foreach (var (_, task) in searchTasks)
-            {
-                task.SearchParameters.SdrfConditionColumns = grouping.Columns.ToList();
-                task.SearchParameters.SdrfSingleCondition = grouping.SingleCondition;
-                task.SearchParameters.SdrfUnknownFactorIsCondition = grouping.UnknownIsOwnCondition;
-            }
-            return true;
-        }
-
-        private static string DescribeGrouping(SdrfGrouping g) =>
-            (g.SingleCondition != null ? $"one condition, '{g.SingleCondition}'"
-                : g.Columns.Count > 0 ? "columns " + string.Join(", ", g.Columns) : "every factor value column")
-            + (g.UnknownIsOwnCondition ? ", unknown factors their own condition" : string.Empty);
-
-        /// <summary>How the condition of a design was built, for its marker and results.txt: read or stated.</summary>
-        private static string DescribeCondition(SdrfSearchDesign design, SdrfGrouping grouping)
-        {
-            string single = design.LabelFree?.SingleCondition ?? design.Isobaric?.SingleCondition;
-            var columns = design.LabelFree?.ConditionColumns ?? design.Isobaric?.ConditionColumns ?? Array.Empty<string>();
-            string text = single != null
-                ? $"one condition, '{single}', stated by the user"
-                : (grouping.Columns.Count > 0 ? "the column(s) the user named, " : "every factor value column, ") + string.Join(" + ", columns);
-            return grouping.UnknownIsOwnCondition
-                ? text + "; files whose factor nobody stated are a condition of their own, as stated by the user"
-                : text;
-        }
-
-        /// <summary>
-        /// Gives every search task the SDRF beside the spectra files as its input SDRF, and turns on the search's own SDRF:
-        /// with an input SDRF there, the output SDRF is written whether or not the task asked for it (QuantProject, ruled
-        /// 2026-11-07). A task naming another SDRF of its own keeps it, and a line says so.
-        /// </summary>
-        private static void HandSdrfToSearchTasks(string sdrf, IReadOnlyList<(string Name, SearchTask Task)> searchTasks,
-            bool reportToConsole, Action<string> write)
-        {
-            foreach (var (name, task) in searchTasks)
-            {
-                string own = task.SearchParameters.InputSdrfPath;
-                if (string.IsNullOrWhiteSpace(own))
-                {
-                    task.SearchParameters.InputSdrfPath = sdrf;
-                }
-                else if (!string.Equals(Path.GetFullPath(own.Trim()), sdrf, StringComparison.OrdinalIgnoreCase) && reportToConsole)
-                {
-                    write($"{name} names its own InputSdrfPath ({Path.GetFullPath(own.Trim())}), not the SDRF beside the spectra "
-                        + $"files ({sdrf}); the search's SDRF copies its samples from the task's own.");
-                }
-
-                if (!task.SearchParameters.WriteSdrf)
-                {
-                    task.SearchParameters.WriteSdrf = true;
-                    if (reportToConsole)
-                    {
-                        write($"{name} writes the search's own SDRF, because an SDRF is beside the spectra files.");
-                    }
+                    write(message);
                 }
             }
-        }
 
-        /// <summary>
-        /// A design that could not be made from the SDRF, handled as <see cref="ResolveExperimentalDesign"/> handles a
-        /// design file it cannot read (QuantProject's oracle verdict, 2026-11-07): with normalization asked for, every
-        /// reason and exit 5; at verbosity none, carry on; otherwise every reason and a y/n prompt to continue without a
-        /// design. A design MetaMorpheus wrote from the SDRF before, unedited, is removed with its marker first: it no
-        /// longer fits, and the run must not quantify with it.
-        /// </summary>
-        private static int ContinueWithoutSdrfDesign(string why, string report, bool normalizationRequested, bool reportToConsole,
-            Action<string> write, Func<string> readLine, string removeOurs = null, string designDirectory = null)
-        {
-            if (removeOurs != null)
+            if (outcome.Refusal == null)
             {
-                File.Delete(removeOurs);
-                File.Delete(SdrfDesignMarker.PathIn(designDirectory));
-            }
-
-            if (reportToConsole)
-            {
-                if (report != null)
-                {
-                    write(report.TrimEnd());
-                }
-                if (removeOurs != null)
-                {
-                    write($"{removeOurs} was removed: MetaMorpheus wrote it from the SDRF before, and it no longer fits.");
-                }
+                return 0;
             }
 
             if (normalizationRequested)
             {
                 if (reportToConsole)
                 {
-                    write(why + " Normalization needs an experimental design, so the run stops. No design was written.");
+                    write(outcome.Refusal + " Normalization needs an experimental design, so the run stops. No design was written.");
                 }
                 return 5;
             }
@@ -857,10 +581,18 @@ namespace MetaMorpheusCommandLine
                 return 0;
             }
 
-            write(why + " Continue without an experimental design? y/n");
+            write(outcome.Refusal + " Continue without an experimental design? y/n");
             string answer = readLine();
             return answer?.ToLowerInvariant() == "y" || answer?.ToLowerInvariant() == "yes" ? 0 : 5;
         }
+
+        /// <summary>How the command line names the ways to state a grouping: its switches, and the task settings.</summary>
+        private static readonly SdrfDesignWording CommandLineWording = new()
+        {
+            ReportHint = design => SwitchesTheReportNames(design, inATaskFileToo: true),
+            HowToAgreeOnGrouping = "Make the tasks' SdrfConditionColumns, SdrfSingleCondition and SdrfUnknownFactorIsCondition the same, or give "
+                + "--sdrfCondition, --sdrfSingleCondition or --sdrfUnknownFactorIsCondition.",
+        };
 
         private static void WriteMultiLineIndented(string toWrite)
         {
@@ -1007,8 +739,7 @@ namespace MetaMorpheusCommandLine
         /// names no kit, and TMT16's channels are TMT18's first sixteen, so the file is one a TMT18 run reads as is. Said, so
         /// the search is not set to a label that is not there.
         /// </summary>
-        private const string Tmt16Note = "TMT16 is searched in MetaMorpheus with its TMT18 multiplex label (TMTpro, the same reagent). "
-            + "This design is read as is by such a run; channels 134C and 135N stay empty.";
+        private const string Tmt16Note = SdrfAutomaticDesign.Tmt16Note;
 
         /// <summary>
         /// Where a refusal can be answered by stating a grouping, mzLib's report names its option; this says which switch
