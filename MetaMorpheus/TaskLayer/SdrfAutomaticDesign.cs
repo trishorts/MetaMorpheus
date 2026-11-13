@@ -80,8 +80,8 @@ namespace TaskLayer
     /// task that names a different SDRF of its own keeps it, and a line says so.</item>
     /// <item>The design is read with mzLib's SdrfSearchDesign, for exactly the spectra files given. Its condition comes
     /// from <see cref="SdrfDesignStatements"/> when they state one, else from the search tasks' settings of the same
-    /// names, which must agree. The kit is the search tasks' multiplex label; a plex is read only from a stated column,
-    /// pattern or single plex.</item>
+    /// names, which must agree. The kit is the search tasks' multiplex label; the plex is read from a stated column,
+    /// pattern or single plex, else from the SDRF's <see cref="DefaultPlexColumn"/>.</item>
     /// <item>The design is written beside the first spectra file with a <see cref="SdrfDesignMarker"/> holding its and
     /// the SDRF's sha256 (QP-S41). A design already there that the marker shows MetaMorpheus wrote, unedited, is written
     /// again for this run's files; any other design there is the user's, is used as is and never touched, and a line says
@@ -109,6 +109,53 @@ namespace TaskLayer
         /// </summary>
         public const string Tmt16Note = "TMT16 is searched in MetaMorpheus with its TMT18 multiplex label (TMTpro, the same reagent). "
             + "This design is read as is by such a run; channels 134C and 135N stay empty.";
+
+        /// <summary>
+        /// The column a TMT SDRF's plex is read from when no plex source is stated (QuantProject, ruled 2026-11-13): the
+        /// column PXReprise writes in every TMT SDRF it drafts. A fixed column name is the SDRF stating the plex, not
+        /// MetaMorpheus guessing it; a stated column, file-name pattern or single plex wins over it.
+        /// </summary>
+        public const string DefaultPlexColumn = "comment[plex]";
+
+        /// <summary>
+        /// The SDRF's own spelling of <see cref="DefaultPlexColumn"/> (case ignored), or null when it has no such column or
+        /// cannot be read (the SDRF reader then says why).
+        /// </summary>
+        public static string DefaultPlexColumnIn(string sdrfPath)
+        {
+            string header;
+            try
+            {
+                header = File.ReadLines(sdrfPath).FirstOrDefault() ?? string.Empty;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                return null;
+            }
+            return header.TrimStart('\uFEFF').Split('\t').Select(c => c.Trim())
+                .FirstOrDefault(c => string.Equals(c, DefaultPlexColumn, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// Where a TMT design's plex is read: the stated column, pattern or single plex when one is stated, otherwise the
+        /// SDRF's <see cref="DefaultPlexColumn"/> when it has one, otherwise nothing (mzLib then refuses, naming what is
+        /// missing; <see cref="DefaultPlexNote"/> adds that comment[plex] was looked for).
+        /// </summary>
+        public static (string Column, string Pattern, string SinglePlex) PlexSource(string sdrfPath, string column, string pattern,
+            string singlePlex) =>
+            column == null && pattern == null && singlePlex == null
+                ? (DefaultPlexColumnIn(sdrfPath), null, null)
+                : (column, pattern, singlePlex);
+
+        /// <summary>
+        /// A line for a report mzLib refused because no plex source was declared: the SDRF has no comment[plex], the column
+        /// read when none is named. Empty otherwise.
+        /// </summary>
+        public static string DefaultPlexNote(SdrfSearchDesign design) =>
+            design.Refusals.Any(r => r.StartsWith("No plex source was declared", StringComparison.Ordinal))
+                ? $"The SDRF has no {DefaultPlexColumn} column, which MetaMorpheus reads for the plex when none is named."
+                    + Environment.NewLine
+                : string.Empty;
 
         /// <summary>
         /// True for a file the automatic design reads as an SDRF: a name ending <see cref="SdrfFileEnding"/>, or exactly
@@ -224,18 +271,21 @@ namespace TaskLayer
                     null, sdrf, removeOurs, designDirectory);
             }
 
+            var plex = tag != null
+                ? PlexSource(sdrf, stated.PlexColumn, stated.PlexPattern, stated.SinglePlex)
+                : (stated.PlexColumn, stated.PlexPattern, stated.SinglePlex);
             var options = new SdrfSearchDesignOptions
             {
                 Tag = tag,
-                PlexColumn = stated.PlexColumn,
-                PlexFileNamePattern = stated.PlexPattern,
-                SinglePlex = stated.SinglePlex,
+                PlexColumn = plex.Item1,
+                PlexFileNamePattern = plex.Item2,
+                SinglePlex = plex.Item3,
                 ConditionColumns = grouping.Columns,
                 SingleCondition = grouping.SingleCondition,
                 UnknownFactorIsOwnCondition = grouping.UnknownIsOwnCondition,
             };
             var design = SdrfSearchDesign.Read(sdrf, spectraFilePaths, options);
-            string report = design.Report() + wording.ReportHint(design);
+            string report = design.Report() + DefaultPlexNote(design) + wording.ReportHint(design);
 
             if (!design.IsValid)
             {
@@ -251,7 +301,7 @@ namespace TaskLayer
             }
             design.WriteDesign(designPath);
 
-            var newMarker = new SdrfDesignMarker(Path.GetFileName(designPath), SdrfDesignMarker.Sha256Of(designPath), sdrf,
+            var newMarker = new SdrfDesignMarker(Path.GetFileName(designPath), SdrfDesignMarker.ContentSha256Of(designPath), sdrf,
                 SdrfDesignMarker.Sha256Of(sdrf), DescribeCondition(design, grouping));
             newMarker.WriteTo(designDirectory);
             foreach (var (_, task) in searchTasks)

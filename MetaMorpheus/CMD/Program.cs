@@ -711,6 +711,7 @@ namespace MetaMorpheusCommandLine
 
             if (!design.IsValid)
             {
+                output.Write(SdrfAutomaticDesign.DefaultPlexNote(design));
                 output.WriteLine("No design file was written.");
 
                 output.Write(SwitchesTheReportNames(design, inATaskFileToo: false));
@@ -773,16 +774,23 @@ namespace MetaMorpheusCommandLine
         /// none, every factor value column makes the condition. A single condition and files whose factor nobody stated
         /// are groupings only the user can state (ruled 2026-11-11): never defaults.
         /// </summary>
-        private static SdrfSearchDesignOptions SdrfDesignOptions(CommandLineSettings settings, MzLibIsobaricMassTag tag) => new()
+        private static SdrfSearchDesignOptions SdrfDesignOptions(CommandLineSettings settings, MzLibIsobaricMassTag tag)
         {
-            Tag = tag,
-            PlexColumn = settings.SdrfPlexColumn,
-            PlexFileNamePattern = settings.SdrfPlexPattern,
-            SinglePlex = settings.SdrfSinglePlex,
-            ConditionColumns = settings.SdrfConditionColumns?.ToList(),
-            SingleCondition = settings.SdrfSingleCondition,
-            UnknownFactorIsOwnCondition = settings.SdrfUnknownFactorIsCondition,
-        };
+            // An isobaric SDRF's plex: the switch given, else the SDRF's comment[plex] (ruled 2026-11-13).
+            var plex = tag != null
+                ? SdrfAutomaticDesign.PlexSource(settings.SdrfDesign, settings.SdrfPlexColumn, settings.SdrfPlexPattern, settings.SdrfSinglePlex)
+                : (settings.SdrfPlexColumn, settings.SdrfPlexPattern, settings.SdrfSinglePlex);
+            return new SdrfSearchDesignOptions
+            {
+                Tag = tag,
+                PlexColumn = plex.Item1,
+                PlexFileNamePattern = plex.Item2,
+                SinglePlex = plex.Item3,
+                ConditionColumns = settings.SdrfConditionColumns?.ToList(),
+                SingleCondition = settings.SdrfSingleCondition,
+                UnknownFactorIsOwnCondition = settings.SdrfUnknownFactorIsCondition,
+            };
+        }
 
         /// <summary>
         /// Prints what one SDRF document says about quantification, and runs nothing else.

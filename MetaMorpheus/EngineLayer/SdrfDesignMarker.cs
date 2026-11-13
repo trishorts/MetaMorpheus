@@ -12,7 +12,9 @@ namespace EngineLayer
     /// 2026-11-07): the design file and the SDRF, each by its sha256, and how the condition was built, including any
     /// grouping the user stated (ruled 2026-11-11). It is how a later run tells a design MetaMorpheus wrote from one
     /// the user wrote or edited: while the design's sha256 is the one recorded here, the design is MetaMorpheus's, and
-    /// a run writes it again for its own spectra files; once edited, it is the user's and is never touched.
+    /// a run writes it again for its own spectra files; once edited, it is the user's and is never touched. The design's
+    /// sha256 is of its text with line endings ignored (<see cref="ContentSha256Of"/>, ruled 2026-11-13): the GUI's
+    /// design windows save Windows line endings, so saving one unchanged is not an edit.
     ///
     /// A plain text file of tab-separated keys and values beside the design, so a person reading the folder sees why
     /// the design is there.
@@ -37,7 +39,7 @@ namespace EngineLayer
         /// <summary>The design's file name: ExperimentalDesign.tsv or TmtDesign.txt.</summary>
         public string DesignFileName { get; }
 
-        /// <summary>The design's sha256 as MetaMorpheus wrote it, lowercase hex.</summary>
+        /// <summary>The design's <see cref="ContentSha256Of"/> as MetaMorpheus wrote it, lowercase hex.</summary>
         public string DesignSha256 { get; }
 
         /// <summary>The SDRF the design was made from, as a full path.</summary>
@@ -57,15 +59,15 @@ namespace EngineLayer
             $"Experimental design ({DesignFileName}) written by MetaMorpheus from the SDRF {SdrfPath} (sha256 {SdrfSha256}); condition: {Condition}.";
 
         /// <summary>
-        /// True when the design this marker names is in <paramref name="designDirectory"/> and is byte for byte what
-        /// MetaMorpheus wrote. False when it is missing, unreadable or edited.
+        /// True when the design this marker names is in <paramref name="designDirectory"/> and its text is what MetaMorpheus
+        /// wrote, line endings aside. False when it is missing, unreadable or edited.
         /// </summary>
         public bool DescribesUneditedDesignIn(string designDirectory)
         {
             string design = Path.Combine(designDirectory, DesignFileName);
             try
             {
-                return File.Exists(design) && string.Equals(Sha256Of(design), DesignSha256, StringComparison.OrdinalIgnoreCase);
+                return File.Exists(design) && string.Equals(ContentSha256Of(design), DesignSha256, StringComparison.OrdinalIgnoreCase);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
@@ -127,6 +129,17 @@ namespace EngineLayer
         {
             using var stream = File.OpenRead(path);
             return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+        }
+
+        /// <summary>
+        /// The sha256 of a text file's content, lowercase hex, with its line endings ignored: a byte-order mark dropped, CR LF
+        /// and CR read as LF, and trailing line ends dropped. Two files differing only in how lines end give one value.
+        /// </summary>
+        public static string ContentSha256Of(string path)
+        {
+            string text = File.ReadAllText(path, Encoding.UTF8).TrimStart('\uFEFF')
+                .Replace("\r\n", "\n").Replace('\r', '\n').TrimEnd('\n');
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
         }
     }
 }

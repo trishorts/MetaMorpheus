@@ -127,7 +127,7 @@ namespace Test
             var marker = SdrfDesignMarker.ReadFrom(folder);
             Assert.That(marker, Is.Not.Null);
             Assert.That(marker.DesignFileName, Is.EqualTo(GlobalVariables.ExperimentalDesignFileName));
-            Assert.That(marker.DesignSha256, Is.EqualTo(SdrfDesignMarker.Sha256Of(DesignPath(folder))));
+            Assert.That(marker.DesignSha256, Is.EqualTo(SdrfDesignMarker.ContentSha256Of(DesignPath(folder))));
             Assert.That((marker.SdrfPath, marker.SdrfSha256), Is.EqualTo((Path.GetFullPath(sdrf), sdrfSha)));
             Assert.That(marker.Condition, Is.EqualTo("every factor value column, factor value[genotype]"));
 
@@ -180,6 +180,28 @@ namespace Test
             Assert.That(console, Has.Some.Contains("was not written by MetaMorpheus from an SDRF, or was edited since, so it is the design"));
             Assert.That(task.SearchParameters.DesignWrittenFromSdrf, Is.Null);
             Assert.That(task.SearchParameters.InputSdrfPath, Is.Not.Null, "the SDRF still fills the search's own SDRF");
+        }
+
+        /// <summary>
+        /// Ruled 2026-11-13: only a real edit makes a design the user's. The GUI's design window saves Windows line endings,
+        /// so a design saved unchanged differs from ours byte for byte; it is still ours, and written again for the run.
+        /// </summary>
+        [Test]
+        public static void OurDesignSavedWithOtherLineEndingsIsStillOurs()
+        {
+            string folder = NewFolder("Resaved");
+            var spectra = Spectra(folder, "a1.mzML", "b1.mzML");
+            WriteSdrf(folder, ("a1.raw", "WT", 1), ("b1.raw", "KO", 1));
+            Assert.That(Resolve(folder, spectra, SearchTasks(new SearchTask()), new List<string>()), Is.EqualTo(Continue));
+            string ourSha = SdrfDesignMarker.Sha256Of(DesignPath(folder));
+            File.WriteAllLines(DesignPath(folder), File.ReadAllLines(DesignPath(folder)));
+            Assume.That(SdrfDesignMarker.Sha256Of(DesignPath(folder)), Is.Not.EqualTo(ourSha), "the bytes changed");
+
+            var console = new List<string>();
+            Assert.That(Resolve(folder, spectra, SearchTasks(new SearchTask()), console), Is.EqualTo(Continue));
+
+            Assert.That(console.Last(), Does.EndWith("again for this run's spectra files."));
+            Assert.That(SdrfDesignMarker.ReadFrom(folder).DescribesUneditedDesignIn(folder), Is.True);
         }
 
         [Test]
@@ -464,15 +486,64 @@ namespace Test
             Assert.That(File.Exists(DesignPath(folder)), Is.False);
         }
 
+        /// <summary>Ruled 2026-11-13: with no plex stated, the SDRF's comment[plex] column is read.</summary>
         [Test]
-        public static void AnIsobaricSearchWithNoPlexStatedIsRefused()
+        public static void AnIsobaricSdrfsCommentPlexIsReadWhenNoPlexIsStated()
         {
-            string folder = NewFolder("TmtNoPlex");
+            string folder = NewFolder("TmtDefaultPlex");
             var spectra = Spectra(folder, "p1.mzML");
             WriteTmtSdrf(folder);
             var console = new List<string>();
 
+            Assert.That(Resolve(folder, spectra, SearchTasks(Tmt11Search()), console, normalize: true), Is.EqualTo(Continue),
+                string.Join("\n", console));
+
+            var files = TmtExperimentalDesign.Read(Path.Combine(folder, GlobalVariables.TmtExperimentalDesignFileName), spectra, out var errors);
+            Assert.That(errors, Is.Empty);
+            Assert.That(files.Select(f => f.Plex).Distinct(), Is.EqualTo(new[] { "P1" }));
+        }
+
+        /// <summary>A stated plex column wins over comment[plex].</summary>
+        [Test]
+        public static void AStatedPlexColumnWinsOverCommentPlex()
+        {
+            string folder = NewFolder("TmtStatedPlex");
+            var spectra = Spectra(folder, "p1.mzML");
+            WriteSdrf(folder, "deposit.sdrf.tsv",
+                new[] { "source name", "characteristics[biological replicate]", "comment[label]", "comment[data file]", "comment[plex]", "comment[batch]", "factor value[genotype]" },
+                new[]
+                {
+                    new[] { "S1", "1", "TMT126", "p1.raw", "P1", "B9", "WT" },
+                    new[] { "S2", "1", "TMT127N", "p1.raw", "P1", "B9", "KO" },
+                });
+            var console = new List<string>();
+
+            Assert.That(Resolve(folder, spectra, SearchTasks(Tmt11Search()), console,
+                settings: new CommandLineSettings { SdrfPlexColumn = "comment[batch]" }), Is.EqualTo(Continue), string.Join("\n", console));
+
+            var files = TmtExperimentalDesign.Read(Path.Combine(folder, GlobalVariables.TmtExperimentalDesignFileName), spectra, out _);
+            Assert.That(files.Select(f => f.Plex).Distinct(), Is.EqualTo(new[] { "B9" }));
+        }
+
+        /// <summary>No comment[plex] and no plex stated: refused, and the report says comment[plex] was looked for.</summary>
+        [Test]
+        public static void AnIsobaricSdrfWithNoCommentPlexAndNoPlexStatedIsRefused()
+        {
+            string folder = NewFolder("TmtNoPlex");
+            var spectra = Spectra(folder, "p1.mzML");
+            WriteSdrf(folder, "deposit.sdrf.tsv",
+                new[] { "source name", "characteristics[biological replicate]", "comment[label]", "comment[data file]", "factor value[genotype]" },
+                new[]
+                {
+                    new[] { "S1", "1", "TMT126", "p1.raw", "WT" },
+                    new[] { "S2", "1", "TMT127N", "p1.raw", "KO" },
+                });
+            var console = new List<string>();
+
             Assert.That(Resolve(folder, spectra, SearchTasks(Tmt11Search()), console, normalize: true), Is.EqualTo(Stop));
+
+            Assert.That(string.Join("\n", console), Does.Contain("No plex source was declared")
+                .And.Contain("The SDRF has no comment[plex] column, which MetaMorpheus reads for the plex when none is named."));
             Assert.That(File.Exists(Path.Combine(folder, GlobalVariables.TmtExperimentalDesignFileName)), Is.False);
         }
 

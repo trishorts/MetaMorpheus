@@ -61,10 +61,10 @@ namespace MetaMorpheusCommandLine
         [Option("sdrfUnknownFactorIsCondition", HelpText = "[Optional] States that files whose condition cell says nobody stated it ('not available', 'not applicable', or blank, read as 'not available') are a condition of their own. Without it, each such file is refused by name. With --sdrfDesign, or in a run whose spectra files have an SDRF beside them, which then makes the run's experimental design (the search task settings of the same names apply when none of these switches is given).")]
         public bool SdrfUnknownFactorIsCondition { get; set; }
 
-        [Option("sdrfTag", HelpText = "[Optional] The isobaric kit the search uses, which makes --sdrfDesign read a TMT, iTRAQ or DiLeu SDRF and write TmtDesign.txt instead of ExperimentalDesign.tsv. Give the kit as the search names it: TMT6, TMT10, TMT11, TMT16, TMT18, iTRAQ4, iTRAQ8, diLeu4, diLeu12, or the search's multiplex modification (e.g. 'TMT11 on K'). TMTpro 16-plex may be given as TMT16, which checks the SDRF against its sixteen channels; MetaMorpheus searches it with its TMT18 label, and the design written reads as is under that. The kit is never guessed from the SDRF's labels: one kit's labels can be a subset of another's. Needs exactly one of --sdrfPlexColumn, --sdrfPlexPattern, --sdrfSinglePlex.")]
+        [Option("sdrfTag", HelpText = "[Optional] The isobaric kit the search uses, which makes --sdrfDesign read a TMT, iTRAQ or DiLeu SDRF and write TmtDesign.txt instead of ExperimentalDesign.tsv. Give the kit as the search names it: TMT6, TMT10, TMT11, TMT16, TMT18, iTRAQ4, iTRAQ8, diLeu4, diLeu12, or the search's multiplex modification (e.g. 'TMT11 on K'). TMTpro 16-plex may be given as TMT16, which checks the SDRF against its sixteen channels; MetaMorpheus searches it with its TMT18 label, and the design written reads as is under that. The kit is never guessed from the SDRF's labels: one kit's labels can be a subset of another's. The plex is read from the SDRF's comment[plex] column; give one of --sdrfPlexColumn, --sdrfPlexPattern, --sdrfSinglePlex to read it elsewhere.")]
         public string SdrfTag { get; set; }
 
-        [Option("sdrfPlexColumn", HelpText = "[Optional] The SDRF column each row's plex is read from, by its exact name. With --sdrfTag, or in a run of an isobaric search whose spectra files have an SDRF beside them.")]
+        [Option("sdrfPlexColumn", HelpText = "[Optional] The SDRF column each row's plex is read from, by its exact name; without this, --sdrfPlexPattern or --sdrfSinglePlex, comment[plex] is read. With --sdrfTag, or in a run of an isobaric search whose spectra files have an SDRF beside them.")]
         public string SdrfPlexColumn { get; set; }
 
         [Option("sdrfPlexPattern", HelpText = "[Optional] A regular expression matched against each row's file name; the plex is its group named 'plex', else its first group. With --sdrfTag, or in a run of an isobaric search whose spectra files have an SDRF beside them.")]
@@ -340,7 +340,8 @@ namespace MetaMorpheusCommandLine
 
         /// <summary>
         /// The options that make --sdrfDesign read an isobaric SDRF: each only with what it modifies, a kit
-        /// MetaMorpheus knows, and exactly one place to read the plex from, because the plex is never guessed.
+        /// MetaMorpheus knows, and at most one place to read the plex from; with none, the SDRF's comment[plex] column. The
+        /// plex is never guessed.
         /// </summary>
         private void ValidateIsobaricSdrfDesignOptions()
         {
@@ -378,11 +379,12 @@ namespace MetaMorpheusCommandLine
                     + ", or the search's multiplex modification.");
             }
 
-            if (plexOptions.Count != 1)
+            // With none, the plex is read from the SDRF's comment[plex] column (ruled 2026-11-13).
+            if (plexOptions.Count > 1)
             {
-                throw new MetaMorpheusException("--sdrfTag needs exactly one of --sdrfPlexColumn, --sdrfPlexPattern and --sdrfSinglePlex, "
-                    + "to say where each file's plex is written"
-                    + (plexOptions.Count == 0 ? "; none was given." : "; " + string.Join(" and ", plexOptions) + " were given."));
+                throw new MetaMorpheusException("--sdrfTag takes at most one of --sdrfPlexColumn, --sdrfPlexPattern and --sdrfSinglePlex, "
+                    + "to say where each file's plex is written (with none, comment[plex] is read); "
+                    + string.Join(" and ", plexOptions) + " were given.");
             }
         }
 
