@@ -1,5 +1,6 @@
 ﻿using EngineLayer.GlycoSearch;
 using EngineLayer;
+using EngineLayer.GlycoSearch;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -44,6 +45,19 @@ namespace TaskLayer
         }
 
         //The function is to summarize localized glycan by protein site.
+        public static void WriteCleavageRuleSites(List<CleavageRuleSite> sites, string outputPath)
+        {
+            using StreamWriter output = new StreamWriter(outputPath);
+            output.WriteLine("Protein Accession\tResidue\tCondition\tImplied By PSMs\tOf Those, Level 1 Agreeing\tOf Those, Level 1 Against" +
+                "\tOther Level 1 PSMs With A Glycan There\tOther Level 1 PSMs Without One");
+            foreach (var site in sites)
+            {
+                output.WriteLine(string.Join("\t", site.ProteinAccession, site.AminoAcid.ToString() + site.OneBasedResidue,
+                    site.IsForbidden ? "glycan forbidden" : "glycan required", site.ImpliedBy, site.ImpliersAgreeing, site.ImpliersAgainst,
+                    site.OthersWithGlycan, site.OthersWithout));
+            }
+        }
+
         public static void WriteSeenProteinGlycoLocalization(Dictionary<(string proteinAccession, string proteinPosition, int glycanId), GlycoProteinParsimony> glycoProteinParsimony, string outputPath)
         {
             if (glycoProteinParsimony.Keys.Count == 0)

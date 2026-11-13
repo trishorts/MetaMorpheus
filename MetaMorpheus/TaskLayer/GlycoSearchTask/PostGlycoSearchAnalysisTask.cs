@@ -9,6 +9,7 @@ using System.Linq;
 using EngineLayer.DatabaseLoading;
 using FlashLFQ;
 using MassSpectrometry;
+using Omics.Digestion;
 using Omics.Modifications;
 using Omics.SpectrumMatch;
 using Proteomics.ProteolyticDigestion;
@@ -110,6 +111,14 @@ namespace TaskLayer
 
                         var protein_oglyco_localization_file = Path.Combine(OutputFolder, "protein_oglyco_localization.tsv");
                         WriteGlycoFile.WriteProteinGlycoLocalization(ProteinLevelLocalization, protein_oglyco_localization_file);
+
+                        if (glycoSearchParameters.BreakLocalizationTiesByCleavageRule)
+                        {
+                            var cleavageRuleSites = CleavageRuleSite.Find(OglyInAllPsms
+                                .Where(p => p.FdrInfo.QValue <= 0.01 && !p.IsDecoy && !p.IsContaminant && p.Accession != null && p.OneBasedStartResidue.HasValue)
+                                .Select(p => ((DigestionProduct)p.BestMatchingBioPolymersWithSetMods.First().SpecificBioPolymer, p.DigestionParams.DigestionAgent, Level1SiteKeys(p))));
+                            WriteGlycoFile.WriteCleavageRuleSites(cleavageRuleSites, Path.Combine(OutputFolder, "oglyco_cleavage_rule_sites.tsv"));
+                        }
                         // Writing the oglyco results to a file and summary text
                         WriteGlycoFile.WritePsmGlycoToTsv(OglyInAllPsms, writtenFileOGlyco, true); //we write this last so localization can be attempted 
                         
@@ -296,6 +305,14 @@ namespace TaskLayer
         }
 
         //Calculate the FDR of single peptide FP/TP
+        // The site keys a PSM written as Level 1 places glycans on; null at any other level.
+        private static IEnumerable<int> Level1SiteKeys(GlycoSpectralMatch psm) =>
+            psm.Routes is { Count: > 0 } && psm.LocalizationGraphs is { Count: > 0 }
+            && GlycoSpectralMatch.CorrectLocalizationLevel(psm.ModSitePairProbDict, psm.LocalizationGraphs.First(), psm.Routes.First(),
+                psm.LocalizedGlycan, psm.LocalizationLevel) == LocalizationLevel.Level1
+                ? psm.Routes.First().ModSitePairs.Select(pair => pair.SiteIndex)
+                : null;
+
         private void SingleFDRAnalysis(List<GlycoSpectralMatch> items, CommonParameters commonParameters, List<string> taskIds)
         {
             // calculate single PSM FDR
