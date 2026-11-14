@@ -1164,6 +1164,9 @@ public class DiaLibrarySearchEngineTests
         Assert.That(found, Has.Count.GreaterThanOrEqualTo((int)Math.Ceiling(0.9 * planted.Count)));
         Assert.That(found.Average(m => m.Features[meanPpm]), Is.EqualTo(15).Within(0.5));
         Assert.That(found.Average(m => m.Features[top1Ppm]), Is.EqualTo(15).Within(0.5));
+        // The nearest peak, the faint one at the library m/z, is its own feature
+        Assert.That(found.Average(m => m.Features[Array.IndexOf(DiaPrecursorMatch.FeatureNames, "NearestPeakPpmError")]), Is.LessThan(0.5));
+        Assert.That(found.Average(m => m.Features[Array.IndexOf(DiaPrecursorMatch.FeatureNames, "NearestPeakTop1PpmError")]), Is.LessThan(0.5));
     }
 
     /// <summary>

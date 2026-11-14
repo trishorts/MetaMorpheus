@@ -126,5 +126,7 @@ public sealed record DiaPrecursorMatch(
         "Ms1PeakSignalFraction", // share of the window's MS1 M0 signal inside the peak (0 unless Ms1PeakSignalFraction)
         "Ms1PeakPointFraction", // share of the peak's distinct MS1 scans with an M0 found (0 unless Ms1PeakPoints)
         "LibraryIrt",           // the library iRT, DIA-NN's pRT (0 unless LibraryIrtFeature)
+        "NearestPeakPpmError",  // mean distance from the fragments seen at the apex to the nearest peak, not the one read
+        "NearestPeakTop1PpmError", // the same for the most intense fragment (the tolerance when absent)
     ];
 }

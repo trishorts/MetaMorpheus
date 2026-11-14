@@ -442,12 +442,18 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                     windowCosine = weighted / weights;
             }
 
-            // Mass accuracy of the fragments seen at the apex, from the peaks their intensities were read from
+            // Mass accuracy of the fragments seen at the apex, from the peaks their intensities were read from; and, as its own
+            // evidence, the distance to the nearest peak, which says whether any peak sits at the library m/z
             var apexSpectrum = scans[reachable[apex]].MassSpectrum;
             var ppmErrors = new List<double>();
+            double nearestPpmSum = 0;
             for (int f = 0; f < fragments.Count; f++)
                 if (apexIntensities[f] > 0)
+                {
                     ppmErrors.Add(ppm[f][apex]);
+                    nearestPpmSum += NearestPeakPpm(apexSpectrum, fragments[f].Mz);
+                }
+            double nearestPeakPpm = ppmErrors.Count > 0 ? nearestPpmSum / ppmErrors.Count : _parameters.FragmentTolerancePpm;
 
             var (peakStart, peakEnd) = FragmentCoElution.PeakBounds(summed, apex);
 
@@ -487,6 +493,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             double top1Present = apexIntensities[byRank[0]] > 0 ? 1 : 0;
             double top2Present = byRank.Length > 1 && apexIntensities[byRank[1]] > 0 ? 1 : 0;
             double top1Ppm = top1Present > 0 ? ppm[byRank[0]][apex] : _parameters.FragmentTolerancePpm;
+            double nearestPeakTop1Ppm = top1Present > 0 ? NearestPeakPpm(apexSpectrum, fragments[byRank[0]].Mz) : _parameters.FragmentTolerancePpm;
 
             // Detectable fragments: the library pattern scaled to the apex by least squares, against the apex scan's noise
             // (its 25th-percentile intensity); fragments expected below 3x noise are not held against the precursor
@@ -807,6 +814,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1PeakSignalFraction,
                 ms1PeakPointFraction,
                 _parameters.LibraryIrtFeature ? candidate.Irt : 0,
+                nearestPeakPpm,
+                nearestPeakTop1Ppm,
             ];
             // Computed in doubles, kept as floats (each rounded once): half the memory of a search's largest data
             float[] stored = new float[features.Length];
@@ -827,6 +836,10 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 Quantity: areaSum) { Ms1ApexErrorPpm = ms1ApexSignedErrorPpm, ApexScanNumber = scans[reachable[apex]].OneBasedScanNumber };
         }
     }
+
+    /// <summary>The distance, in ppm, from <paramref name="mz"/> to the nearest peak of a spectrum that has peaks.</summary>
+    private static double NearestPeakPpm(MzSpectrum spectrum, double mz) =>
+        Math.Abs(spectrum.XArray[spectrum.GetClosestPeakIndex(mz)] - mz) / mz * 1e6;
 
     /// <summary>
     /// The peak a fragment is read from: the one nearest <paramref name="mz"/>, or with <paramref name="mostIntense"/> the most
