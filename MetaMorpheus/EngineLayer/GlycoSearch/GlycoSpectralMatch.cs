@@ -398,18 +398,31 @@ namespace EngineLayer.GlycoSearch
         /// </summary>
         public static List<Route> RoutesMeetingCleavageConditions(List<Route> routes, IEnumerable<DigestionProduct> peptides, DigestionAgent agent)
         {
+            var conditions = CleavageConditionsInside(peptides, agent);
+            if (conditions is null)
+            {
+                return routes;
+            }
+            var kept = routes.Where(route => MeetsCleavageConditions(route, conditions)).ToList();
+            return kept.Count > 0 ? kept : routes;
+        }
+
+        /// <summary>
+        /// The cleavage conditions inside the peptide as two-based site keys, with whether each forbids a glycan; null when
+        /// there are none or the candidate peptides disagree.
+        /// </summary>
+        public static List<(int Key, bool IsForbidden)> CleavageConditionsInside(IEnumerable<DigestionProduct> peptides, DigestionAgent agent)
+        {
             var conditions = peptides.Select(p => p.GetCleavageConditions(agent)
                     .Where(c => c.OneBasedResidue >= p.OneBasedStartResidue && c.OneBasedResidue <= p.OneBasedEndResidue)
                     .Select(c => (Key: c.OneBasedResidue - p.OneBasedStartResidue + 2, c.Requirement.IsForbidden))
                     .OrderBy(c => c.Key).ToList())
                 .ToList();
-            if (conditions.Count == 0 || conditions[0].Count == 0 || conditions.Any(c => !c.SequenceEqual(conditions[0])))
-            {
-                return routes;
-            }
-            var kept = routes.Where(route => conditions[0].All(c => route.ModSitePairs.Any(pair => pair.SiteIndex == c.Key) != c.IsForbidden)).ToList();
-            return kept.Count > 0 ? kept : routes;
+            return conditions.Count == 0 || conditions[0].Count == 0 || conditions.Any(c => !c.SequenceEqual(conditions[0])) ? null : conditions[0];
         }
+
+        public static bool MeetsCleavageConditions(Route route, List<(int Key, bool IsForbidden)> conditions) =>
+            conditions.All(c => route.ModSitePairs.Any(pair => pair.SiteIndex == c.Key) != c.IsForbidden);
 
         public static List<ModSitePair> GetLocalizedGlycan(List<Route> allLocalizationsRoutes, out LocalizationLevel localizationLevel)
         {

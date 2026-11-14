@@ -246,6 +246,7 @@ namespace TaskLayer
                         _glycoSearchParameters.OGlycanDatabasefile, _glycoSearchParameters.NGlycanDatabasefile, _glycoSearchParameters.GlycoSearchTopNum, _glycoSearchParameters.MaximumOGlycanAllowed, _glycoSearchParameters.OxoniumIonFilt, thisIds[spectraFileIndex])
                     {
                         CustomOxoniumThreshold = _glycoSearchParameters.CustomOxoniumThreshold,
+                        BreakLocalizationTiesByCleavageRule = _glycoSearchParameters.BreakLocalizationTiesByCleavageRule,
                         ThreadBudget = searchThreads
                     }.Run();
                     gsmsPerFile[spectraFileIndex] = gsms;
@@ -296,7 +297,8 @@ namespace TaskLayer
                         return new GlycoSearchEngine(newCsmsPerMS2ScanPerFile, arrayOfMs2ScansSortedByMass, peptideIndex, fragmentIndex, secondFragmentIndex, currentPartition, indexParams, this.FileSpecificParameters, glycanSearchSpace,
                             _glycoSearchParameters.OGlycanDatabasefile, _glycoSearchParameters.NGlycanDatabasefile, _glycoSearchParameters.GlycoSearchTopNum, _glycoSearchParameters.MaximumOGlycanAllowed, _glycoSearchParameters.OxoniumIonFilt, thisId, candidates)
                         {
-                            CustomOxoniumThreshold = _glycoSearchParameters.CustomOxoniumThreshold
+                            CustomOxoniumThreshold = _glycoSearchParameters.CustomOxoniumThreshold,
+                            BreakLocalizationTiesByCleavageRule = _glycoSearchParameters.BreakLocalizationTiesByCleavageRule
                         };
                     }
 

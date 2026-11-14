@@ -86,6 +86,44 @@ namespace Test
             Assert.That(Kept(routes, "OpeRATOR-trypsin|P", obligated, free), Is.EqualTo(new[] { new[] { 2 }, new[] { 3 } }));
         }
 
+        /// <summary>
+        /// PEPTISSTIDE, uncut by IMPa ([D]|T,[D]|S; a glycan needed at P1', forbidden at P1): naked it has 4 sites, before T4,
+        /// S6, S7 and T8. With glycans on S6 and S7 IMPa could have cut only before S6 (S7's P1, S6, carries one); with
+        /// glycans on T4 and T8, only before those two.
+        /// </summary>
+        [Test]
+        [TestCase(new[] { 7, 8 }, 1)]
+        [TestCase(new[] { 5, 9 }, 2)]
+        public static void MissedCleavages_CountOnlyTheSitesThePlacedGlycansAllow(int[] keys, int expected)
+        {
+            var peptide = new Protein("PEPTISSTIDE", "P1").Digest(new DigestionParams("IMPa", maxMissedCleavages: 10, minPeptideLength: 1),
+                new List<Modification>(), new List<Modification>()).Single(p => p.OneBasedStartResidue == 1 && p.OneBasedEndResidue == 11);
+            Assert.That(peptide.MissedCleavages, Is.EqualTo(4), "premise: the naked count");
+            Assert.That(GlycoPeptides.MissedCleavagesGivenGlycans(peptide, RouteOn(keys), ProteaseDictionary.Dictionary["IMPa"]), Is.EqualTo(expected));
+        }
+
+        [Test]
+        public static void MissedCleavages_ASiteWithoutConditionsAlwaysCounts()
+        {
+            var peptide = Peptide("PEPTKIDERSEQK", "trypsin", 1, 13);
+            Assert.That(GlycoPeptides.MissedCleavagesGivenGlycans(peptide, RouteOn(5), ProteaseDictionary.Dictionary["trypsin"]), Is.EqualTo(2));
+        }
+
+        /// <summary>
+        /// StcE (S/T-X|S/T, a glycan at P2) cutting after Q: when P2 is inside the peptide its placed glycan decides; when P2
+        /// is the residue before the peptide, an S or T there is taken to carry one.
+        /// </summary>
+        [Test]
+        public static void MissedCleavages_StcEsP2_InsideIsAsPlaced_OutsideIsAssumed()
+        {
+            var agent = ProteaseDictionary.Dictionary["StcE"];
+            var inside = Peptide("GTQSGG", "StcE", 2, 6); // T2 Q3 | S4
+            Assert.That(GlycoPeptides.MissedCleavagesGivenGlycans(inside, RouteOn(4), agent), Is.EqualTo(0), "T2 bare");
+            Assert.That(GlycoPeptides.MissedCleavagesGivenGlycans(inside, RouteOn(2), agent), Is.EqualTo(1), "T2 glycosylated");
+            var outside = Peptide("TQSGG", "StcE", 2, 5);  // T1 | Q2 | S3: P2 is T1, on the neighbour
+            Assert.That(GlycoPeptides.MissedCleavagesGivenGlycans(outside, RouteOn(3), agent), Is.EqualTo(1));
+        }
+
         [Test]
         public static void TheOption_IsOffByDefault_RoundTripsThroughToml_AndIsOffInAnOlderToml()
         {
@@ -119,21 +157,50 @@ namespace Test
         /// spectrum is from a StcE digest; it stands in for an OpeRATOR one here to exercise the mechanism.
         /// </summary>
         [Test]
-        public static void OGlycoSearch_BreaksTiesByTheRule_AndLeavesTheIdentificationAlone()
+        public static void OGlycoSearch_BreaksTiesByTheRule_AndReportsTheRulesPlacement()
         {
             var off = SearchLeukosialin(false);
             var on = SearchLeukosialin(true);
 
             Assert.That(off.Total, Is.GreaterThan(1), "premise: the spectrum alone ties several placements");
             Assert.That(off.Routes.Any(r => !r.Contains(1)), Is.True, "premise: some tied placements leave T1 bare");
+            Assert.That(off.Placed, Does.Not.Contain(1), "premise: O-Pair reports a placement leaving T1 bare");
+            Assert.That(off.MissedCleavages, Is.EqualTo(7), "premise: the naked count, every internal S/T an OpeRATOR site");
+
             Assert.That(on.Routes.All(r => r.Contains(1)), Is.True, "every kept placement has a glycan on T1");
             Assert.That(on.Total, Is.LessThan(off.Total));
-            Assert.That(on.Score, Is.EqualTo(off.Score), "the identification does not change");
-            Assert.That(on.QValue, Is.EqualTo(off.QValue));
+            Assert.That(on.Placed, Does.Contain(1), "the reported placement is one the rule allows");
+            Assert.That(on.ComposedOfPlaced, Is.True, "the composition column describes the reported placement");
+            // OpeRATOR could have cut before each glycosylated S/T after the first residue, and nowhere else inside.
+            Assert.That(on.MissedCleavages, Is.EqualTo(on.Placed.Count(position => position > 1)));
+            Assert.That(on.QValue, Is.LessThanOrEqualTo(0.01), "still identified");
         }
 
-        // The routes as written (the first 10 at most), and how many there were.
-        private static (List<HashSet<int>> Routes, int Total, double Score, double QValue) SearchLeukosialin(bool breakTies)
+        // "H2N2A1" + "H1N1" -> "A1H3N3": monosaccharide counts, so two compositions compare regardless of grouping.
+        private static string SumOf(IEnumerable<string> compositions) => string.Concat(compositions
+            .SelectMany(c => Regex.Matches(c, @"([A-Z])(\d+)").Select(m => (m.Groups[1].Value, int.Parse(m.Groups[2].Value))))
+            .GroupBy(x => x.Item1).OrderBy(g => g.Key).Select(g => g.Key + g.Sum(x => x.Item2)));
+
+        // The routes as written (the first 10 at most) and how many there were; the reported placement's one-based glycan
+        // positions; whether the composition column is their sum; and the PSM's missed cleavages and q-value.
+        private static (List<HashSet<int>> Routes, int Total, HashSet<int> Placed, bool ComposedOfPlaced, int MissedCleavages, double QValue)
+            SearchLeukosialin(bool breakTies) => SearchLeukosialin(breakTies, 1).Single();
+
+        /// <summary>
+        /// Two copies of the spectrum are searched at once, which builds the engine at the task's other construction site (the
+        /// one file above goes the sequential way).
+        /// </summary>
+        [Test]
+        public static void OGlycoSearch_ReportsTheRulesPlacement_WhenFilesAreSearchedTogether()
+        {
+            var psms = SearchLeukosialin(true, 2);
+            Assert.That(psms.Count, Is.EqualTo(2), "premise: one PSM per file");
+            Assert.That(psms.All(p => p.Placed.Contains(1)), Is.True);
+        }
+
+        // One entry per PSM of the glycopeptide, over this many copies of the spectrum.
+        private static List<(List<HashSet<int>> Routes, int Total, HashSet<int> Placed, bool ComposedOfPlaced, int MissedCleavages, double QValue)>
+            SearchLeukosialin(bool breakTies, int files)
         {
             string dataFolder = Path.Combine(TestContext.CurrentContext.TestDirectory, "GlycoTestData");
             string settings = File.ReadAllText(Path.Combine(dataFolder, "GlycoSearchTaskconfigOGlycoTest_Run.toml"));
@@ -143,7 +210,7 @@ namespace Test
                 .Replace("\nDissociationType = \"EThcD\"", "\nDissociationType = \"HCD\"")
                 .Replace("MaxMissedCleavages = 5", "MaxMissedCleavages = 10"); // OpeRATOR's |S,|T put 7 sites inside the peptide
 
-            string outputFolder = Path.Combine(TestContext.CurrentContext.TestDirectory, $"{nameof(TestOGlycoCleavageRuleTies)}_{breakTies}");
+            string outputFolder = Path.Combine(TestContext.CurrentContext.TestDirectory, $"{nameof(TestOGlycoCleavageRuleTies)}_{breakTies}_{files}");
             string settingsPath = outputFolder + ".toml";
             try
             {
@@ -155,22 +222,43 @@ namespace Test
                 Assert.That(task.CommonParameters.DissociationType, Is.EqualTo(MassSpectrometry.DissociationType.HCD), "premise: b/y ions only");
                 task._glycoSearchParameters.BreakLocalizationTiesByCleavageRule = breakTies;
 
-                new EverythingRunnerEngine(new List<(string, MetaMorpheusTask)> { ("Task", task) },
-                    new List<string> { Path.Combine(dataFolder, "2019_09_16_StcEmix_35trig_EThcD25_rep1_9906.mgf") },
+                string spectra = Path.Combine(dataFolder, "2019_09_16_StcEmix_35trig_EThcD25_rep1_9906.mgf");
+                var spectraFiles = files == 1 ? new List<string> { spectra } : Enumerable.Range(0, files).Select(i =>
+                {
+                    string copy = Path.Combine(outputFolder, $"copy{i}.mgf");
+                    File.Copy(spectra, copy);
+                    return copy;
+                }).ToList();
+                new EverythingRunnerEngine(new List<(string, MetaMorpheusTask)> { ("Task", task) }, spectraFiles,
                     new List<DbForTask> { new DbForTask(Path.Combine(dataFolder, "P16150.fasta"), false) },
-                    outputFolder).Run();
+                    Path.Combine(outputFolder, "out")).Run();
 
-                string oGlycoPath = Path.Combine(outputFolder, "Task", "oglyco.psmtsv");
+                string prose = File.ReadAllText(Directory.GetFiles(Path.Combine(outputFolder, "out"), "AutoGeneratedManuscriptProse.txt", SearchOption.AllDirectories).Single());
+                Assert.That(prose, files == 1 ? Does.Contain("spectra files searched one after another") : Does.Contain("spectra files searched in parallel"),
+                    "premise: which engine construction site the search used");
+                string oGlycoPath = Path.Combine(outputFolder, "out", "Task", "oglyco.psmtsv");
                 Assert.That(File.Exists(oGlycoPath), Is.True, "premise: the search identifies the glycopeptide");
-                var psm = SpectrumMatchTsvReader.ReadGlycoPsmTsv(oGlycoPath, out var errors).Single(p => p.BaseSeq == "TTGSLEPSSGASGPQVSSVK");
+                var psms = SpectrumMatchTsvReader.ReadGlycoPsmTsv(oGlycoPath, out var errors).Where(p => p.BaseSeq == "TTGSLEPSSGASGPQVSSVK").ToList();
                 Assert.That(errors, Is.Empty);
 
-                // "{@box[1-3,2-3,8-5]}{@box[...]}... In Total:N Paths": each route's one-based peptide positions and glycan
-                // ids, the first 10 only, then the count when there were more (GlycoSpectralMatch.AllLocalizationInfo).
-                var routes = Regex.Matches(psm.AllPotentialGlycanLocalization, @"\[([^\]]*)\]")
-                    .Select(m => m.Groups[1].Value.Split(',').Select(pair => int.Parse(pair.Split('-')[0])).ToHashSet()).ToList();
-                var total = Regex.Match(psm.AllPotentialGlycanLocalization, @"In Total:(\d+)");
-                return (routes, total.Success ? int.Parse(total.Groups[1].Value) : routes.Count, psm.Score, psm.QValue);
+                return psms.Select(psm =>
+                {
+                    // "{@box[1-3,2-3,8-5]}{@box[...]}... In Total:N Paths": each route's one-based peptide positions and glycan
+                    // ids, the first 10 only, then the count when there were more (GlycoSpectralMatch.AllLocalizationInfo).
+                    var routes = Regex.Matches(psm.AllPotentialGlycanLocalization, @"\[([^\]]*)\]")
+                        .Select(m => m.Groups[1].Value.Split(',').Select(pair => int.Parse(pair.Split('-')[0])).ToHashSet()).ToList();
+                    var total = Regex.Match(psm.AllPotentialGlycanLocalization, @"In Total:(\d+)");
+                    var placed = new HashSet<int>();
+                    var glycans = new List<string>();
+                    int position = 0;
+                    foreach (Match m in Regex.Matches(psm.FullSequence, @"\[(O-linked glycosylation:([^ \]]+))?[^\]]*\]|[A-Z]"))
+                    {
+                        if (m.Groups[2].Success) { placed.Add(position); glycans.Add(m.Groups[2].Value); }
+                        else if (!m.Value.StartsWith("[")) position++;
+                    }
+                    return (routes, total.Success ? int.Parse(total.Groups[1].Value) : routes.Count, placed,
+                        SumOf(glycans) == SumOf(new[] { psm.GlycanComposition }), int.Parse(psm.MissedCleavage), psm.QValue);
+                }).ToList();
             }
             finally
             {

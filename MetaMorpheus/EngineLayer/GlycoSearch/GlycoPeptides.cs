@@ -1,5 +1,6 @@
 ﻿using MassSpectrometry;
 using Proteomics;
+using Omics.Digestion;
 using Omics.Fragmentation;
 using Proteomics.ProteolyticDigestion;
 using System;
@@ -305,7 +306,40 @@ namespace EngineLayer.GlycoSearch
         /// <param name="theModPositions"></param>
         /// <param name="peptide"></param>
         /// <returns> A modfiied peptide </returns>
-        public static PeptideWithSetModifications OGlyGetTheoreticalPeptide(Route theModPositions, PeptideWithSetModifications peptide)
+        /// <summary>
+        /// The internal sites <paramref name="agent"/> could have cut, given the O-glycans <paramref name="route"/> places: a
+        /// site counts when a motif cutting there finds every glycan it requires and none it forbids (OpeRATOR needs one at
+        /// P1', StcE at P2; IMPa forbids one at P1). A residue outside the peptide is taken to carry a required glycan if it is
+        /// S or T, and never a forbidden one. A site without conditions (trypsin's K|) always counts.
+        /// </summary>
+        public static int MissedCleavagesGivenGlycans(PeptideWithSetModifications peptide, Route route, DigestionAgent agent)
+        {
+            string sequence = peptide.Parent.BaseSequence;
+            int start = peptide.OneBasedStartResidue, end = peptide.OneBasedEndResidue;
+            var glycosylated = route.ModSitePairs.Select(pair => start + pair.SiteIndex - 2).ToHashSet();
+
+            bool Met(CleavageRequirement requirement, int cut)
+            {
+                int residue = requirement.ConstrainedResidue(cut);
+                bool carries = residue >= start && residue <= end
+                    ? glycosylated.Contains(residue)
+                    : !requirement.IsForbidden && residue >= 1 && residue <= sequence.Length && sequence[residue - 1] is 'S' or 'T';
+                return carries != requirement.IsForbidden;
+            }
+
+            int missed = 0;
+            for (int cut = start; cut < end; cut++)
+            {
+                if (agent.MotifsCuttingAfter(sequence, cut).Any(motif => motif.CleavageRequirements.All(requirement => Met(requirement, cut))))
+                {
+                    missed++;
+                }
+            }
+            return missed;
+        }
+
+        /// <param name="missedCleavages">The count to give the glycopeptide; null keeps the naked peptide's.</param>
+        public static PeptideWithSetModifications OGlyGetTheoreticalPeptide(Route theModPositions, PeptideWithSetModifications peptide, int? missedCleavages = null)
         {
             Modification[] modifications = new Modification[theModPositions.ModSitePairs.Count];
             for (int i = 0; i < theModPositions.ModSitePairs.Count; i++)
@@ -325,7 +359,7 @@ namespace EngineLayer.GlycoSearch
             }
 
             var testPeptide = new PeptideWithSetModifications(peptide.Protein, peptide.DigestionParams, peptide.OneBasedStartResidue,
-                peptide.OneBasedEndResidue, peptide.CleavageSpecificityForFdrCategory, peptide.PeptideDescription, peptide.MissedCleavages, testMods, peptide.NumFixedMods);
+                peptide.OneBasedEndResidue, peptide.CleavageSpecificityForFdrCategory, peptide.PeptideDescription, missedCleavages ?? peptide.MissedCleavages, testMods, peptide.NumFixedMods);
 
             return testPeptide;
         }
