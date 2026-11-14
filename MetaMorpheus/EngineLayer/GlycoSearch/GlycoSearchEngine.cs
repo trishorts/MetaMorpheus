@@ -33,6 +33,12 @@ namespace EngineLayer.GlycoSearch
         /// </summary>
         public double CustomOxoniumThreshold { get; init; } = GlycoPeptides.DefaultCustomOxoniumThreshold;
 
+        /// <summary>
+        /// GlycoSearchParameters.BreakLocalizationTiesByCleavageRule: an O-glyco PSM reports the first of its tied placements
+        /// the cleavage rule allows, and counts only the missed cleavages its placed glycans allow.
+        /// </summary>
+        public bool BreakLocalizationTiesByCleavageRule { get; init; }
+
         private GlycoSearchType GlycoSearchType;
         private readonly int TopN;              // DDA top Peak number.
         private readonly int _maxOGlycanNum;
@@ -532,9 +538,39 @@ namespace EngineLayer.GlycoSearch
         }
 
         //For FindOGlycan, generate the gsms for O-glycan search
+        /// <summary>
+        /// Under the cleavage rule, the first of the tied top routes that meets the peptide's cleavage conditions, in the order
+        /// the task lists them (each graph's GetAllHighestScorePaths, whose first is GetFirstPath), so that the PSM and its
+        /// localization describe one placement. <paramref name="first"/> when it meets them, or when no route does.
+        /// </summary>
+        private Route RouteTheRuleReports(List<LocalizationGraph> graphs, PeptideWithSetModifications peptide, Route first)
+        {
+            var conditions = GlycoSpectralMatch.CleavageConditionsInside(new[] { peptide }, CommonParameters.DigestionParams.DigestionAgent);
+            if (conditions is null || GlycoSpectralMatch.MeetsCleavageConditions(first, conditions))
+            {
+                return first;
+            }
+            foreach (var graph in graphs)
+            {
+                foreach (var path in LocalizationGraph.GetAllHighestScorePaths(graph.array, graph.ChildModBoxes))
+                {
+                    var route = LocalizationGraph.GetLocalizedPath(graph, path);
+                    if (GlycoSpectralMatch.MeetsCleavageConditions(route, conditions))
+                    {
+                        route.ModBoxId = graph.ModBoxId;
+                        return route;
+                    }
+                }
+            }
+            return first;
+        }
+
         private GlycoSpectralMatch CreateGsm(Ms2ScanWithSpecificMass theScan, int scanIndex, int rank, PeptideWithSetModifications peptide, Route localization, double[] oxoniumIonIntensities, List<LocalizationGraph> localizationGraphs)
         {
-            var peptideWithMod = GlycoPeptides.OGlyGetTheoreticalPeptide(localization, peptide);
+            int? missedCleavages = BreakLocalizationTiesByCleavageRule && localization.ModSitePairs.All(pair => pair.ModId >= 0)
+                ? GlycoPeptides.MissedCleavagesGivenGlycans(peptide, localization, CommonParameters.DigestionParams.DigestionAgent)
+                : null;
+            var peptideWithMod = GlycoPeptides.OGlyGetTheoreticalPeptide(localization, peptide, missedCleavages);
 
             var fragmentsForEachGlycoPeptide = GlycoPeptides.OGlyGetTheoreticalFragments(CommonParameters.DissociationType, CommonParameters.CustomIons, peptide, peptideWithMod);
 
@@ -769,6 +805,10 @@ namespace EngineLayer.GlycoSearch
             {
                 var firstPath = LocalizationGraph.GetFirstPath(localizationGraphs[0].array, localizationGraphs[0].ChildModBoxes); //Get the first path from the localization graph.
                 var localizationCandidate = LocalizationGraph.GetLocalizedPath(localizationGraphs[0], firstPath); //Get the route of the localization from the first path inforation
+                if (BreakLocalizationTiesByCleavageRule)
+                {
+                    localizationCandidate = RouteTheRuleReports(localizationGraphs, theScanBestPeptide, localizationCandidate);
+                }
 
                 var psmGlyco = CreateGsm(theScan, scanIndex, ind, theScanBestPeptide, localizationCandidate, oxoniumIonIntensities, localizationGraphs); //Create the glycoSpectralMatch
 

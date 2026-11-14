@@ -1,4 +1,5 @@
-﻿using Omics.Fragmentation;
+﻿using Omics.Digestion;
+using Omics.Fragmentation;
 using Proteomics.ProteolyticDigestion;
 using System.Collections.Generic;
 using System.Linq;
@@ -390,6 +391,39 @@ namespace EngineLayer.GlycoSearch
         /// <param name="OGlycanBoxLocalization"> all case of the pair </param>
         /// <param name="localizationLevel"> level 1 to level 3 </param>
         /// <returns> A tuple, represent the pair and its confidience ex. [3,5,ture] means glycan 5 located on glycosite 3, and very confidience </returns>
+        /// <summary>
+        /// Of routes the spectrum scores equally, those meeting the cleavage conditions inside the peptide: a glycan where a
+        /// cut needs one, none where it forbids one (<see cref="DigestionProduct.GetCleavageConditions"/>). All of them when
+        /// none meets them, when the peptide has no condition inside it, or when its candidate peptides disagree.
+        /// </summary>
+        public static List<Route> RoutesMeetingCleavageConditions(List<Route> routes, IEnumerable<DigestionProduct> peptides, DigestionAgent agent)
+        {
+            var conditions = CleavageConditionsInside(peptides, agent);
+            if (conditions is null)
+            {
+                return routes;
+            }
+            var kept = routes.Where(route => MeetsCleavageConditions(route, conditions)).ToList();
+            return kept.Count > 0 ? kept : routes;
+        }
+
+        /// <summary>
+        /// The cleavage conditions inside the peptide as two-based site keys, with whether each forbids a glycan; null when
+        /// there are none or the candidate peptides disagree.
+        /// </summary>
+        public static List<(int Key, bool IsForbidden)> CleavageConditionsInside(IEnumerable<DigestionProduct> peptides, DigestionAgent agent)
+        {
+            var conditions = peptides.Select(p => p.GetCleavageConditions(agent)
+                    .Where(c => c.OneBasedResidue >= p.OneBasedStartResidue && c.OneBasedResidue <= p.OneBasedEndResidue)
+                    .Select(c => (Key: c.OneBasedResidue - p.OneBasedStartResidue + 2, c.Requirement.IsForbidden))
+                    .OrderBy(c => c.Key).ToList())
+                .ToList();
+            return conditions.Count == 0 || conditions[0].Count == 0 || conditions.Any(c => !c.SequenceEqual(conditions[0])) ? null : conditions[0];
+        }
+
+        public static bool MeetsCleavageConditions(Route route, List<(int Key, bool IsForbidden)> conditions) =>
+            conditions.All(c => route.ModSitePairs.Any(pair => pair.SiteIndex == c.Key) != c.IsForbidden);
+
         public static List<ModSitePair> GetLocalizedGlycan(List<Route> allLocalizationsRoutes, out LocalizationLevel localizationLevel)
         {
             List<ModSitePair> localizedMod = new List<ModSitePair>();

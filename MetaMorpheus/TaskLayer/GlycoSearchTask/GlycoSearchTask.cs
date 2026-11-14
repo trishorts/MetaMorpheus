@@ -246,6 +246,7 @@ namespace TaskLayer
                         _glycoSearchParameters.OGlycanDatabasefile, _glycoSearchParameters.NGlycanDatabasefile, _glycoSearchParameters.GlycoSearchTopNum, _glycoSearchParameters.MaximumOGlycanAllowed, _glycoSearchParameters.OxoniumIonFilt, thisIds[spectraFileIndex])
                     {
                         CustomOxoniumThreshold = _glycoSearchParameters.CustomOxoniumThreshold,
+                        BreakLocalizationTiesByCleavageRule = _glycoSearchParameters.BreakLocalizationTiesByCleavageRule,
                         ThreadBudget = searchThreads
                     }.Run();
                     gsmsPerFile[spectraFileIndex] = gsms;
@@ -296,7 +297,8 @@ namespace TaskLayer
                         return new GlycoSearchEngine(newCsmsPerMS2ScanPerFile, arrayOfMs2ScansSortedByMass, peptideIndex, fragmentIndex, secondFragmentIndex, currentPartition, indexParams, this.FileSpecificParameters, glycanSearchSpace,
                             _glycoSearchParameters.OGlycanDatabasefile, _glycoSearchParameters.NGlycanDatabasefile, _glycoSearchParameters.GlycoSearchTopNum, _glycoSearchParameters.MaximumOGlycanAllowed, _glycoSearchParameters.OxoniumIonFilt, thisId, candidates)
                         {
-                            CustomOxoniumThreshold = _glycoSearchParameters.CustomOxoniumThreshold
+                            CustomOxoniumThreshold = _glycoSearchParameters.CustomOxoniumThreshold,
+                            BreakLocalizationTiesByCleavageRule = _glycoSearchParameters.BreakLocalizationTiesByCleavageRule
                         };
                     }
 
@@ -415,6 +417,14 @@ namespace TaskLayer
                         }
 
                         glycoSpectralMatch.Routes = localizationCandidates;
+
+                        // A non-specific search digests with singleN/singleC, which impose nothing, so it is left alone.
+                        if (_glycoSearchParameters.BreakLocalizationTiesByCleavageRule && localizationCandidates.Count > 1)
+                        {
+                            glycoSpectralMatch.Routes = GlycoSpectralMatch.RoutesMeetingCleavageConditions(localizationCandidates,
+                                glycoSpectralMatch.BestMatchingBioPolymersWithSetMods.Select(b => b.SpecificBioPolymer).OfType<PeptideWithSetModifications>(),
+                                glycoSpectralMatch.DigestionParams.DigestionAgent);
+                        }
 
                     }
 
