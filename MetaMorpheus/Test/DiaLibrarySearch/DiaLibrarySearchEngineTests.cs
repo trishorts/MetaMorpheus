@@ -90,6 +90,37 @@ public class DiaLibrarySearchEngineTests
         Assert.That(results.Matches.Count(m => !m.IsDecoy && m.QValue <= 0.01), Is.LessThanOrEqualTo(Math.Max(1, results.Matches.Count / 100)));
     }
 
+    /// <summary>
+    /// An entry without a library time (NaN, as mzLib reads a missing one) passes any iRT window of the library query, but
+    /// it has no window of scans to search, so it is not scored, rather than scored against every scan with a NaN library
+    /// iRT. Its neighbour at the same m/z is.
+    /// </summary>
+    [Test]
+    public void AnEntryWithoutALibraryTimeIsNotScored()
+    {
+        var run = SyntheticDiaRun.Build(50, entry => !entry.IsDecoy);
+        var template = run.Library.First(entry => !entry.IsDecoy);
+        var untimed = new MslLibraryEntry
+        {
+            FullSequence = "NANTIME" + template.FullSequence,
+            BaseSequence = "NANTIME" + template.BaseSequence,
+            PrecursorMz = template.PrecursorMz,
+            ChargeState = template.ChargeState,
+            RetentionTime = double.NaN,
+            IsDecoy = false,
+            MatchedFragmentIons = template.MatchedFragmentIons,
+        };
+        string path = Path.Combine(_directory, $"untimed_{Guid.NewGuid():N}.msl");
+        MslLibrary.Save(path, run.Library.Append(untimed).ToList());
+        using var library = MslLibrary.Load(path);
+
+        var matches = Search(library, run.Scans);
+
+        Assert.That(matches.Select(m => m.FullSequence), Does.Contain(template.FullSequence), "its neighbour, at the same m/z, is still scored");
+        Assert.That(matches.Select(m => m.FullSequence), Does.Not.Contain(untimed.FullSequence));
+        Assert.That(matches, Has.All.Matches<DiaPrecursorMatch>(m => double.IsFinite(m.LibraryIrt.Value)));
+    }
+
     /// <summary>When only the decoys elute, no target may pass: every real signal belongs to a decoy.</summary>
     [Test]
     public void ARunOfDecoysReportsNoTargets()
@@ -1134,6 +1165,38 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// A fragment's mass error is read from the peak its intensity was read from. Here every planted fragment is strong at
+    /// +15 ppm, with a faint peak at its exact library m/z: the most intense peak in tolerance (the default) is the strong
+    /// one, so both mass-error features read 15 ppm. The nearest peak, the faint one, would give 0.
+    /// </summary>
+    [Test]
+    public void MassErrorIsReadFromThePeakTheIntensityIsReadFrom()
+    {
+        int meanPpm = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "MeanAbsolutePpmError");
+        int top1Ppm = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Top1PpmError");
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0, ppmOffset: 15);
+        var planted = run.Library.Where(e => run.PlantedSequences.Contains(e.FullSequence)).ToList();
+        var scans = run.Scans.Select(scan =>
+        {
+            double low = scan.IsolationMz!.Value - SyntheticDiaRun.WindowWidth / 2;
+            var faint = planted.Where(e => e.PrecursorMz >= low && e.PrecursorMz < low + SyntheticDiaRun.WindowWidth)
+                .SelectMany(e => e.MatchedFragmentIons).Select(f => ((double)f.Mz, 1.0));
+            var peaks = scan.MassSpectrum.XArray.Zip(scan.MassSpectrum.YArray).Concat(faint).OrderBy(p => p.Item1).ToArray();
+            var spectrum = new MassSpectrometry.MzSpectrum(peaks.Select(p => p.Item1).ToArray(), peaks.Select(p => p.Item2).ToArray(), false);
+            return SyntheticDiaRun.Scan(spectrum, scan.OneBasedScanNumber, scan.RetentionTime, scan.IsolationMz);
+        }).ToArray();
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+
+        var found = ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(scans, library, EndpointMap,
+                new DiaLibrarySearchParameters(), new CommonParameters(), [], []).Run()).Matches
+            .Where(m => !m.IsDecoy && m.QValue <= 0.01 && run.PlantedSequences.Contains(m.FullSequence)).ToList();
+
+        Assert.That(found, Has.Count.GreaterThanOrEqualTo((int)Math.Ceiling(0.9 * planted.Count)));
+        Assert.That(found.Average(m => m.Features[meanPpm]), Is.EqualTo(15).Within(0.5));
+        Assert.That(found.Average(m => m.Features[top1Ppm]), Is.EqualTo(15).Within(0.5));
+    }
+
+    /// <summary>
     /// DIA-NN 1.8's candidate peaks: a scan is scored by its best fragment's summed correlation to the other top fragments.
     /// It needs at least two fragments, a score of 0.5, and the smoothed best fragment at a local maximum. Every peak within
     /// 2.0 of the best is kept. A five-fragment peak (score near 4) keeps a four-fragment one (near 3) but not a
@@ -2086,36 +2149,6 @@ public class DiaLibrarySearchEngineTests
 
         Assert.That(sequences, Does.Contain(template.FullSequence), "its neighbour, at the same m/z and iRT, is still scored");
         Assert.That(sequences, Does.Not.Contain(bare.FullSequence));
-    }
-
-    /// <summary>
-    /// An entry without a library time (NaN, as mzLib reads a missing one) has no window to search, so it is
-    /// not scored, rather than scored against every scan with a NaN library iRT. Its neighbour at the same m/z is.
-    /// </summary>
-    [Test]
-    public void AnEntryWithoutALibraryTimeIsNotScored()
-    {
-        var run = SyntheticDiaRun.Build(50, entry => !entry.IsDecoy);
-        var template = run.Library.First(entry => !entry.IsDecoy);
-        var untimed = new MslLibraryEntry
-        {
-            FullSequence = "NANTIME" + template.FullSequence,
-            BaseSequence = "NANTIME" + template.BaseSequence,
-            PrecursorMz = template.PrecursorMz,
-            ChargeState = template.ChargeState,
-            RetentionTime = double.NaN,
-            IsDecoy = false,
-            MatchedFragmentIons = template.MatchedFragmentIons,
-        };
-        string path = Path.Combine(_directory, $"untimed_{Guid.NewGuid():N}.msl");
-        MslLibrary.Save(path, run.Library.Append(untimed).ToList());
-        using var library = MslLibrary.Load(path);
-
-        var matches = Search(library, run.Scans);
-
-        Assert.That(matches.Select(m => m.FullSequence), Does.Contain(template.FullSequence), "its neighbour, at the same m/z, is still scored");
-        Assert.That(matches.Select(m => m.FullSequence), Does.Not.Contain(untimed.FullSequence));
-        Assert.That(matches, Has.All.Matches<DiaPrecursorMatch>(m => double.IsFinite(m.LibraryIrt.Value)));
     }
 
     /// <summary>Stop, pressed before the search reaches a window, leaves every window unsearched.</summary>
