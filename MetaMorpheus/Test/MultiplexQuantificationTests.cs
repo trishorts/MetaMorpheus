@@ -1039,7 +1039,8 @@ namespace Test
 
                 var group = GroupOf(protein, new[] { at3, at5 }, new[] { psm });
 
-                // A search always has peptides of one full sequence too, and mzLib refuses a run without any.
+                // A search usually has peptides of one full sequence too, so this match is quantified beside one. With
+                // nothing beside it, see EveryMatchAmbiguousOnlyInModificationSite_StillQuantifiesItsGroup.
                 var otherPeptide = FirstPeptideOf(new Protein("PEPTIDEKPEPTIDER", "PROTEINC", "ORGANISM"));
                 var other = ReporterIonPsm(rawPath, otherPeptide, scanNumber: 2);
                 var otherGroup = GroupOf((Protein)otherPeptide.Parent, new[] { otherPeptide }, new[] { other });
@@ -1058,6 +1059,49 @@ namespace Test
                     "no row of its own for a site seen only in the ambiguous match");
                 Assert.That(row.FullSequence.Split('|'), Is.EquivalentTo(new[] { at3.FullSequence, at5.FullSequence }),
                     "named by both sites, claiming neither");
+                Assert.That(results.ProteinIntensities[group].Values, Has.Some.GreaterThan(0));
+            }
+            finally
+            {
+                Directory.Delete(folder, true);
+            }
+        }
+
+        /// <summary>
+        /// The same match with nothing beside it: every quantifiable match of the run is ambiguous only in where its
+        /// modifications sit, so no peptide of one full sequence is there to quantify. The run still has a labelled,
+        /// reporter-bearing match unique to one group, so it quantifies that group, through the one row standing for
+        /// both sites, and writes no row for either site.
+        /// </summary>
+        [Test]
+        public static void EveryMatchAmbiguousOnlyInModificationSite_StillQuantifiesItsGroup()
+        {
+            string folder = StageFolder("TmtLocalizationAmbiguousOnly");
+            try
+            {
+                string rawPath = RawPathIn(folder);
+                WriteDesign(folder, ValidDesignRows(rawPath));
+
+                var protein = new Protein("ACMDMEKGGGR", "PROTEINA", "ORGANISM");
+                var at3 = OxidizedAt(protein, 3);
+                var at5 = OxidizedAt(protein, 5);
+                var psm = SharedPeptidePsm(rawPath, at3, at5);
+                Assume.That(psm.FullSequence, Is.Null, "two full sequences match the scan");
+
+                var group = GroupOf(protein, new[] { at3, at5 }, new[] { psm });
+
+                var (warnings, parameters) = RunMultiplexAnalysis(
+                    new List<string> { rawPath }, StageOutput(folder),
+                    allSpectralMatches: new List<SpectralMatch> { psm },
+                    proteinGroups: new List<ProteinGroup> { group });
+
+                Assert.That(warnings, Has.None.Contains("did not run"));
+                var results = parameters.MultiplexQuantificationResults;
+                Assert.That(results, Is.Not.Null, "the match reaches quantification");
+                Assert.That(results.AmbiguousSpectralMatchesExcluded, Is.Zero);
+                var row = results.PeptideIntensities.Keys.Single();
+                Assert.That(row, Is.InstanceOf<LocalizationAmbiguousPeptide>(), "the only peptide row is the ambiguous one");
+                Assert.That(row.FullSequence.Split('|'), Is.EquivalentTo(new[] { at3.FullSequence, at5.FullSequence }));
                 Assert.That(results.ProteinIntensities[group].Values, Has.Some.GreaterThan(0));
             }
             finally
@@ -1297,6 +1341,71 @@ namespace Test
                 Assert.That(warnings, Has.None.Contains("No spectral matches carried reporter ion intensities"),
                     "the matches did carry them; the contaminant filter is what removed them");
                 Assert.That(parameters.MultiplexQuantificationResults, Is.Null);
+            }
+            finally
+            {
+                Directory.Delete(folder, true);
+            }
+        }
+
+        /// <summary>
+        /// The same guard when the only contaminant match could not be quantified even with contaminants written: it
+        /// carries no reporter ions, its candidates differ in their modifications and not only in where they sit, or it
+        /// carries no multiplex label. The contaminant filter did not empty the set, so the warning must not blame it.
+        /// Each case stops the guard's quantifiability check at a different step.
+        /// </summary>
+        [TestCase("no reporter ions")]
+        [TestCase("ambiguous in its modifications")]
+        [TestCase("no multiplex label")]
+        public static void TheOnlyContaminantMatchIsUnquantifiableAnyway_TheWarningDoesNotBlameTheFilter(string why)
+        {
+            string folder = StageFolder("TmtGuardContaminantAnyway" + why.Replace(" ", ""));
+            try
+            {
+                string rawPath = RawPathIn(folder);
+                WriteDesign(folder, ValidDesignRows(rawPath));
+
+                var contaminant = new Protein("ACMDMEKGGGR", "CONTAMINANTA", "ORGANISM", isContaminant: true);
+                var labelled = FirstPeptideOf(contaminant);
+                SpectralMatch psm;
+                IBioPolymerWithSetMods[] peptides;
+                switch (why)
+                {
+                    case "no reporter ions":
+                        psm = ReporterIonPsm(rawPath, labelled, withReporterIons: false);
+                        peptides = new[] { labelled };
+                        Assert.That(psm.IsobaricMassTagReporterIonIntensities, Is.Null);
+                        break;
+                    case "ambiguous in its modifications":
+                        var oxidized = OxidizedAt(contaminant, 3);
+                        psm = AmbiguousPsm(rawPath, labelled, oxidized);
+                        peptides = new[] { labelled, oxidized };
+                        Assert.That(psm.FullSequence, Is.Null, "two full sequences match the scan");
+                        Assert.That(psm.BaseSequence, Is.EqualTo("ACMDMEK"), "so the filter keeps it");
+                        Assert.That(LocalizationAmbiguousPeptide.SiteFreeIdentityOrNull(psm), Is.Null,
+                            "the candidates differ in their modifications, not only in where they sit");
+                        break;
+                    default:
+                        var unlabelled = contaminant
+                            .Digest(new DigestionParams(), new List<Modification>(), new List<Modification>())
+                            .First();
+                        psm = ReporterIonPsm(rawPath, unlabelled);
+                        peptides = new[] { unlabelled };
+                        Assert.That(unlabelled.AllModsOneIsNterminus, Is.Empty);
+                        break;
+                }
+                Assert.That(psm.IsContaminant, Is.True);
+
+                var (warnings, parameters) = RunMultiplexAnalysis(
+                    new List<string> { rawPath }, StageOutput(folder),
+                    allSpectralMatches: new List<SpectralMatch> { psm },
+                    proteinGroups: new List<ProteinGroup> { GroupOf(contaminant, peptides, new[] { psm }) },
+                    writeContaminants: false);
+
+                Assert.That(parameters.MultiplexQuantificationResults, Is.Null);
+                Assert.That(warnings, Has.Exactly(1).Contains("Skipping multiplex quantification"));
+                Assert.That(warnings, Has.None.Contains("was a contaminant"),
+                    "writing contaminants would not have quantified this match either");
             }
             finally
             {
