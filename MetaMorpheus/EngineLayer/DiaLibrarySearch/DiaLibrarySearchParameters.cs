@@ -238,6 +238,11 @@ namespace EngineLayer.DiaLibrarySearch;
 /// With <see cref="ClassifierTreeBlend"/>: 1 blends once; 2 trains new trees on the top rows of the blended order and blends again
 /// (<see cref="DiaTreeBlend.Blend"/>). 1 by default.
 /// </param>
+/// <param name="PeptidoformEvidence">
+/// With <see cref="NeighbourEvidence"/>: precursors reading one MS1 signal (same charge, within 3 ppm, apex within a cycle) are compared
+/// on the ions only each has (<see cref="DiaNeighbourEvidence.UniqueEvidence"/>), and the neighbour trees also see the worst difference,
+/// the number of such rivals and whether one outscores the row. Off by default.
+/// </param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
     int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 30, double ClassifierTrainingQValue = 0.01,
     StatisticalModels.RescoreModel ClassifierModel = StatisticalModels.RescoreModel.NeuralNetworkEnsemble,
@@ -297,7 +302,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     double FragmentMassOffsetPpm = 0,
     int? CandidateApexSpacingScans = null,
     bool TransientFragmentFeatures = false,
-    int ClassifierTreeBlendRounds = 1)
+    int ClassifierTreeBlendRounds = 1,
+    bool PeptidoformEvidence = false)
 {
     /// <summary>
     /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual
