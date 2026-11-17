@@ -81,24 +81,9 @@ public sealed class DiaFragmentIntensityModel
     /// <returns>Its ions with what was read; empty with no window to read.</returns>
     public static List<(MslFragmentIon Ion, double Observed)> ReadAnchor(MslLibraryEntry entry, RtMinutes apexRt, IReadOnlyList<MsDataScan[]> windowsHoldingIt, double tolerancePpm, bool mostIntensePeak)
     {
-        MsDataScan[]? window = null;
-        int apex = -1;
-        double gap = double.PositiveInfinity;
-        foreach (var scans in windowsHoldingIt)
-        {
-            if (scans.Length == 0)
-                continue;
-            int scan = NearestScan(scans, apexRt.Value);
-            double distance = Math.Abs(scans[scan].RetentionTime - apexRt.Value);
-            if (distance < gap)
-            {
-                gap = distance;
-                window = scans;
-                apex = scan;
-            }
-        }
-        if (window is null)
+        if (ApexScanOf(windowsHoldingIt, apexRt) is not { } nearest)
             return [];
+        var (window, apex) = nearest;
         var tolerance = new PpmTolerance(tolerancePpm);
         var read = new List<(MslFragmentIon, double)>(entry.MatchedFragmentIons.Count);
         foreach (var ion in entry.MatchedFragmentIons)
@@ -116,6 +101,26 @@ public sealed class DiaFragmentIntensityModel
             read.Add((ion, sum));
         }
         return read;
+    }
+
+    /// <summary>Of the windows holding a precursor, the one whose scan comes closest to its apex, and that scan's index; null with no scans.</summary>
+    internal static (MsDataScan[] Window, int Apex)? ApexScanOf(IReadOnlyList<MsDataScan[]> windowsHoldingIt, RtMinutes apexRt)
+    {
+        (MsDataScan[] Window, int Apex)? nearest = null;
+        double gap = double.PositiveInfinity;
+        foreach (var scans in windowsHoldingIt)
+        {
+            if (scans.Length == 0)
+                continue;
+            int scan = NearestScan(scans, apexRt.Value);
+            double distance = Math.Abs(scans[scan].RetentionTime - apexRt.Value);
+            if (distance < gap)
+            {
+                gap = distance;
+                nearest = (scans, scan);
+            }
+        }
+        return nearest;
     }
 
     private static bool InTheTable(MslFragmentIon ion) =>

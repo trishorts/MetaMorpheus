@@ -267,14 +267,21 @@ public static class DiaIrtSelfCalibration
             var anchors = confident.Select(m => (m.ApexRt, m.LibraryIrt)).ToList();
             if (anchors.Count < options.MinimumAnchors)
                 break;
-            // The same confident targets give the run's MS1 offset (calibration searches without one, so the errors are raw)
+            // The same confident targets give the run's MS1 offset (calibration searches without one, so the errors are raw),
+            // and are read again at their apexes for the intensity table and the fragment mass error
             var fitted = Fit(anchors, options, windowSds);
+            var windows = IsolationWindows(scans);
+            var read = confident.Select(m => (Match: m, Entry: library.GetEntry(m.PrecursorIndex))).Where(a => a.Entry is not null)
+                .Select(a => (a.Match, Entry: a.Entry!, Windows: WindowsHolding(windows, a.Match.PrecursorMz))).ToList();
             calibration = fitted with
             {
                 Rounds = round,
                 IrtComposition = FitIrtComposition(confident, fitted.Model, library),
                 Ms1Offset = Ms1OffsetModel.Fit(confident.Select(m => (m.ApexRt.Value, m.Ms1ApexErrorPpm))),
-                FragmentIntensities = FitFragmentIntensities(confident, scans, library, parameters),
+                FragmentIntensities = DiaFragmentIntensityModel.Fit(read.Select(a => (IReadOnlyList<(Omics.SpectralMatch.MslSpectralLibrary.MslFragmentIon Ion, double Observed)>)
+                    DiaFragmentIntensityModel.ReadAnchor(a.Entry, a.Match.ApexRt, a.Windows, parameters.FragmentTolerancePpm, parameters.MostIntenseFragmentPeak))),
+                FragmentMassError = DiaFragmentMassError.Fit(read.SelectMany(a =>
+                    DiaFragmentMassError.ReadAnchor(a.Entry, a.Match.ApexRt, a.Windows, parameters.FragmentTolerancePpm, parameters.MostIntenseFragmentPeak))),
             };
         }
         return calibration;
@@ -284,14 +291,13 @@ public static class DiaIrtSelfCalibration
         DiaIrtCompositionModel.Fit(confident.Select(m => (Match: m, Entry: library.GetEntry(m.PrecursorIndex, includeFragments: false))).Where(a => a.Entry is not null)
             .Select(a => new DiaIrtCompositionModel.Anchor(a.Entry!.BaseSequence, model.ToIrt(a.Match.ApexRt).Value - a.Match.LibraryIrt.Value)).ToList());
 
-    private static DiaFragmentIntensityModel FitFragmentIntensities(IReadOnlyList<DiaPrecursorMatch> confident, MsDataScan[] scans, MslLibrary library, DiaLibrarySearchParameters parameters)
-    {
-        var windows = scans.Where(s => s.MsnOrder == 2 && s.IsolationRange is not null).GroupBy(s => (s.IsolationRange.Minimum, s.IsolationRange.Maximum))
+    /// <summary>The run's MS2 scans by isolation window, each window's in retention-time order.</summary>
+    private static (double Minimum, double Maximum, MsDataScan[] Scans)[] IsolationWindows(MsDataScan[] scans) =>
+        scans.Where(s => s.MsnOrder == 2 && s.IsolationRange is not null).GroupBy(s => (s.IsolationRange.Minimum, s.IsolationRange.Maximum))
             .Select(w => (w.Key.Minimum, w.Key.Maximum, Scans: w.OrderBy(s => s.RetentionTime).ToArray())).ToArray();
-        return DiaFragmentIntensityModel.Fit(confident.Select(m => (Match: m, Entry: library.GetEntry(m.PrecursorIndex))).Where(a => a.Entry is not null).Select(a =>
-            (IReadOnlyList<(Omics.SpectralMatch.MslSpectralLibrary.MslFragmentIon Ion, double Observed)>)DiaFragmentIntensityModel.ReadAnchor(a.Entry!, a.Match.ApexRt,
-                windows.Where(w => a.Match.PrecursorMz >= w.Minimum && a.Match.PrecursorMz < w.Maximum).Select(w => w.Scans).ToList(), parameters.FragmentTolerancePpm, parameters.MostIntenseFragmentPeak)));
-    }
+
+    private static List<MsDataScan[]> WindowsHolding((double Minimum, double Maximum, MsDataScan[] Scans)[] windows, double precursorMz) =>
+        windows.Where(w => precursorMz >= w.Minimum && precursorMz < w.Maximum).Select(w => w.Scans).ToList();
 
     /// <summary>The most confident main-search targets a <see cref="Refine"/> fit uses.</summary>
     public const int MaximumRefinementAnchors = 20_000;

@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using MassSpectrometry;
 using MzLibUtil;
 using Omics.SpectralMatch.MslSpectralLibrary;
@@ -23,7 +24,16 @@ public sealed record DiaFragmentMassError(double MedianPpm, double SpreadPpm, do
     public const int FragmentsPerAnchor = 3;
 
     /// <summary>Summarises signed fragment errors in ppm; non-finite ones are ignored, and none gives NaN with a count of 0.</summary>
-    public static DiaFragmentMassError Fit(IEnumerable<double> errorsPpm) => new(double.NaN, double.NaN, double.NaN, 0);
+    public static DiaFragmentMassError Fit(IEnumerable<double> errorsPpm)
+    {
+        ArgumentNullException.ThrowIfNull(errorsPpm);
+        double[] errors = errorsPpm.Where(double.IsFinite).Order().ToArray();
+        if (errors.Length == 0)
+            return new(double.NaN, double.NaN, double.NaN, 0);
+        double median = Median(errors);
+        double[] deviations = errors.Select(e => Math.Abs(e - median)).Order().ToArray();
+        return new(median, 1.4826 * Median(deviations), deviations[(int)(0.95 * (deviations.Length - 1))], errors.Length);
+    }
 
     /// <summary>
     /// A confident target's strongest library fragments' errors at its apex scan, in the window whose scans come closest to
@@ -34,5 +44,27 @@ public sealed record DiaFragmentMassError(double MedianPpm, double SpreadPpm, do
     /// <param name="windowsHoldingIt">The scans of each isolation window holding its m/z, each in retention-time order.</param>
     /// <param name="tolerancePpm">The fragment tolerance.</param>
     /// <param name="mostIntensePeak">Take the most intense peak in tolerance rather than the closest, as the search does.</param>
-    public static List<double> ReadAnchor(MslLibraryEntry entry, RtMinutes apexRt, IReadOnlyList<MsDataScan[]> windowsHoldingIt, double tolerancePpm, bool mostIntensePeak) => [];
+    public static List<double> ReadAnchor(MslLibraryEntry entry, RtMinutes apexRt, IReadOnlyList<MsDataScan[]> windowsHoldingIt, double tolerancePpm, bool mostIntensePeak)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        if (DiaFragmentIntensityModel.ApexScanOf(windowsHoldingIt, apexRt) is not { } nearest)
+            return [];
+        var spectrum = nearest.Window[nearest.Apex].MassSpectrum;
+        var tolerance = new PpmTolerance(tolerancePpm);
+        var errors = new List<double>(FragmentsPerAnchor);
+        foreach (var ion in entry.MatchedFragmentIons.OrderByDescending(i => i.Intensity).Take(FragmentsPerAnchor))
+        {
+            int peak = DiaLibrarySearchEngine.FragmentPeakIndex(spectrum, ion.Mz, tolerance, mostIntensePeak);
+            if (peak >= 0)
+                errors.Add((spectrum.XArray[peak] - ion.Mz) / ion.Mz * 1e6);
+        }
+        return errors;
+    }
+
+    /// <summary>The median of values already in order.</summary>
+    private static double Median(double[] sorted)
+    {
+        int n = sorted.Length;
+        return n % 2 == 1 ? sorted[n / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2;
+    }
 }
