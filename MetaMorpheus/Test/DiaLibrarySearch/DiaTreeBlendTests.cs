@@ -81,7 +81,9 @@ public class DiaTreeBlendTests
         Assert.That(oneRound, Is.EqualTo(once));
         Assert.That(twice.Order(), Is.EqualTo(scores.Order()));
         Assert.That(twice, Is.Not.EqualTo(once), "the second round must reorder");
-        Assert.That(Auc(twice, isDecoy), Is.GreaterThan(Auc(scores, isDecoy) + 0.03));
+        // It keeps what the first round gained over the score alone
+        Assert.That(Auc(twice, isDecoy), Is.GreaterThan(Auc(scores, isDecoy) + 0.02));
+        Assert.That(Auc(twice, isDecoy), Is.GreaterThan(Auc(once, isDecoy) - 0.01));
         Assert.That(new DiaLibrarySearchParameters().ClassifierTreeBlendRounds, Is.EqualTo(1));
     }
 

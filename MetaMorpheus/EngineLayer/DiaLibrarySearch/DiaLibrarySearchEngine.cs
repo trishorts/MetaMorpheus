@@ -1347,7 +1347,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             var blendClock = System.Diagnostics.Stopwatch.StartNew();
             double[] blended = DiaTreeBlend.Blend(matches.Select(m => m.Features).ToList(), matches.Select(m => m.Score).ToList(),
                 matches.Select(m => m.IsDecoy).ToList(), matches.Select(m => m.FullSequence).ToList(),
-                _parameters.MaxNetworkTrainingRows ?? matches.Count, _parameters.ClassifierSeed, CommonParameters.MaxThreadsToUsePerFile);
+                _parameters.MaxNetworkTrainingRows ?? matches.Count, _parameters.ClassifierSeed, CommonParameters.MaxThreadsToUsePerFile, _parameters.ClassifierTreeBlendRounds);
             matches = matches.Select((m, i) => m with { Score = blended[i] }).ToList();
             Status($"timing: tree blend over {matches.Count} precursors  [{blendClock.Elapsed:mm\\:ss\\.f}]");
         }

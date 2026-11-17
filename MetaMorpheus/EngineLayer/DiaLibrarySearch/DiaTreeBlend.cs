@@ -50,6 +50,22 @@ public static class DiaTreeBlend
         if (treeScores is null)
             return scores.ToArray();
 
+        double[] blended = Reordered(scores, treeScores);
+        for (int round = 1; round < rounds; round++)
+        {
+            // Trees again, learning from the top rows of the order so far
+            double[]? again = OutOfFoldMargins(features, blended, isDecoy, groupKeys, maxTrainingRows, Folds, BlendTrees, seed + 1000 * round, threads);
+            if (again is null)
+                break;
+            blended = Reordered(blended, again);
+        }
+        return blended;
+    }
+
+    /// <summary>The values of <paramref name="scores"/>, reordered by the mean of their ranks and the trees' ranks.</summary>
+    private static double[] Reordered(IReadOnlyList<double> scores, IReadOnlyList<double> treeScores)
+    {
+        int n = scores.Count;
         int[] byScore = Enumerable.Range(0, n).OrderByDescending(i => scores[i]).ThenBy(i => i).ToArray();
         double[] scoreRanks = Ranks(scores);
         double[] treeRanks = Ranks(treeScores);
