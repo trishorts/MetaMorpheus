@@ -46,6 +46,9 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
     private double Ms1Target(double mz, double rtMinutes) =>
         _parameters.Ms1Offset is { } offset ? mz * (1 + offset.OffsetPpm(rtMinutes) * 1e-6) : mz;
 
+    /// <summary>An MS2 m/z shifted by the run's fragment offset (<see cref="DiaLibrarySearchParameters.FragmentMassOffsetPpm"/>); unchanged at 0.</summary>
+    private double Ms2Target(double mz) => mz * (1 + _parameters.FragmentMassOffsetPpm * 1e-6);
+
     private PpmTolerance? _ms1Tolerance;
     /// <summary>The MS1 tolerance (<see cref="DiaLibrarySearchParameters.EffectiveMs1TolerancePpm"/>) for precursor traces and envelopes.</summary>
     private PpmTolerance Ms1Tolerance => _ms1Tolerance ??= new PpmTolerance(_parameters.EffectiveMs1TolerancePpm);
@@ -187,6 +190,10 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             .Where(i => !double.IsNegativeInfinity(allIntensities[i]))
             .OrderByDescending(i => allIntensities[i]).ThenBy(i => i).Skip(fragments.Count).Take(_parameters.ExtraFragmentCount)
             .Select(i => entry.MatchedFragmentIons[i]).ToList();
+        // Where each fragment is looked for: its library m/z, shifted by the run's fragment offset
+        var fragmentMzs = new double[fragments.Count];
+        for (int f = 0; f < fragments.Count; f++)
+            fragmentMzs[f] = Ms2Target(fragments[f].Mz);
 
         // Plain loops in this per-candidate section: it runs for millions of (window, candidate) items, and LINQ's
         // per-element delegates and iterators were a large share of extraction's allocations
@@ -215,13 +222,13 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 continue;
             for (int f = 0; f < fragments.Count; f++)
             {
-                int i = FragmentPeakIndex(spectrum, fragments[f].Mz, tolerance, _parameters.MostIntenseFragmentPeak, bins.Hint(fragments[f].Mz));
+                int i = FragmentPeakIndex(spectrum, fragmentMzs[f], tolerance, _parameters.MostIntenseFragmentPeak, bins.Hint(fragmentMzs[f]));
                 if (peakIndices is not null)
                     peakIndices[f][k] = i;
                 if (i >= 0)
                 {
                     traces[f][k] = spectrum.YArray[i];
-                    ppm[f][k] = Math.Abs(spectrum.XArray[i] - fragments[f].Mz) / fragments[f].Mz * 1e6;
+                    ppm[f][k] = Math.Abs(spectrum.XArray[i] - fragmentMzs[f]) / fragmentMzs[f] * 1e6;
                 }
             }
         }
@@ -359,7 +366,8 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             var bins = _binsByScan.GetOrAdd(scans[reachable[k]], s => PeakBins.Of(s.MassSpectrum));
                 for (int x = 0; x < extraTraces.Length; x++)
                 {
-                    int i = FragmentPeakIndex(spectrum, extraFragments[x].Mz, tolerance, _parameters.MostIntenseFragmentPeak, bins.Hint(extraFragments[x].Mz));
+                    double extraMz = Ms2Target(extraFragments[x].Mz);
+                    int i = FragmentPeakIndex(spectrum, extraMz, tolerance, _parameters.MostIntenseFragmentPeak, bins.Hint(extraMz));
                     if (i >= 0)
                         extraTraces[x][k] = spectrum.YArray[i];
                 }
@@ -379,13 +387,14 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                     continue;
                 var spectrum = scans[reachable[k]].MassSpectrum;
             var bins = _binsByScan.GetOrAdd(scans[reachable[k]], s => PeakBins.Of(s.MassSpectrum));
-                int i = FragmentPeakIndex(spectrum, candidate.PrecursorMz, tolerance, _parameters.MostIntenseFragmentPeak, bins.Hint(candidate.PrecursorMz));
+                double unfragmentedMz = Ms2Target(candidate.PrecursorMz);
+                int i = FragmentPeakIndex(spectrum, unfragmentedMz, tolerance, _parameters.MostIntenseFragmentPeak, bins.Hint(unfragmentedMz));
                 if (i >= 0)
                     unfragmented[k] = spectrum.YArray[i];
                 for (int c = 0; c < coreIndices.Length; c++)
                 {
                     var fragment = fragments[coreIndices[c]];
-                    double shadowMz = fragment.Mz - 1.0033548 / Math.Max(1, fragment.Charge);
+                    double shadowMz = Ms2Target(fragment.Mz - 1.0033548 / Math.Max(1, fragment.Charge));
                     int found = peakIndices![coreIndices[c]][k];
                     i = found >= 0 ? FragmentPeakIndex(spectrum, shadowMz, tolerance, _parameters.MostIntenseFragmentPeak, found)
                         : FragmentPeakIndex(spectrum, shadowMz, tolerance, _parameters.MostIntenseFragmentPeak, bins.Hint(shadowMz));
@@ -520,11 +529,12 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 double w = libraryIntensities[f];
                 matchedWeight += w;
                 double spacing = 1.0033548 / Math.Max(1, fragments[f].Charge);
-                int below = apexSpectrum.GetClosestPeakIndex(fragments[f].Mz - spacing);
-                if (tolerance.Within(apexSpectrum.XArray[below], fragments[f].Mz - spacing) && apexSpectrum.YArray[below] > apexIntensities[f])
+                double belowMz = Ms2Target(fragments[f].Mz - spacing), aboveMz = Ms2Target(fragments[f].Mz + spacing);
+                int below = apexSpectrum.GetClosestPeakIndex(belowMz);
+                if (tolerance.Within(apexSpectrum.XArray[below], belowMz) && apexSpectrum.YArray[below] > apexIntensities[f])
                     isotopeOverlap += w;
-                int above = apexSpectrum.GetClosestPeakIndex(fragments[f].Mz + spacing);
-                if (tolerance.Within(apexSpectrum.XArray[above], fragments[f].Mz + spacing))
+                int above = apexSpectrum.GetClosestPeakIndex(aboveMz);
+                if (tolerance.Within(apexSpectrum.XArray[above], aboveMz))
                     fragmentM1 += w;
             }
             if (matchedWeight > 0)
@@ -1276,12 +1286,12 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 if (winnerEntry is null || rivalEntry is null)
                     return double.NaN;
                 var winnerIons = ScoredIons(winnerEntry);
-                var rivalAllMzs = rivalEntry.MatchedFragmentIons.Select(f => (double)f.Mz).ToList();
+                var rivalAllMzs = rivalEntry.MatchedFragmentIons.Select(f => Ms2Target(f.Mz)).ToList();
                 // A winner with much of its own is not judged, however those ions read
                 if (DiaInterferenceRemoval.OwnIonShare(winnerIons, rivalAllMzs, _parameters.FragmentTolerancePpm) > _parameters.InterferenceOwnIonShareCeiling)
                     return double.PositiveInfinity;
                 var holding = Enumerable.Range(0, windowBounds.Length).Where(w => rival.PrecursorMz >= windowBounds[w].Low && rival.PrecursorMz < windowBounds[w].High).Select(w => windowScans[w]).ToList();
-                return DiaInterferenceRemoval.OwnIonCoElution(winnerIons, winnerEntry.MatchedFragmentIons.Select(f => (double)f.Mz).ToList(),
+                return DiaInterferenceRemoval.OwnIonCoElution(winnerIons, winnerEntry.MatchedFragmentIons.Select(f => Ms2Target(f.Mz)).ToList(),
                     ScoredIons(rivalEntry), rivalAllMzs, holding, (winner.ApexRt.Value + rival.ApexRt.Value) / 2,
                     _parameters.FragmentTolerancePpm, _parameters.ApexHalfWidthScans, _parameters.MostIntenseFragmentPeak);
             }
@@ -1306,7 +1316,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         {
             var neighbourClock = System.Diagnostics.Stopwatch.StartNew();
             DiaNeighbourEvidence.PrecursorIons? IonsOf(int index) => _library.GetEntry(index) is { } entry
-                ? new DiaNeighbourEvidence.PrecursorIons(ScoredIons(entry), entry.MatchedFragmentIons.Select(f => (double)f.Mz).ToList(), entry.BaseSequence)
+                ? new DiaNeighbourEvidence.PrecursorIons(ScoredIons(entry), entry.MatchedFragmentIons.Select(f => Ms2Target(f.Mz)).ToList(), entry.BaseSequence)
                 : null;
             matches = DiaNeighbourEvidence.Apply(matches, IonsOf, windowBounds, windowScans, (_parameters.InterferenceRtToleranceCycles ?? _parameters.ApexHalfWidthScans + 1) * cycleMinutes,
                 _parameters.FragmentTolerancePpm, _parameters.ApexHalfWidthScans, _parameters.MostIntenseFragmentPeak, _parameters.TopFragmentCount, _parameters.ClassifierSeed, CommonParameters.MaxThreadsToUsePerFile, Status);
@@ -1368,7 +1378,7 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             ? ions.Where(f => IsDiaNnScorable(f, _parameters.FragmentMinimumMz, _parameters.FragmentMinimumResidues, _parameters.FragmentMaximumCharge, entry.ChargeState, _parameters.FragmentChargeBelowPrecursor)).ToList()
             : ions.ToList();
         return (scorable.Count >= 3 ? scorable : ions.ToList()).OrderByDescending(LibraryIntensity)
-            .Take(_parameters.TopFragmentCount + _parameters.ExtraFragmentCount).Select(f => ((double)f.Mz, LibraryIntensity(f))).ToList();
+            .Take(_parameters.TopFragmentCount + _parameters.ExtraFragmentCount).Select(f => (Ms2Target(f.Mz), LibraryIntensity(f))).ToList();
     }
 
     /// <summary>A fragment's library intensity, as this run reads it (<see cref="DiaLibrarySearchParameters.FragmentIntensities"/>).</summary>
