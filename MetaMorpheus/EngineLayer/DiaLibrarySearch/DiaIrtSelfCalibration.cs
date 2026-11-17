@@ -40,6 +40,12 @@ public sealed record DiaIrtCalibration(IrtCalibrationModel Model, double IrtHalf
     public DiaIrtCompositionModel? IrtComposition { get; init; }
 
     /// <summary>
+    /// The run's fragment mass error, measured on the last round's anchors at the search's fragment tolerance; null when
+    /// calibration ran a single round. Measured only: the search's fragment tolerance stays as set.
+    /// </summary>
+    public DiaFragmentMassError? FragmentMassError { get; init; }
+
+    /// <summary>
     /// How many searches the first pass ran before it had anchors to fit, counting every sample and window it tried. A run
     /// that calibrates on its first sample takes one; on a whole-proteome library each costs a search of that sample.
     /// </summary>

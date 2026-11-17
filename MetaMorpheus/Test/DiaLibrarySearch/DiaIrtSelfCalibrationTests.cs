@@ -188,6 +188,32 @@ public class DiaIrtSelfCalibrationTests
         Assert.That(applied.IrtComposition, Is.SameAs(calibration.IrtComposition));
     }
 
+    /// <summary>
+    /// Calibration measures the run's fragment mass error on its last round's anchors: planted fragments scattered by a normal
+    /// error, and shifted with every other m/z, read back as that spread around that offset. It only measures: the search's
+    /// fragment tolerance is unchanged by applying the calibration, and a single round measures nothing, as it fits no MS1 offset.
+    /// </summary>
+    [TestCase(0, 4)]
+    [TestCase(3, 2)]
+    public void CalibrationMeasuresTheRunsFragmentMassError(double offsetPpm, double sdPpm)
+    {
+        var run = SyntheticDiaRun.Build(300, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0, ppmOffset: offsetPpm, fragmentPpmSd: sdPpm);
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+
+        var calibration = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new CommonParameters());
+
+        Assert.That(calibration.FragmentMassError, Is.Not.Null);
+        var measured = calibration.FragmentMassError!;
+        Assert.That(measured.MedianPpm, Is.EqualTo(offsetPpm).Within(0.5));
+        Assert.That(measured.SpreadPpm, Is.EqualTo(sdPpm).Within(0.2 * sdPpm));
+        Assert.That(measured.Deviation95Ppm, Is.EqualTo(1.96 * sdPpm).Within(0.25 * sdPpm));
+        Assert.That(measured.Count, Is.GreaterThanOrEqualTo(DiaFragmentMassError.FragmentsPerAnchor * calibration.AnchorCount * 9 / 10));
+        Assert.That(calibration.ApplyTo(new DiaLibrarySearchParameters(FragmentTolerancePpm: 20)).FragmentTolerancePpm, Is.EqualTo(20));
+
+        var oneRound = DiaIrtSelfCalibration.Calibrate(run.Scans, library, new DiaLibrarySearchParameters(), new CommonParameters(), rounds: 1);
+        Assert.That(oneRound.FragmentMassError, Is.Null);
+    }
+
     /// <summary>The library halves one class's prediction after the run was made, so the run reads that class at twice what the library says, and calibration's table says so.</summary>
     [Test]
     public void CalibrationFitsTheIntensityTableFromItsAnchors()

@@ -73,9 +73,11 @@ internal sealed class SyntheticDiaRun
     /// <see cref="TrueRtMinutes"/>.</param>
     /// <param name="staggerMs2">Spreads each cycle's MS2 scans through the cycle, window w at (w + 1) / (windows + 1) of it,
     /// as a real instrument records them after the cycle's MS1 scan; false gives every scan of a cycle the cycle's time.</param>
+    /// <param name="fragmentPpmSd">Moves each planted fragment peak by a normal error of this SD in ppm, drawn afresh in every
+    /// scan, as an instrument's fragment masses scatter; 0 draws nothing, so the run is as without it.</param>
     public static SyntheticDiaRun Build(int targetCount, Func<MslLibraryEntry, bool> plant, bool withDecoys = true,
         int seed = 42, double noisePeaksPerScan = 60, Func<MslLibraryEntry, double>? abundance = null, bool withMs1 = false, double ppmOffset = 0, bool withCharge3Siblings = false,
-        double deadMinutes = 0, bool staggerMs2 = false)
+        double deadMinutes = 0, bool staggerMs2 = false, double fragmentPpmSd = 0)
     {
         var random = new Random(seed);
         var library = new List<MslLibraryEntry>();
@@ -139,7 +141,7 @@ internal sealed class SyntheticDiaRun
                     if (elution < 1)
                         continue;
                     foreach (var fragment in entry.MatchedFragmentIons)
-                        peaks.Add((fragment.Mz, elution * fragment.Intensity));
+                        peaks.Add((fragmentPpmSd > 0 ? fragment.Mz * (1 + fragmentPpmSd * StandardNormal(random) * 1e-6) : fragment.Mz, elution * fragment.Intensity));
                 }
 
                 var ordered = peaks.OrderBy(p => p.Mz).ToArray();
@@ -151,6 +153,10 @@ internal sealed class SyntheticDiaRun
 
         return new SyntheticDiaRun(library, scans.ToArray(), planted.Select(e => e.FullSequence).ToHashSet());
     }
+
+    /// <summary>A standard normal draw (Box-Muller).</summary>
+    private static double StandardNormal(Random random) =>
+        Math.Sqrt(-2 * Math.Log(1 - random.NextDouble())) * Math.Cos(2 * Math.PI * random.NextDouble());
 
     /// <summary>
     /// A scan as the synthetic run builds them. An MS2 scan isolates <see cref="WindowWidth"/> around
