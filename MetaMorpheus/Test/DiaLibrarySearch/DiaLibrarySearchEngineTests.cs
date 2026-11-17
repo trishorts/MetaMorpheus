@@ -1193,6 +1193,31 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// The run's fragment mass offset centres every MS2 lookup. Here every recorded m/z sits 15 ppm high, outside a 10 ppm
+    /// tolerance around the library m/z: without the offset almost nothing is found, with it the planted precursors are, and
+    /// their mass errors are read from the run's centre (about 0), not from the library m/z (about 15). Off (0) by default.
+    /// </summary>
+    [Test]
+    public void AFragmentMassOffsetCentresTheSearchOnTheRunsFragments()
+    {
+        int meanPpm = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "MeanAbsolutePpmError");
+        int top1Ppm = Array.IndexOf(DiaPrecursorMatch.FeatureNames, "Top1PpmError");
+        var run = SyntheticDiaRun.Build(200, entry => !entry.IsDecoy && SyntheticDiaRun.Bucket(entry, 4) != 0, ppmOffset: 15);
+        int planted = run.Library.Count(e => run.PlantedSequences.Contains(e.FullSequence));
+        using var library = MslLibrary.Load(run.WriteLibrary(_directory));
+        List<DiaPrecursorMatch> Found(double offset) => ((DiaLibrarySearchResults)new DiaLibrarySearchEngine(run.Scans, library, EndpointMap,
+                new DiaLibrarySearchParameters(FragmentTolerancePpm: 10, FragmentMassOffsetPpm: offset), new CommonParameters(), [], []).Run()).Matches
+            .Where(m => !m.IsDecoy && m.QValue <= 0.01 && run.PlantedSequences.Contains(m.FullSequence)).ToList();
+
+        Assert.That(new DiaLibrarySearchParameters().FragmentMassOffsetPpm, Is.EqualTo(0));
+        Assert.That(Found(0), Has.Count.LessThan(planted / 10));
+        var centred = Found(15);
+        Assert.That(centred, Has.Count.GreaterThanOrEqualTo((int)Math.Ceiling(0.9 * planted)));
+        Assert.That(centred.Average(m => m.Features[meanPpm]), Is.LessThan(0.5));
+        Assert.That(centred.Average(m => m.Features[top1Ppm]), Is.LessThan(0.5));
+    }
+
+    /// <summary>
     /// A fragment's mass error is read from the peak its intensity was read from. Here every planted fragment is strong at
     /// +15 ppm, with a faint peak at its exact library m/z: the most intense peak in tolerance (the default) is the strong
     /// one, so both mass-error features read 15 ppm. The nearest peak, the faint one, would give 0.

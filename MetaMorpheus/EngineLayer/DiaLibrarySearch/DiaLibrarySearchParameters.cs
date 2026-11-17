@@ -218,6 +218,11 @@ namespace EngineLayer.DiaLibrarySearch;
 /// Correlate the MS1 traces (M0, M+1, M+2 and the tight M0) with the summed core fragments instead of the smoothed best core
 /// fragment, a sturdier profile when each fragment has only one to three points across its peak. Off by default.
 /// </param>
+/// <param name="FragmentMassOffsetPpm">
+/// The run's fragment m/z offset in ppm, observed less library (calibration measures it: <see cref="DiaFragmentMassError.MedianPpm"/>).
+/// Every MS2 lookup is centred on the library m/z shifted by it, so the tolerance, the tight and finest co-elution windows
+/// and the mass-error features all measure from where the run's fragments fall. 0 (default) shifts nothing.
+/// </param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
     int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 30, double ClassifierTrainingQValue = 0.01,
     StatisticalModels.RescoreModel ClassifierModel = StatisticalModels.RescoreModel.NeuralNetworkEnsemble,
@@ -273,7 +278,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     DiaFragmentIntensityModel? FragmentIntensities = null,
     DiaIrtCompositionModel? IrtComposition = null,
     bool Ms1InterpolatedTraces = true,
-    bool Ms1CorrelationSummedCore = false)
+    bool Ms1CorrelationSummedCore = false,
+    double FragmentMassOffsetPpm = 0)
 {
     /// <summary>
     /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual
