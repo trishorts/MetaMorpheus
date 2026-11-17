@@ -1293,6 +1293,40 @@ public class DiaLibrarySearchEngineTests
     }
 
     /// <summary>
+    /// Transient evidence, for sparse peaks where a fragment's presence at the apex is common by chance. A fragment present
+    /// only at the apex counts fully; one present in every scan (a noise ion that is always there) counts nothing, though it
+    /// is also present at the apex; an absent one counts nothing. Peaking: a fragment counts when the apex is its strict
+    /// maximum over the co-elution window, so the always-present ion does not, and neither does one peaking elsewhere.
+    /// Library weights apply to both.
+    /// </summary>
+    [Test]
+    public void TransientEvidenceCountsFragmentsSeenAtTheApexAndRarelyElsewhere()
+    {
+        double[] onlyAtApex = [0, 0, 0, 0, 0, 50, 0, 0, 0, 0, 0];
+        double[] always = [20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20];
+        double[] absent = new double[11];
+        double[] elsewhere = [0, 0, 0, 0, 0, 10, 40, 0, 0, 0, 0];
+        int apex = 5, from = 2, to = 8;
+
+        var (transient, peaking) = DiaLibrarySearchEngine.TransientEvidence([onlyAtApex, always, absent], [1, 1, 1], apex, from, to);
+        Assert.That(transient, Is.EqualTo(1.0 / 3).Within(1e-12));
+        Assert.That(peaking, Is.EqualTo(1.0 / 3).Within(1e-12));
+
+        // Library weights: the transient fragment weighs three of four
+        (transient, peaking) = DiaLibrarySearchEngine.TransientEvidence([onlyAtApex, always], [3, 1], apex, from, to);
+        Assert.That(transient, Is.EqualTo(0.75).Within(1e-12));
+        Assert.That(peaking, Is.EqualTo(0.75).Within(1e-12));
+
+        // Present at the apex and in one of the eight scans outside apex +-1: counts 7/8; it peaks next door, so not peaking
+        (transient, peaking) = DiaLibrarySearchEngine.TransientEvidence([elsewhere], [1], apex, from, to);
+        Assert.That(transient, Is.EqualTo(1.0).Within(1e-12), "the neighbour at apex + 1 is inside apex +-1, so it is not background");
+        Assert.That(peaking, Is.EqualTo(0));
+
+        Assert.That(new DiaLibrarySearchParameters().TransientFragmentFeatures, Is.False);
+        Assert.That(DiaPrecursorMatch.FeatureNames, Does.Contain("TransientApexFragments").And.Contain("ApexPeakingFragments"));
+    }
+
+    /// <summary>
     /// Candidate spacing apart from the co-elution window. Two narrow five-fragment peaks 3 scans apart, as on PXD071205's 5-min
     /// runs (about 1.6 points per FWHM): each scores on both, since a 7-scan window holds the other, so at the default spacing
     /// (the half width, 3, as DIA-NN 1.8) the better suppresses the other. At a spacing of 2 both are candidates, and the classifier

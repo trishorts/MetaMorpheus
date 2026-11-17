@@ -1035,6 +1035,14 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
         return chosen.OrderByDescending(c => c.Score).ThenBy(c => c.Scan).Take(maxCount).Select(c => c.Scan).ToArray();
     }
 
+    /// <summary>
+    /// Transient evidence at <paramref name="apex"/>, library-weighted over <paramref name="traces"/>: the share of fragments seen
+    /// at the apex, each discounted by how often its m/z is seen in the rest of the window (outside apex +-1), and the share
+    /// whose strict maximum over the co-elution window (<paramref name="from"/>..<paramref name="to"/>) is at the apex.
+    /// </summary>
+    public static (double Transient, double Peaking) TransientEvidence(IReadOnlyList<double[]> traces, IReadOnlyList<double> weights, int apex, int from, int to)
+        => (0, 0);
+
     /// <summary>Whether no scan within <paramref name="radius"/> of <paramref name="s"/> is higher; on a tie, the earliest scan is the maximum.</summary>
     private static bool IsLocalMaximum(double[] trace, int s, int radius)
     {

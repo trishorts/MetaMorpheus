@@ -229,6 +229,11 @@ namespace EngineLayer.DiaLibrarySearch;
 /// maximum of the best fragment a half width from the real apex scores on the real peak at its window's edge, and, scoring a
 /// little higher, suppresses the real apex. A smaller spacing keeps both, and the classifier chooses on their apex features.
 /// </param>
+/// <param name="TransientFragmentFeatures">
+/// Features TransientApexFragments and ApexPeakingFragments (<see cref="DiaLibrarySearchEngine.TransientEvidence"/>): at 250 pg a
+/// quarter of any m/z has a peak within 10 ppm in a scan, so presence at the apex says little unless the m/z is absent around it.
+/// Zeros when off (the default).
+/// </param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
     int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 30, double ClassifierTrainingQValue = 0.01,
     StatisticalModels.RescoreModel ClassifierModel = StatisticalModels.RescoreModel.NeuralNetworkEnsemble,
@@ -286,7 +291,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool Ms1InterpolatedTraces = true,
     bool Ms1CorrelationSummedCore = false,
     double FragmentMassOffsetPpm = 0,
-    int? CandidateApexSpacingScans = null)
+    int? CandidateApexSpacingScans = null,
+    bool TransientFragmentFeatures = false)
 {
     /// <summary>
     /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual
