@@ -223,6 +223,12 @@ namespace EngineLayer.DiaLibrarySearch;
 /// Every MS2 lookup is centred on the library m/z shifted by it, so the tolerance, the tight and finest co-elution windows
 /// and the mass-error features all measure from where the run's fragments fall. 0 (default) shifts nothing.
 /// </param>
+/// <param name="CandidateApexSpacingScans">
+/// Candidate apexes must lie more than this many scans apart; null spaces them by <see cref="ApexHalfWidthScans"/>, as DIA-NN 1.8
+/// does. Each candidate is scored over its co-elution window, so at about 1.6 points per FWHM (PXD071205's 5-min runs) a noise
+/// maximum of the best fragment a half width from the real apex scores on the real peak at its window's edge, and, scoring a
+/// little higher, suppresses the real apex. A smaller spacing keeps both, and the classifier chooses on their apex features.
+/// </param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
     int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 30, double ClassifierTrainingQValue = 0.01,
     StatisticalModels.RescoreModel ClassifierModel = StatisticalModels.RescoreModel.NeuralNetworkEnsemble,
@@ -279,7 +285,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     DiaIrtCompositionModel? IrtComposition = null,
     bool Ms1InterpolatedTraces = true,
     bool Ms1CorrelationSummedCore = false,
-    double FragmentMassOffsetPpm = 0)
+    double FragmentMassOffsetPpm = 0,
+    int? CandidateApexSpacingScans = null)
 {
     /// <summary>
     /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual
