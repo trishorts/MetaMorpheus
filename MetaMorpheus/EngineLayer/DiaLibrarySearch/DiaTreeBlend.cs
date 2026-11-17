@@ -35,8 +35,12 @@ public static class DiaTreeBlend
     /// <param name="maxTrainingRows">The most rows each fold's trees learn from, taken from the top by score.</param>
     /// <returns>The same score values as <paramref name="scores"/>, reordered, or a copy of it when there is too little to learn from.</returns>
     /// <exception cref="ArgumentException">The lists differ in length.</exception>
+    /// <param name="rounds">
+    /// 1 blends once. 2 then trains new trees on the top rows of the blended order and blends their ranks with it, as the
+    /// network's second pass re-picks its sample by its own first ranking.
+    /// </param>
     public static double[] Blend(IReadOnlyList<float[]> features, IReadOnlyList<double> scores, IReadOnlyList<bool> isDecoy,
-        IReadOnlyList<string> groupKeys, int maxTrainingRows, int seed, int threads = 1)
+        IReadOnlyList<string> groupKeys, int maxTrainingRows, int seed, int threads = 1, int rounds = 1)
     {
         int n = scores.Count;
         if (features.Count != n || isDecoy.Count != n || groupKeys.Count != n)

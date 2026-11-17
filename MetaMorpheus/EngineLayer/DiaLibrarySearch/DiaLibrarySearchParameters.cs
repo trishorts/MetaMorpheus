@@ -234,6 +234,10 @@ namespace EngineLayer.DiaLibrarySearch;
 /// quarter of any m/z has a peak within 10 ppm in a scan, so presence at the apex says little unless the m/z is absent around it.
 /// Zeros when off (the default).
 /// </param>
+/// <param name="ClassifierTreeBlendRounds">
+/// With <see cref="ClassifierTreeBlend"/>: 1 blends once; 2 trains new trees on the top rows of the blended order and blends again
+/// (<see cref="DiaTreeBlend.Blend"/>). 1 by default.
+/// </param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
     int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 30, double ClassifierTrainingQValue = 0.01,
     StatisticalModels.RescoreModel ClassifierModel = StatisticalModels.RescoreModel.NeuralNetworkEnsemble,
@@ -292,7 +296,8 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool Ms1CorrelationSummedCore = false,
     double FragmentMassOffsetPpm = 0,
     int? CandidateApexSpacingScans = null,
-    bool TransientFragmentFeatures = false)
+    bool TransientFragmentFeatures = false,
+    int ClassifierTreeBlendRounds = 1)
 {
     /// <summary>
     /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual

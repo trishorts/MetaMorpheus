@@ -66,6 +66,26 @@ public class DiaTreeBlendTests
     }
 
     /// <summary>
+    /// A second round trains new trees on the top rows of the blended order and blends again. Values stay the network's, one
+    /// round is the blend as it was, and the second round changes the order.
+    /// </summary>
+    [Test]
+    public void ASecondRoundLearnsFromTheBlendedOrder()
+    {
+        var (features, scores, isDecoy, keys) = TwoSignals(3000);
+
+        double[] once = DiaTreeBlend.Blend(features, scores, isDecoy, keys, maxTrainingRows: 1500, seed: 0);
+        double[] oneRound = DiaTreeBlend.Blend(features, scores, isDecoy, keys, maxTrainingRows: 1500, seed: 0, rounds: 1);
+        double[] twice = DiaTreeBlend.Blend(features, scores, isDecoy, keys, maxTrainingRows: 1500, seed: 0, rounds: 2);
+
+        Assert.That(oneRound, Is.EqualTo(once));
+        Assert.That(twice.Order(), Is.EqualTo(scores.Order()));
+        Assert.That(twice, Is.Not.EqualTo(once), "the second round must reorder");
+        Assert.That(Auc(twice, isDecoy), Is.GreaterThan(Auc(scores, isDecoy) + 0.03));
+        Assert.That(new DiaLibrarySearchParameters().ClassifierTreeBlendRounds, Is.EqualTo(1));
+    }
+
+    /// <summary>
     /// The blend decides the order and the score values stay the network's, so later stages see the same scale, and a
     /// decoy's score means what it did.
     /// </summary>
