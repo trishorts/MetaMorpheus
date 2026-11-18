@@ -126,7 +126,5 @@ public sealed record DiaPrecursorMatch(
         "Ms1PeakSignalFraction", // share of the window's MS1 M0 signal inside the peak (0 unless Ms1PeakSignalFraction)
         "Ms1PeakPointFraction", // share of the peak's distinct MS1 scans with an M0 found (0 unless Ms1PeakPoints)
         "LibraryIrt",           // the library iRT, DIA-NN's pRT (0 unless LibraryIrtFeature)
-        "TransientApexFragments", // library-weighted share of top fragments seen at the apex, each less how often it is seen elsewhere in the window (0 unless TransientFragmentFeatures)
-        "ApexPeakingFragments", // library-weighted share of top fragments whose strict maximum over the co-elution window is the apex (0 unless TransientFragmentFeatures)
     ];
 }

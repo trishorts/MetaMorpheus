@@ -763,9 +763,6 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
             double peakSignalFraction = windowSignal > 0 ? Enumerable.Range(peakStart, peakEnd - peakStart + 1).Sum(s => summed[s]) / windowSignal : 0;
             var apexRt = new RtMinutes(scans[reachable[apex]].RetentionTime);
             var apexIrt = _irtMap.ToIrt(apexRt);
-            // TransientFragmentFeatures: presence at the apex that is not everywhere in the window
-            var (transientApexFragments, apexPeakingFragments) = _parameters.TransientFragmentFeatures
-                ? TransientEvidence(traces, libraryIntensities, apex, from, to) : (0.0, 0.0);
 
             double[] features =
             [
@@ -835,8 +832,6 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 ms1PeakSignalFraction,
                 ms1PeakPointFraction,
                 _parameters.LibraryIrtFeature ? candidate.Irt : 0,
-                transientApexFragments,
-                apexPeakingFragments,
             ];
             // Computed in doubles, kept as floats (each rounded once): half the memory of a search's largest data
             float[] stored = new float[features.Length];
@@ -1038,39 +1033,6 @@ public class DiaLibrarySearchEngine : MetaMorpheusEngine
                 chosen.Add((scan, score));
         }
         return chosen.OrderByDescending(c => c.Score).ThenBy(c => c.Scan).Take(maxCount).Select(c => c.Scan).ToArray();
-    }
-
-    /// <summary>
-    /// Transient evidence at <paramref name="apex"/>, library-weighted over <paramref name="traces"/>: the share of fragments seen
-    /// at the apex, each discounted by how often its m/z is seen in the rest of the window (outside apex +-1), and the share
-    /// whose strict maximum over the co-elution window (<paramref name="from"/>..<paramref name="to"/>) is at the apex.
-    /// </summary>
-    public static (double Transient, double Peaking) TransientEvidence(IReadOnlyList<double[]> traces, IReadOnlyList<double> weights, int apex, int from, int to)
-    {
-        double total = 0, transient = 0, peaking = 0;
-        for (int f = 0; f < traces.Count; f++)
-        {
-            double w = weights[f];
-            total += w;
-            double[] trace = traces[f];
-            if (trace[apex] <= 0)
-                continue;
-            int outside = 0, seen = 0;
-            for (int s = 0; s < trace.Length; s++)
-                if (Math.Abs(s - apex) > 1)
-                {
-                    outside++;
-                    if (trace[s] > 0) seen++;
-                }
-            transient += w * (outside > 0 ? 1 - (double)seen / outside : 1);
-            bool strictMaximum = true;
-            for (int s = from; s <= to && strictMaximum; s++)
-                if (s != apex && trace[s] >= trace[apex])
-                    strictMaximum = false;
-            if (strictMaximum)
-                peaking += w;
-        }
-        return total > 0 ? (transient / total, peaking / total) : (0, 0);
     }
 
     /// <summary>Whether no scan within <paramref name="radius"/> of <paramref name="s"/> is higher; on a tie, the earliest scan is the maximum.</summary>

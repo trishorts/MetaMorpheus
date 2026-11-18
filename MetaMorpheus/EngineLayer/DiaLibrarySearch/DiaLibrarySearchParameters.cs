@@ -229,11 +229,6 @@ namespace EngineLayer.DiaLibrarySearch;
 /// maximum of the best fragment a half width from the real apex scores on the real peak at its window's edge, and, scoring a
 /// little higher, suppresses the real apex. A smaller spacing keeps both, and the classifier chooses on their apex features.
 /// </param>
-/// <param name="TransientFragmentFeatures">
-/// Features TransientApexFragments and ApexPeakingFragments (<see cref="DiaLibrarySearchEngine.TransientEvidence"/>): at 250 pg a
-/// quarter of any m/z has a peak within 10 ppm in a scan, so presence at the apex says little unless the m/z is absent around it.
-/// Zeros when off (the default).
-/// </param>
 /// <param name="ClassifierTreeBlendRounds">
 /// With <see cref="ClassifierTreeBlend"/>: 1 blends once; 2 trains new trees on the top rows of the blended order and blends again
 /// (<see cref="DiaTreeBlend.Blend"/>). 1 by default.
@@ -301,7 +296,6 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool Ms1CorrelationSummedCore = false,
     double FragmentMassOffsetPpm = 0,
     int? CandidateApexSpacingScans = null,
-    bool TransientFragmentFeatures = false,
     int ClassifierTreeBlendRounds = 1,
     bool PeptidoformEvidence = false)
 {
