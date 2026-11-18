@@ -228,6 +228,11 @@ namespace EngineLayer.DiaLibrarySearch;
 /// does. Each candidate is scored over its co-elution window, so at about 1.6 points per FWHM (PXD071205's 5-min runs) a noise
 /// maximum of the best fragment a half width from the real apex scores on the real peak at its window's edge, and, scoring a
 /// little higher, suppresses the real apex. A smaller spacing keeps both, and the classifier chooses on their apex features.
+/// 2 by default since 2026-11-18, with <see cref="PeptidoformEvidence"/> (owner adopted both; two-seed means at a matched paired
+/// entrapment FDP of 1% against the earlier defaults: PXD022589 HF-X +1.7%, PXD005573 1 h +1.4%; species arm +1.0% / +1.5%;
+/// DIA-NN's own list +1.3% / +0.3%; PXD071205's 5-min runs +3-7% for the spacing alone). Spacing 2 alone helps the narrow-peak
+/// runs most: at the held-out run's 3.2 scans per FWHM it was about neutral, and its q 0.1% count fell at one seed of two.
+/// Calibration keeps the half width (<see cref="DiaIrtSelfCalibration.CalibrationParameters"/>).
 /// </param>
 /// <param name="ClassifierTreeBlendRounds">
 /// With <see cref="ClassifierTreeBlend"/>: 1 blends once; 2 trains new trees on the top rows of the blended order and blends again
@@ -236,7 +241,10 @@ namespace EngineLayer.DiaLibrarySearch;
 /// <param name="PeptidoformEvidence">
 /// With <see cref="NeighbourEvidence"/>: precursors reading one MS1 signal (same charge, within 3 ppm, apex within a cycle) are compared
 /// on the ions only each has (<see cref="DiaNeighbourEvidence.UniqueEvidence"/>), and the neighbour trees also see the worst difference,
-/// the number of such rivals and whether one outscores the row. Off by default.
+/// the number of such rivals and whether one outscores the row. On by default since 2026-11-18, with spacing 2 (see
+/// <see cref="CandidateApexSpacingScans"/>; on top of spacing 2: paired +0.85% / +1.27%, species -0.06% / +0.48%, the 5-min runs
+/// +2.3%). Permuted decoys are isomers of targets, so a decoy on a present target's MS1 now loses to it while a foreign false
+/// hit is nobody's isomer: E. coli FDP at 1% q rose 0.65-0.74% to 0.77-0.82% on HF-X and stayed 1.18-1.24% on held-out.
 /// </param>
 public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20, double IrtHalfWindow = 20,
     int TopFragmentCount = 12, int ApexHalfWidthScans = 3, int PrecursorSampleStride = 1, int MaxApexCandidates = 30, double ClassifierTrainingQValue = 0.01,
@@ -295,9 +303,9 @@ public sealed record DiaLibrarySearchParameters(double FragmentTolerancePpm = 20
     bool Ms1InterpolatedTraces = true,
     bool Ms1CorrelationSummedCore = false,
     double FragmentMassOffsetPpm = 0,
-    int? CandidateApexSpacingScans = null,
+    int? CandidateApexSpacingScans = 2,
     int ClassifierTreeBlendRounds = 1,
-    bool PeptidoformEvidence = false)
+    bool PeptidoformEvidence = true)
 {
     /// <summary>
     /// The MS1 tolerance a search uses: <see cref="Ms1ToleranceSpreadMultiple"/> times the calibrated offset's residual
