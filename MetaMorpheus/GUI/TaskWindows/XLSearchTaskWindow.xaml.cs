@@ -1,4 +1,5 @@
 ﻿using EngineLayer;
+using EngineLayer.SpectrumMatch;
 using MassSpectrometry;
 using MzLibUtil;
 using Nett;
@@ -135,6 +136,14 @@ namespace MetaMorpheusGUI
             trimMs1.IsChecked = task.CommonParameters.TrimMs1Peaks;
             trimMsMs.IsChecked = task.CommonParameters.TrimMsMsPeaks;
 
+            // The identification filter and its threshold; a task at the bottom-up default with a top-down protease, or in RNA
+            // mode, shows the default for its search type
+            IdentificationFilterComboBox.ItemsSource = TaskWindowIdentificationFilter.Choices;
+            var (identificationFilter, filterThresholdText) = TaskWindowIdentificationFilter.Load(task.CommonParameters, GuiGlobalParamsViewModel.Instance.IsRnaMode);
+            IdentificationFilterComboBox.SelectedValue = identificationFilter;
+            FilterThresholdTextBox.Text = filterThresholdText;
+
+
             TopNPeaksTextBox.Text = task.CommonParameters.NumberOfPeaksToKeepPerWindow == int.MaxValue || !task.CommonParameters.NumberOfPeaksToKeepPerWindow.HasValue ? "" : task.CommonParameters.NumberOfPeaksToKeepPerWindow.Value.ToString(CultureInfo.InvariantCulture);
             MinRatioTextBox.Text = task.CommonParameters.MinimumAllowedIntensityRatioToBasePeak == double.MaxValue || !task.CommonParameters.MinimumAllowedIntensityRatioToBasePeak.HasValue ? "" : task.CommonParameters.MinimumAllowedIntensityRatioToBasePeak.Value.ToString(CultureInfo.InvariantCulture);
 
@@ -248,7 +257,7 @@ namespace MetaMorpheusGUI
             if (!TaskValidator.CheckTaskSettingsValidity(XLPrecusorMsTlTextBox.Text, productMassToleranceTextBox.Text, null, missedCleavagesTextBox.Text,
                 maxModificationIsoformsTextBox.Text, MinPeptideLengthTextBox.Text, MaxPeptideLengthTextBox.Text, maxThreadsTextBox.Text, minScoreAllowed.Text,
                 fieldNotUsed, fieldNotUsed, fieldNotUsed, DeconHostViewModel.PrecursorDeconvolutionParameters.MaxAssumedChargeState.ToString(), TopNPeaksTextBox.Text, MinRatioTextBox.Text, null, null, numberOfDatabaseSearchesTextBox.Text, 
-                fieldNotUsed, fieldNotUsed, null, null))
+                fieldNotUsed, fieldNotUsed, FilterThresholdTextBox.Text, null))
             {
                 return;
             }
@@ -332,9 +341,12 @@ namespace MetaMorpheusGUI
             bool useProvidedPrecursorInfo = DeconHostViewModel.UseProvidedPrecursors;
             bool doPrecursorDeconvolution = DeconHostViewModel.DoPrecursorDeconvolution;
 
+            var savedFilter = TaskWindowIdentificationFilter.ForSave((FilterType)IdentificationFilterComboBox.SelectedValue, FilterThresholdTextBox.Text);
             CommonParameters commonParamsToSave = new CommonParameters(
                 precursorMassTolerance: PrecursorMassTolerance,
                 taskDescriptor: OutputFileNameTextBox.Text != "" ? OutputFileNameTextBox.Text : "XLSearchTask",
+                identificationFilter: savedFilter.IdentificationFilter,
+                filterThreshold: savedFilter.FilterThreshold,
                 productMassTolerance: ProductMassTolerance,
                 doPrecursorDeconvolution: doPrecursorDeconvolution,
                 useProvidedPrecursorInfo: useProvidedPrecursorInfo,

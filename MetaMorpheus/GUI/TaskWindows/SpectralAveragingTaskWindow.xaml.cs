@@ -11,7 +11,9 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using EngineLayer;
+using EngineLayer.SpectrumMatch;
 using GuiFunctions;
+using GuiFunctions.Util;
 using SpectralAveraging;
 using Nett;
 using TaskLayer;
@@ -48,6 +50,12 @@ namespace MetaMorpheusGUI
 
             parametersViewModel.SetOtherParametersCommand = new DelegateCommand(parametersViewModel.SetOtherParameters);
             DataContext = parametersViewModel;
+
+            // Averaging identifies nothing, but the window keeps the task's identification filter rather than resetting it
+            IdentificationFilterComboBox.ItemsSource = TaskWindowIdentificationFilter.Choices;
+            var (identificationFilter, filterThresholdText) = TaskWindowIdentificationFilter.Load(TheTask.CommonParameters, GuiGlobalParamsViewModel.Instance.IsRnaMode);
+            IdentificationFilterComboBox.SelectedValue = identificationFilter;
+            FilterThresholdTextBox.Text = filterThresholdText;
         }
 
         private void CancelButton_OnClick(object sender, RoutedEventArgs e)
@@ -57,11 +65,19 @@ namespace MetaMorpheusGUI
 
         private void SaveButton_OnClick(object sender, RoutedEventArgs e)
         {
+            if (!TaskValidator.CheckFilterThreshold(FilterThresholdTextBox.Text))
+            {
+                return;
+            }
+            var savedFilter = TaskWindowIdentificationFilter.ForSave((FilterType)IdentificationFilterComboBox.SelectedValue, FilterThresholdTextBox.Text);
+
             // setting dissociation type ensures no filters occur when loading files in MM Task
             CommonParameters commParamsToSave = new CommonParameters(
-                taskDescriptor: OutputFileNameTextBox.Text != "" ? OutputFileNameTextBox.Text : "AveragingTask", 
+                taskDescriptor: OutputFileNameTextBox.Text != "" ? OutputFileNameTextBox.Text : "AveragingTask",
                 dissociationType: DissociationType.LowCID,
-                maxThreadsToUsePerFile: TheTask.Parameters.MaxThreadsToUsePerFile);
+                maxThreadsToUsePerFile: TheTask.Parameters.MaxThreadsToUsePerFile,
+                identificationFilter: savedFilter.IdentificationFilter,
+                filterThreshold: savedFilter.FilterThreshold);
 
             TheTask.CommonParameters = commParamsToSave;
             TheTask.Parameters = (DataContext as SpectralAveragingParametersViewModel).SpectralAveragingParameters;
