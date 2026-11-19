@@ -100,6 +100,7 @@ namespace MetaMorpheusGUI
                 SearchModeWarningTextBlock.Text = searchModeWarning;
                 SearchModeWarningTextBlock.Visibility = searchModeWarning == null ? Visibility.Collapsed : Visibility.Visible;
                 InitiatorMethionineBehaviorComboBox.SelectedIndex = (int)digestionParams.InitiatorMethionineBehavior;
+                CheckBoxRespectCleavageBlockingModifications.IsChecked = digestionParams.RespectCleavageBlockingModifications;
                 CheckBoxRespectCleavagePromotingModifications.IsChecked = digestionParams.RespectCleavagePromotingModifications;
             }
             else
@@ -578,6 +579,7 @@ namespace MetaMorpheusGUI
                     protease.Name, maxMissedCleavages, minPeptideLength, maxPeptideLength, maxModificationIsoforms,
                     maxModsForPeptides: maxModsPerPeptide,
                     initiatorMethionineBehavior: initiatorMethionineBehavior,
+                    respectCleavageBlockingModifications: CheckBoxRespectCleavageBlockingModifications.IsChecked.Value,
                     respectCleavagePromotingModifications: CheckBoxRespectCleavagePromotingModifications.IsChecked.Value);
             }
 

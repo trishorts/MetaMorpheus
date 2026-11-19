@@ -207,6 +207,7 @@ namespace MetaMorpheusGUI
                 SearchModeWarningTextBlock.Text = searchModeWarning;
                 SearchModeWarningTextBlock.Visibility = searchModeWarning == null ? Visibility.Collapsed : Visibility.Visible;
                 initiatorMethionineBehaviorComboBox.SelectedIndex = (int)digestionParams.InitiatorMethionineBehavior;
+                CheckBoxRespectCleavageBlockingModifications.IsChecked = digestionParams.RespectCleavageBlockingModifications;
             }
             maxModificationIsoformsTextBox.Text = task.CommonParameters.DigestionParams.MaxModificationIsoforms.ToString(CultureInfo.InvariantCulture);
             TxtBoxMaxModPerPep.Text = task.CommonParameters.DigestionParams.MaxMods.ToString(CultureInfo.InvariantCulture);
@@ -430,13 +431,15 @@ namespace MetaMorpheusGUI
             int MaxModPerPep = (int.Parse(TxtBoxMaxModPerPep.Text, CultureInfo.InvariantCulture));
             InitiatorMethionineBehavior InitiatorMethionineBehavior = ((InitiatorMethionineBehavior)initiatorMethionineBehaviorComboBox.SelectedIndex);
             // Semi-specific peptides (SearchModeType Semi, terminus Both) or fully specific ones; never seeds, which a glyco search cannot use
-            // Every other digestion setting (SILAC, cleavage-blocking modifications, ...) is kept from the loaded task. There is no
-            // cleavage-promoting box: a glyco search digests before it places glycans, so that setting stops a glycoprotease cutting.
+            // Every other digestion setting (SILAC, ...) is kept from the loaded task. The cleavage-blocking box is here because
+            // blocking modifications (acetyl-K) are placed during digestion, as in any search. There is no cleavage-promoting box:
+            // a glyco search digests before it places glycans, so that setting stops a glycoprotease cutting.
             DigestionParams digestionParamsToSave = TaskWindowDigestionParams.ForSave(TheTask.CommonParameters.DigestionParams,
                 protease.Name, MaxMissedCleavages, MinPeptideLength, MaxPeptideLength, MaxModificationIsoforms,
                 maxModsForPeptides: MaxModPerPep,
                 initiatorMethionineBehavior: InitiatorMethionineBehavior,
-                searchMode: TaskWindowSearchMode.ForSemiSpecificChoice(SemiSpecificCheckBox.IsChecked == true));
+                searchMode: TaskWindowSearchMode.ForSemiSpecificChoice(SemiSpecificCheckBox.IsChecked == true),
+                respectCleavageBlockingModifications: CheckBoxRespectCleavageBlockingModifications.IsChecked.Value);
 
             Tolerance ProductMassTolerance;
             if (productMassToleranceComboBox.SelectedIndex == 0)

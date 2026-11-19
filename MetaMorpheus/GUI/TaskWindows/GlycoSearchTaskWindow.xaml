@@ -353,6 +353,19 @@
                                             <Label x:Name="lblMaxPeptideLength" Content="Max Peptide Len" />
                                             <local:IntegerTexBoxControl x:Name="MaxPeptideLengthTextBox" Width="45" TextChanged="NonSpecificUpdate"/>
                                         </StackPanel>
+                                        <CheckBox x:Name="CheckBoxRespectCleavageBlockingModifications" Content="Respect cleavage-blocking modifications" Margin="5" ToolTipService.ShowDuration="999999" ToolTipService.InitialShowDelay="500">
+                                            <CheckBox.ToolTip>
+                                                <TextBlock>
+                                                    Some modifications stop a protease cutting beside them: trypsin does not cut after an acetylated or ubiquitinated (GG) lysine, or after a citrullinated arginine.
+                                                    <LineBreak/>
+                                                    Checked: a peptide ending in such a modified residue is not generated, and the longer peptide reading through that site does not count it as a missed cleavage. This applies to variable modifications and to modifications annotated in the database.
+                                                    <LineBreak/>
+                                                    Unchecked: the protease cuts there whatever the residue carries.
+                                                    <LineBreak/>
+                                                    No effect on fixed modifications, or on semi-specific searches.
+                                                </TextBlock>
+                                            </CheckBox.ToolTip>
+                                        </CheckBox>
                                     </StackPanel>
                                 </Grid>
                             </GroupBox>
