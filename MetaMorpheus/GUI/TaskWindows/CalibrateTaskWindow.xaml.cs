@@ -87,6 +87,7 @@ namespace MetaMorpheusGUI
                 SearchModeWarningTextBlock.Text = searchModeWarning;
                 SearchModeWarningTextBlock.Visibility = searchModeWarning == null ? Visibility.Collapsed : Visibility.Visible;
                 InitiatorMethionineBehaviorComboBox.SelectedIndex = (int)digestionParams.InitiatorMethionineBehavior;
+                CheckBoxRespectCleavageBlockingModifications.IsChecked = digestionParams.RespectCleavageBlockingModifications;
                 CheckBoxRespectCleavagePromotingModifications.IsChecked = digestionParams.RespectCleavagePromotingModifications;
             }
             else
@@ -312,6 +313,7 @@ namespace MetaMorpheusGUI
                     initiatorMethionineBehavior: InitiatorMethionineBehaviorComboBox.SelectedIndex >= 0
                         ? (InitiatorMethionineBehavior)InitiatorMethionineBehaviorComboBox.SelectedIndex
                         : null,
+                    respectCleavageBlockingModifications: CheckBoxRespectCleavageBlockingModifications.IsChecked.Value,
                     respectCleavagePromotingModifications: CheckBoxRespectCleavagePromotingModifications.IsChecked.Value);
             }
 
