@@ -492,6 +492,22 @@ namespace Test.GuiTests
         }
 
         [Test]
+        public void GuiGlobalParams_EqualsAndClone_CarryTheOGlycoproteaseRecommendation()
+        {
+            Assert.That(new GuiGlobalParams().AskAboutOGlycoproteaseParams, Is.True, "asks by default, like the other recommendations");
+            Assert.That(new GuiGlobalParams().UseOGlycoproteaseParams, Is.True);
+
+            var original = new GuiGlobalParams { AskAboutOGlycoproteaseParams = false, UseOGlycoproteaseParams = false };
+            var clone = original.Clone();
+
+            Assert.That(clone.AskAboutOGlycoproteaseParams, Is.False);
+            Assert.That(clone.UseOGlycoproteaseParams, Is.False);
+            Assert.That(clone.Equals(original), Is.True);
+            Assert.That(clone.Equals(new GuiGlobalParams { AskAboutOGlycoproteaseParams = false }), Is.False, "Use differs");
+            Assert.That(clone.Equals(new GuiGlobalParams { UseOGlycoproteaseParams = false }), Is.False, "Ask differs");
+        }
+
+        [Test]
         public void GuiGlobalParams_Clone_CopiesAllModeSwitchFields()
         {
             var original = new GuiGlobalParams

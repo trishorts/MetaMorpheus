@@ -105,6 +105,12 @@ public class GuiGlobalParamsViewModel : BaseViewModel
         set { _current.AskAboutArgCParams = value; OnPropertyChanged(nameof(AskAboutArgCParams)); }
     }
 
+    public bool AskAboutOGlycoproteaseParams
+    {
+        get => _current.AskAboutOGlycoproteaseParams;
+        set { _current.AskAboutOGlycoproteaseParams = value; OnPropertyChanged(nameof(AskAboutOGlycoproteaseParams)); }
+    }
+
     public bool AskAboutModeSwitch
     {
         get => _current.AskAboutModeSwitch;
@@ -151,6 +157,12 @@ public class GuiGlobalParamsViewModel : BaseViewModel
     {
         get => _current.UseArgCParams;
         set { _current.UseArgCParams = value; OnPropertyChanged(nameof(UseArgCParams)); }
+    }
+
+    public bool UseOGlycoproteaseParams
+    {
+        get => _current.UseOGlycoproteaseParams;
+        set { _current.UseOGlycoproteaseParams = value; OnPropertyChanged(nameof(UseOGlycoproteaseParams)); }
     }
 
     public bool OverwriteOutputDirectory

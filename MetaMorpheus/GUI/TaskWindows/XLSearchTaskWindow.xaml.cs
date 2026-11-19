@@ -31,13 +31,16 @@ namespace MetaMorpheusGUI
         private readonly ObservableCollection<ModTypeForTreeViewModel> VariableModTypeForTreeViewObservableCollection = new ObservableCollection<ModTypeForTreeViewModel>();
         private CustomFragmentationWindow CustomFragmentationWindow;
         private DeconHostViewModel DeconHostViewModel;
+        private bool AutomaticallyAskAndOrUpdateParametersBasedOnProtease = true;
 
         public XLSearchTaskWindow(XLSearchTask task)
         {
             InitializeComponent();
+            AutomaticallyAskAndOrUpdateParametersBasedOnProtease = false;
             PopulateChoices();
             TheTask = task ?? new XLSearchTask();
             UpdateFieldsFromTask(TheTask);
+            AutomaticallyAskAndOrUpdateParametersBasedOnProtease = true;
             DeisotopingControl.DataContext = DeconHostViewModel;
 
             if (task == null)
@@ -463,6 +466,15 @@ namespace MetaMorpheusGUI
             if (((Protease)proteaseComboBox.SelectedItem).Name.Contains("non-specific"))
             {
                 MaxPeptideLengthTextBox.Text = maxLength.ToString();
+            }
+
+            if (AutomaticallyAskAndOrUpdateParametersBasedOnProtease
+                && TaskWindowCleavagePromoting.RecommendTickingTheBox((Protease)proteaseComboBox.SelectedItem,
+                    CheckBoxRespectCleavagePromotingModifications.IsChecked == true,
+                    TaskWindowSearchMode.Preserve(TheTask.CommonParameters.DigestionParams).SearchModeType)
+                && UpdateGUISettings.UseOGlycoproteaseRecommendedSettings())
+            {
+                CheckBoxRespectCleavagePromotingModifications.IsChecked = true;
             }
         }
 

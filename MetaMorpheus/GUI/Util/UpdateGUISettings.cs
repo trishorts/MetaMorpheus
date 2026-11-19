@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using GuiFunctions;
+using GuiFunctions.Util;
 
 namespace MetaMorpheusGUI
 {
@@ -70,6 +71,36 @@ namespace MetaMorpheusGUI
                 }
             }
             else if (GuiGlobalParamsViewModel.Instance.UseTopDownParams) //user didn't want to check in, but wanted to update last time
+            {
+                useRecommendedSettings = true;
+            }
+            //else do nothing
+            return useRecommendedSettings;
+        }
+
+        public static bool UseOGlycoproteaseRecommendedSettings()
+        {
+            bool useRecommendedSettings = false;
+            //check with the user to update params
+            if (GuiGlobalParamsViewModel.Instance.AskAboutOGlycoproteaseParams)
+            {
+                var results = ProteaseSpecificMsgBox.Show(TaskWindowCleavagePromoting.RecommendationTitle,
+                    TaskWindowCleavagePromoting.RecommendationMessage);
+
+                if (results.UseSettings)
+                {
+                    useRecommendedSettings = true;
+                }
+                //else do nothing
+
+                //if they don't want to see this again, save the answer
+                if (!results.AskAgain)
+                {
+                    GuiGlobalParamsViewModel.Instance.AskAboutOGlycoproteaseParams = false;
+                    GuiGlobalParamsViewModel.Instance.UseOGlycoproteaseParams = results.UseSettings;
+                }
+            }
+            else if (GuiGlobalParamsViewModel.Instance.UseOGlycoproteaseParams) //user didn't want to check in, but wanted to update last time
             {
                 useRecommendedSettings = true;
             }

@@ -1031,6 +1031,13 @@ namespace MetaMorpheusGUI
                     default:
                         break;
                 }
+
+                if (TaskWindowCleavagePromoting.RecommendTickingTheBox((DigestionAgent)ProteaseComboBox.SelectedItem,
+                        CheckBoxRespectCleavagePromotingModifications.IsChecked == true, GetSearchModeType())
+                    && UpdateGUISettings.UseOGlycoproteaseRecommendedSettings())
+                {
+                    CheckBoxRespectCleavagePromotingModifications.IsChecked = true;
+                }
             }
         }
 
