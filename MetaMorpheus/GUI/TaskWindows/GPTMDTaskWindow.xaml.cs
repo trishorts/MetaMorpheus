@@ -420,6 +420,14 @@ namespace MetaMorpheusGUI
                     default:
                         break;
                 }
+
+                if (TaskWindowCleavagePromoting.RecommendTickingTheBox((DigestionAgent)ProteaseComboBox.SelectedItem,
+                        CheckBoxRespectCleavagePromotingModifications.IsChecked == true,
+                        TaskWindowSearchMode.Preserve(TheTask.CommonParameters.DigestionParams).SearchModeType)
+                    && UpdateGUISettings.UseOGlycoproteaseRecommendedSettings())
+                {
+                    CheckBoxRespectCleavagePromotingModifications.IsChecked = true;
+                }
             }
         }
 

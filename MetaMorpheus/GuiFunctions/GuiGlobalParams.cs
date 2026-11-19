@@ -25,6 +25,7 @@ public class GuiGlobalParams  : IEquatable<GuiGlobalParams>
     public bool AskAboutNonSpecificParams { get; internal set; } = true;
     public bool AskAboutSemiTrypsinParams { get; internal set; } = true;
     public bool AskAboutArgCParams { get; internal set; } = true;
+    public bool AskAboutOGlycoproteaseParams { get; internal set; } = true;
     public bool AskAboutOverwritingOutputDirectory { get; internal set; } = true;
 
     //Use protease-specific parameter recommendations
@@ -34,6 +35,7 @@ public class GuiGlobalParams  : IEquatable<GuiGlobalParams>
     public bool UseNonSpecificParams { get; internal set; } = true;
     public bool UseSemiTrypsinParams { get; internal set; } = true;
     public bool UseArgCParams { get; internal set; } = true;
+    public bool UseOGlycoproteaseParams { get; internal set; } = true;
     public bool OverwriteOutputDirectory { get; internal set; } = false;
 
     // Rna Toggles
@@ -60,12 +62,14 @@ public class GuiGlobalParams  : IEquatable<GuiGlobalParams>
             AskAboutNonSpecificParams == other.AskAboutNonSpecificParams &&
             AskAboutSemiTrypsinParams == other.AskAboutSemiTrypsinParams &&
             AskAboutArgCParams == other.AskAboutArgCParams &&
+            AskAboutOGlycoproteaseParams == other.AskAboutOGlycoproteaseParams &&
             UseTopDownParams == other.UseTopDownParams &&
             UseChymotrypsinParams == other.UseChymotrypsinParams &&
             UseElastaseParams == other.UseElastaseParams &&
             UseNonSpecificParams == other.UseNonSpecificParams &&
             UseSemiTrypsinParams == other.UseSemiTrypsinParams &&
             UseArgCParams == other.UseArgCParams &&
+            UseOGlycoproteaseParams == other.UseOGlycoproteaseParams &&
             IsRnaMode == other.IsRnaMode &&
             AskAboutModeSwitch == other.AskAboutModeSwitch &&
             CachedModeSwitchResult == other.CachedModeSwitchResult && 
@@ -88,12 +92,14 @@ public class GuiGlobalParams  : IEquatable<GuiGlobalParams>
             AskAboutNonSpecificParams = AskAboutNonSpecificParams,
             AskAboutSemiTrypsinParams = AskAboutSemiTrypsinParams,
             AskAboutArgCParams = AskAboutArgCParams,
+            AskAboutOGlycoproteaseParams = AskAboutOGlycoproteaseParams,
             UseTopDownParams = UseTopDownParams,
             UseChymotrypsinParams = UseChymotrypsinParams,
             UseElastaseParams = UseElastaseParams,
             UseNonSpecificParams = UseNonSpecificParams,
             UseSemiTrypsinParams = UseSemiTrypsinParams,
             UseArgCParams = UseArgCParams,
+            UseOGlycoproteaseParams = UseOGlycoproteaseParams,
             IsRnaMode = IsRnaMode,
             AskAboutModeSwitch = AskAboutModeSwitch,
             CachedModeSwitchResult = CachedModeSwitchResult,
