@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using TaskLayer;
 
@@ -18,22 +19,31 @@ namespace Test.GuiTests
     /// threshold box.
     /// </summary>
     /// <remarks>
-    /// The Search window loads them with <see cref="TaskWindowIdentificationFilter.Load(CommonParameters, bool)"/> and saves
-    /// them with <see cref="TaskWindowIdentificationFilter.ForSave"/>. The WPF windows cannot be referenced from this test
-    /// project, so <see cref="WindowSaves"/> repeats each window's calls. <b>Keep the two in step</b>: a window that starts
-    /// showing the filter is added here.
+    /// <para><b>The bug this guards.</b> Each task window builds new CommonParameters on save from its own controls. Only the
+    /// Search window had controls for the filter; the Calibrate, GPTMD, crosslink, glyco and averaging windows passed nothing,
+    /// so the constructor's default filter was saved over the task's: opening a q-value notch task in one of them and pressing
+    /// Save made it the bottom-up default, and a chosen threshold went back to 0.01.</para>
+    /// <para><b>What the windows do now.</b> All six show the filter choice and one threshold box: they load them with
+    /// <see cref="TaskWindowIdentificationFilter.Load(CommonParameters, bool)"/> and save them with
+    /// <see cref="TaskWindowIdentificationFilter.ForSave"/>. The WPF windows cannot be referenced from this test project, so
+    /// <see cref="WindowSaves"/> repeats each window's calls. <b>Keep the two in step.</b></para>
     /// </remarks>
     [TestFixture]
     public static class TaskWindowIdentificationFilterTests
     {
         /// <summary>
         /// Each window's load and save of the filter, with its controls showing what the loaded task holds (the user opened the
-        /// task and changed nothing), building the CommonParameters it saves. Mirrors UpdateFieldsFromTask and SaveButton_Click;
-        /// the window passes the RNA mode the GUI is in.
+        /// task and changed nothing), building the CommonParameters it saves. Mirrors UpdateFieldsFromTask (the averaging
+        /// window's constructor) and SaveButton_Click in each window; every window passes the RNA mode the GUI is in.
         /// </summary>
         private static readonly Dictionary<string, Func<CommonParameters, bool, CommonParameters>> WindowSaves = new()
         {
             ["Search"] = OpenAndSave,
+            ["Calibrate"] = OpenAndSave,
+            ["GPTMD"] = OpenAndSave,
+            ["Crosslink"] = OpenAndSave,
+            ["Glyco"] = OpenAndSave,
+            ["Average"] = OpenAndSave,
         };
 
         private static CommonParameters OpenAndSave(CommonParameters loaded, bool isRnaMode)
@@ -75,7 +85,22 @@ namespace Test.GuiTests
         }
 
         /// <summary>
-        /// Opening a task and saving it without touching anything keeps its filter and threshold, for every filter. The
+        /// The CommonParameters constructor holds the filter and one threshold, and nothing else a window would have to show
+        /// for identification: a filter or threshold setting added later fails here until the windows show it.
+        /// </summary>
+        [Test]
+        public static void TheConstructor_HoldsTheFilterAndOneThreshold()
+        {
+            ConstructorInfo full = typeof(CommonParameters).GetConstructors().OrderByDescending(c => c.GetParameters().Length).First();
+            var filterSettings = full.GetParameters().Select(p => p.Name)
+                .Where(name => name.Contains("Filter", StringComparison.OrdinalIgnoreCase)
+                    || name.Contains("Threshold", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            Assert.That(filterSettings, Is.EquivalentTo(new[] { "identificationFilter", "filterThreshold" }));
+        }
+
+        /// <summary>
+        /// Opening a task in any window and saving it without touching anything keeps its filter and threshold, for every filter. The
         /// threshold is away from its default, so a window that saved the default could not agree by accident.
         /// </summary>
         [Test]
@@ -102,7 +127,10 @@ namespace Test.GuiTests
             Assert.That((saved.IdentificationFilter, saved.FilterThreshold), Is.EqualTo((FilterType.QValueNotch, 0.01)));
         }
 
-        /// <summary>An old GUI PEP task (QValueThreshold 1.0, PepQValueThreshold 0.01, no filter named) stays a PEP task.</summary>
+        /// <summary>
+        /// An old GUI PEP task (QValueThreshold 1.0, PepQValueThreshold 0.01, no filter named), opened and saved in any window,
+        /// stays a PEP task.
+        /// </summary>
         [Test]
         [TestCaseSource(nameof(Windows))]
         public static void AnOldGuiPepTask_OpenedAndSaved_StaysThePepFilter(string window)

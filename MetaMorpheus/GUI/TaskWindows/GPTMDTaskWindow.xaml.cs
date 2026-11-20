@@ -1,4 +1,5 @@
 using EngineLayer;
+using EngineLayer.SpectrumMatch;
 using MassSpectrometry;
 using MzLibUtil;
 using Nett;
@@ -118,6 +119,12 @@ namespace MetaMorpheusGUI
             PrecursorMassToleranceComboBox.SelectedIndex = task.CommonParameters.PrecursorMassTolerance is AbsoluteTolerance ? 0 : 1;
             MinScoreAllowed.Text = task.CommonParameters.ScoreCutoff.ToString(CultureInfo.InvariantCulture);
             MaxThreadsTextBox.Text = task.CommonParameters.MaxThreadsToUsePerFile.ToString(CultureInfo.InvariantCulture);
+            // The identification filter and its threshold; a task at the bottom-up default with a top-down protease, or in RNA
+            // mode, shows the default for its search type
+            IdentificationFilterComboBox.ItemsSource = TaskWindowIdentificationFilter.Choices;
+            var (identificationFilter, filterThresholdText) = TaskWindowIdentificationFilter.Load(task.CommonParameters, GuiGlobalParamsViewModel.Instance.IsRnaMode);
+            IdentificationFilterComboBox.SelectedValue = identificationFilter;
+            FilterThresholdTextBox.Text = filterThresholdText;
             MinRetentionTimeTextBox.Text = task.CommonParameters.RetentionTimeRange.Minimum.ToString(CultureInfo.InvariantCulture);
             MaxRetentionTimeTextBox.Text = task.CommonParameters.RetentionTimeRange.Maximum == double.MaxValue
                 ? ""
@@ -349,6 +356,9 @@ namespace MetaMorpheusGUI
                     case "top-down":
                         if (UpdateGUISettings.UseTopDownRecommendedSettings())
                         {
+                            var (topDownFilter, topDownThreshold) = TaskWindowIdentificationFilter.TopDownRecommended(isRnaMode);
+                            IdentificationFilterComboBox.SelectedValue = topDownFilter;
+                            FilterThresholdTextBox.Text = topDownThreshold;
                             DeconHostViewModel.UseProvidedPrecursors = false;
                             DeconHostViewModel.DoPrecursorDeconvolution = true;
                             if (isRnaMode)
@@ -457,7 +467,7 @@ namespace MetaMorpheusGUI
             if (!TaskValidator.CheckTaskSettingsValidity(PrecursorMassToleranceTextBox.Text, ProductMassToleranceTextBox.Text, null, MissedCleavagesTextBox.Text,
                  MaxModificationIsoformsTextBox.Text, MinPeptideLengthTextBox.Text, MaxPeptideLengthTextBox.Text, MaxThreadsTextBox.Text, MinScoreAllowed.Text,
                 fieldNotUsed, fieldNotUsed, fieldNotUsed, DeconHostViewModel.PrecursorDeconvolutionParameters.MaxAssumedChargeState.ToString(), NumberOfPeaksToKeepPerWindowTextBox.Text, MinimumAllowedIntensityRatioToBasePeakTexBox.Text, 
-                null, null, fieldNotUsed, fieldNotUsed, fieldNotUsed, null, null))
+                null, null, fieldNotUsed, fieldNotUsed, fieldNotUsed, FilterThresholdTextBox.Text, null))
             {
                 return;
             }
@@ -579,7 +589,10 @@ namespace MetaMorpheusGUI
                     initiatorMethionineBehavior: initiatorMethionineBehavior);
             }
 
+            var savedFilter = TaskWindowIdentificationFilter.ForSave((FilterType)IdentificationFilterComboBox.SelectedValue, FilterThresholdTextBox.Text);
             CommonParameters commonParamsToSave = new CommonParameters(
+                identificationFilter: savedFilter.IdentificationFilter,
+                filterThreshold: savedFilter.FilterThreshold,
                 useProvidedPrecursorInfo: useProvidedPrecursorInfo,
                 doPrecursorDeconvolution: doPrecursorDeconvolution,
                 taskDescriptor: OutputFileNameTextBox.Text != "" ? OutputFileNameTextBox.Text : "GPTMDTask",

@@ -570,6 +570,37 @@
                         </Grid>
                     </Expander>
                 </GroupBox>
+                <!-- Identification filter: what the windows show and save is GuiFunctions.Util.TaskWindowIdentificationFilter -->
+                <GroupBox Header="Identification Filter" DockPanel.Dock="Top">
+                    <StackPanel Orientation="Horizontal" Margin="5">
+                        <Label Content="Identification filter:" Width="150" />
+                        <ComboBox x:Name="IdentificationFilterComboBox" Width="125" DisplayMemberPath="Label" SelectedValuePath="Filter"
+                                  ToolTipService.ShowDuration="999999" ToolTipService.InitialShowDelay="500">
+                            <ComboBox.ItemContainerStyle>
+                                <Style TargetType="ComboBoxItem">
+                                    <Setter Property="ToolTip" Value="{Binding Description}" />
+                                    <Setter Property="ToolTipService.ShowDuration" Value="999999" />
+                                </Style>
+                            </ComboBox.ItemContainerStyle>
+                            <ComboBox.ToolTip>
+                                <TextBlock MaxWidth="600" TextWrapping="Wrap">
+                                    The value that decides whether a match or peptide counts as identified. Point at a choice in the list for what it means. Unless a task names one, the PEP q-value bottom-up, and the q-value notch for top-down and RNA.
+                                    <LineBreak />
+                                    GPTMD runs FDR without PEP, so under the PEP q-value every match is judged by its q-value notch. The matches GPTMD learns modifications from are chosen by their own q-value notch cutoff (0.05), whatever is chosen here.
+                                </TextBlock>
+                            </ComboBox.ToolTip>
+                        </ComboBox>
+                        <Label Content="at most" Margin="5 0 0 0" />
+                        <local:DoubleTextBoxControl x:Name="FilterThresholdTextBox" Width="45" ToolTipService.ShowDuration="999999" ToolTipService.InitialShowDelay="500">
+                            <TextBox.ToolTip>
+                                <TextBlock MaxWidth="600" TextWrapping="Wrap">
+                                    The most the chosen value can be for a match or peptide to count as identified: above 0, at most 1. 0.01 by default. 1 keeps every match.
+                                </TextBlock>
+                            </TextBox.ToolTip>
+                        </local:DoubleTextBoxControl>
+                    </StackPanel>
+                </GroupBox>
+
                 <GroupBox Header="Output Options" DockPanel.Dock="Top" ScrollViewer.CanContentScroll="True">
                     <Expander>
                         <CheckBox x:Name="WriteDecoysCheckBox" Margin="20 0 0 0"

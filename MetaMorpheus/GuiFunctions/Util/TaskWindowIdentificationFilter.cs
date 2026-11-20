@@ -6,12 +6,14 @@ using EngineLayer.SpectrumMatch;
 namespace GuiFunctions.Util;
 
 /// <summary>
-/// What a task window shows and saves for <see cref="CommonParameters.IdentificationFilter"/> and
+/// What every task window shows and saves for <see cref="CommonParameters.IdentificationFilter"/> and
 /// <see cref="CommonParameters.FilterThreshold"/>: a choice of the three filters (<see cref="Choices"/>) and one threshold
-/// box. The Search window loads them with <see cref="Load(CommonParameters, bool)"/> and saves what it shows with
-/// <see cref="ForSave"/>.
+/// box.
 /// </summary>
 /// <remarks>
+/// <para>Each window builds new CommonParameters on save. A window without these controls saved the constructor's default
+/// filter over the task's, so opening a task in it and pressing Save could change its filter and threshold. Every window now
+/// loads them with <see cref="Load(CommonParameters, bool)"/> and saves what it shows with <see cref="ForSave"/>.</para>
 /// <para>A task saved before FilterThreshold existed is read by its old thresholds (an old GUI PEP task, QValueThreshold 1.0
 /// and PepQValueThreshold 0.01, as the PEP q-value at 0.01), so the window shows what the task searches with, and saving it
 /// writes IdentificationFilter and FilterThreshold.</para>
@@ -53,7 +55,7 @@ public static class TaskWindowIdentificationFilter
 
     /// <summary>
     /// <see cref="Load(CommonParameters, bool, bool)"/> for the loaded task's own protease: top-down when it is "top-down".
-    /// What a task window calls.
+    /// What every task window calls.
     /// </summary>
     public static (FilterType Filter, string ThresholdText) Load(CommonParameters loaded, bool isRna) =>
         Load(loaded, isRna, loaded.DigestionParams?.DigestionAgent?.Name == "top-down");

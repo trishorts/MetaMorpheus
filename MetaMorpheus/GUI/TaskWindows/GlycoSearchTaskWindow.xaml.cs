@@ -1,4 +1,5 @@
 ﻿using EngineLayer;
+using EngineLayer.SpectrumMatch;
 using EngineLayer.FdrAnalysis;
 using MassSpectrometry;
 using MzLibUtil;
@@ -133,6 +134,12 @@ namespace MetaMorpheusGUI
             TbMaxOGlycanNum.Text = task._glycoSearchParameters.MaximumOGlycanAllowed.ToString(CultureInfo.InvariantCulture);
             TbMaxGlycanBoxMass.Text = task._glycoSearchParameters.MaximumGlycanBoxMass.ToString(CultureInfo.InvariantCulture);
             CkbOxoniumIonFilt.IsChecked = task._glycoSearchParameters.OxoniumIonFilt;
+            // The identification filter and its threshold; a task at the bottom-up default with a top-down protease, or in RNA
+            // mode, shows the default for its search type
+            IdentificationFilterComboBox.ItemsSource = TaskWindowIdentificationFilter.Choices;
+            var (identificationFilter, filterThresholdText) = TaskWindowIdentificationFilter.Load(task.CommonParameters, GuiGlobalParamsViewModel.Instance.IsRnaMode);
+            IdentificationFilterComboBox.SelectedValue = identificationFilter;
+            FilterThresholdTextBox.Text = filterThresholdText;
             TbCustomOxoniumThreshold.Text = task._glycoSearchParameters.CustomOxoniumThreshold.ToString(CultureInfo.InvariantCulture);
 
             txtTopNum.Text = task._glycoSearchParameters.GlycoSearchTopNum.ToString(CultureInfo.InvariantCulture);
@@ -335,7 +342,7 @@ namespace MetaMorpheusGUI
             if (!TaskValidator.CheckTaskSettingsValidity(PrecusorMsTlTextBox.Text, productMassToleranceTextBox.Text, productMassTolerance_LowResTextBox.Text, missedCleavagesTextBox.Text,
                 maxModificationIsoformsTextBox.Text, MinPeptideLengthTextBox.Text, MaxPeptideLengthTextBox.Text, maxThreadsTextBox.Text, minScoreAllowed.Text,
                 fieldNotUsed, fieldNotUsed, fieldNotUsed, DeconHostViewModel.PrecursorDeconvolutionParameters.MaxAssumedChargeState.ToString(), TopNPeaksTextBox.Text, MinRatioTextBox.Text, null, null, numberOfDatabaseSearchesTextBox.Text, TxtBoxMaxModPerPep.Text, 
-                fieldNotUsed, null, null))
+                fieldNotUsed, FilterThresholdTextBox.Text, null))
             {
                 return;
             }
@@ -506,9 +513,12 @@ namespace MetaMorpheusGUI
             else if (Prosit2020iRTTMTRadioButton.IsChecked == true) rtPredictorModelName = RTPredictorNames.Prosit2020iRTTMT;
             else rtPredictorModelName = RTPredictorNames.Chronologer; // default
 
+            var savedFilter = TaskWindowIdentificationFilter.ForSave((FilterType)IdentificationFilterComboBox.SelectedValue, FilterThresholdTextBox.Text);
             CommonParameters commonParamsToSave = new CommonParameters(
                 precursorMassTolerance: PrecursorMassTolerance,
                 taskDescriptor: OutputFileNameTextBox.Text != "" ? OutputFileNameTextBox.Text : "GlycoSearchTask",
+                identificationFilter: savedFilter.IdentificationFilter,
+                filterThreshold: savedFilter.FilterThreshold,
                 productMassTolerance: ProductMassTolerance,
                 productMassTolerance_LowRes: ProductMassTolerance_lowRes,
                 doPrecursorDeconvolution: doPrecursorDeconvolution,

@@ -1,4 +1,5 @@
 using EngineLayer;
+using EngineLayer.SpectrumMatch;
 using GuiFunctions;
 using GuiFunctions.Util;
 using MassSpectrometry;
@@ -100,6 +101,12 @@ namespace MetaMorpheusGUI
             MaxModificationIsoformsTextBox.Text = task.CommonParameters.DigestionParams.MaxModificationIsoforms.ToString(CultureInfo.InvariantCulture);
             DissociationTypeComboBox.SelectedItem = task.CommonParameters.DissociationType.ToString();
             MaxThreadsTextBox.Text = task.CommonParameters.MaxThreadsToUsePerFile.ToString(CultureInfo.InvariantCulture);
+            // The identification filter and its threshold; a task at the bottom-up default with a top-down protease, or in RNA
+            // mode, shows the default for its search type
+            IdentificationFilterComboBox.ItemsSource = TaskWindowIdentificationFilter.Choices;
+            var (identificationFilter, filterThresholdText) = TaskWindowIdentificationFilter.Load(task.CommonParameters, GuiGlobalParamsViewModel.Instance.IsRnaMode);
+            IdentificationFilterComboBox.SelectedValue = identificationFilter;
+            FilterThresholdTextBox.Text = filterThresholdText;
             MinVariantDepthTextBox.Text = task.CommonParameters.MinVariantDepth.ToString(CultureInfo.InvariantCulture);
             MaxHeterozygousVariantsTextBox.Text = task.CommonParameters.MaxHeterozygousVariants.ToString(CultureInfo.InvariantCulture);
 
@@ -270,7 +277,7 @@ namespace MetaMorpheusGUI
             if (!TaskValidator.CheckTaskSettingsValidity(PrecursorMassToleranceTextBox.Text, ProductMassToleranceTextBox.Text, null, MissedCleavagesTextBox.Text,
                  MaxModificationIsoformsTextBox.Text, MinPeptideLengthTextBox.Text, MaxPeptideLengthTextBox.Text, MaxThreadsTextBox.Text, MinScoreAllowed.Text,
                  fieldNotUsed, fieldNotUsed, fieldNotUsed, fieldNotUsed, fieldNotUsed, fieldNotUsed, null, null, fieldNotUsed, MaxModsPerPeptideTextBox.Text, fieldNotUsed,
-                 null, null))
+                 FilterThresholdTextBox.Text, null))
             {
                 return;
             }
@@ -355,6 +362,8 @@ namespace MetaMorpheusGUI
             bool useProvidedPrecursorInfo = DeconHostViewModel.UseProvidedPrecursors;
             bool doPrecursorDeconvolution = DeconHostViewModel.DoPrecursorDeconvolution;
 
+            var savedFilter = TaskWindowIdentificationFilter.ForSave((FilterType)IdentificationFilterComboBox.SelectedValue, FilterThresholdTextBox.Text);
+
             //the below parameters are optimized for top-down but do not exist in the GUI as of Nov. 13, 2019
             if (((DigestionAgent)ProteaseComboBox.SelectedItem).Name.Contains("top-down"))
             {
@@ -362,6 +371,8 @@ namespace MetaMorpheusGUI
                     taskDescriptor: OutputFileNameTextBox.Text != "" ? OutputFileNameTextBox.Text : "CalibrateTask",
                     maxThreadsToUsePerFile: parseMaxThreadsPerFile ? int.Parse(MaxThreadsTextBox.Text, CultureInfo.InvariantCulture) : new CommonParameters().MaxThreadsToUsePerFile,
                     digestionParams: digestionParamsToSave,
+                    identificationFilter: savedFilter.IdentificationFilter,
+                    filterThreshold: savedFilter.FilterThreshold,
                     fivePrimeTerminus: _rnaTerminalCapsViewModel.FivePrimeTerminus,
                     threePrimeTerminus: _rnaTerminalCapsViewModel.ThreePrimeTerminus,
                     dissociationType: dissociationType,
@@ -388,6 +399,8 @@ namespace MetaMorpheusGUI
                     taskDescriptor: OutputFileNameTextBox.Text != "" ? OutputFileNameTextBox.Text : "CalibrateTask",
                     maxThreadsToUsePerFile: parseMaxThreadsPerFile ? int.Parse(MaxThreadsTextBox.Text, CultureInfo.InvariantCulture) : new CommonParameters().MaxThreadsToUsePerFile,
                     digestionParams: digestionParamsToSave,
+                    identificationFilter: savedFilter.IdentificationFilter,
+                    filterThreshold: savedFilter.FilterThreshold,
                     fivePrimeTerminus: _rnaTerminalCapsViewModel.FivePrimeTerminus,
                     threePrimeTerminus: _rnaTerminalCapsViewModel.ThreePrimeTerminus,
                     dissociationType: dissociationType,
@@ -513,6 +526,9 @@ namespace MetaMorpheusGUI
                         if (UpdateGUISettings.UseTopDownRecommendedSettings())
                         {
                             //many variables are not present in the calibrate task gui, but we modify them when saving
+                            var (topDownFilter, topDownThreshold) = TaskWindowIdentificationFilter.TopDownRecommended(isRnaMode);
+                            IdentificationFilterComboBox.SelectedValue = topDownFilter;
+                            FilterThresholdTextBox.Text = topDownThreshold;
                             //uncheck all variable mods
                             DeconHostViewModel.UseProvidedPrecursors = false;
                             DeconHostViewModel.DoPrecursorDeconvolution = true;
