@@ -24,9 +24,10 @@ namespace Test
     [TestFixture]
     public static class TestOGlycoCleavageRuleTies
     {
-        private static PeptideWithSetModifications Peptide(string sequence, string protease, int start, int end) =>
-            new(new Protein(sequence, "P1"), new DigestionParams(protease), start, end, CleavageSpecificity.Full, "", 0,
-                new Dictionary<int, Modification>(), 0);
+        private static PeptideWithSetModifications Peptide(string sequence, string protease, int start, int end,
+            InitiatorMethionineBehavior initiatorMethionineBehavior = InitiatorMethionineBehavior.Variable) =>
+            new(new Protein(sequence, "P1"), new DigestionParams(protease, initiatorMethionineBehavior: initiatorMethionineBehavior),
+                start, end, CleavageSpecificity.Full, "", 0, new Dictionary<int, Modification>(), 0);
 
         // A route placing one glycan on each two-based site key.
         private static Route RouteOn(params int[] keys)
@@ -74,6 +75,20 @@ namespace Test
             var peptide = Peptide("GSGSTGG", "IMPa", 1, 4);
             var routes = new List<Route> { RouteOn(3), RouteOn(5) };
             Assert.That(Kept(routes, "IMPa", peptide), Is.EqualTo(new[] { new[] { 3 } }));
+        }
+
+        /// <summary>
+        /// TSTGGG after the initiator Met: with the Met kept, the peptide starts where OpeRATOR cut before T2, so T2 (key 2)
+        /// needs a glycan. With the Met removable, the start may be its removal, which imposes nothing.
+        /// </summary>
+        [Test]
+        [TestCase(InitiatorMethionineBehavior.Retain, new[] { 2 })]
+        [TestCase(InitiatorMethionineBehavior.Variable, new[] { 2, 3 })]
+        public static void AfterTheInitiatorMet_OnlyARetainedMetMakesTheStartACut(InitiatorMethionineBehavior behavior, int[] keptKeys)
+        {
+            var peptide = Peptide("MTSTGGG", "OpeRATOR", 2, 7, behavior);
+            var routes = new List<Route> { RouteOn(2), RouteOn(3) };
+            Assert.That(Kept(routes, "OpeRATOR", peptide).Select(keys => keys.Single()), Is.EqualTo(keptKeys));
         }
 
         /// <summary>A PSM shared by two peptides whose rules differ is left alone.</summary>

@@ -38,7 +38,7 @@ namespace EngineLayer.GlycoSearch
             for (int i = 0; i < list.Count; i++)
             {
                 var (peptide, agent, _) = list[i];
-                foreach (var (residue, requirement) in peptide.GetCleavageConditions(agent))
+                foreach (var (residue, requirement) in peptide.GetCleavageConditions(agent, GlycoSpectralMatch.InitiatorMethionineRetained(peptide)))
                 {
                     var key = (peptide.Parent.Accession, residue, requirement.IsForbidden);
                     if (!sites.TryGetValue(key, out var entry))

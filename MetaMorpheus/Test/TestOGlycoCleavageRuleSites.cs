@@ -23,8 +23,12 @@ namespace Test
         // level1SiteKeys: the two-based site keys a Level 1 route places glycans on (key k is residue start + k - 2); none
         // means the PSM is not Level 1.
         private static (DigestionProduct, DigestionAgent, IEnumerable<int>) Psm(Protein protein, string protease, int start, int end, params int[] level1SiteKeys) =>
-            (new PeptideWithSetModifications(protein, new DigestionParams(protease), start, end, CleavageSpecificity.Full, "", 0,
-                new Dictionary<int, Modification>(), 0), ProteaseDictionary.Dictionary[protease],
+            Psm(protein, protease, InitiatorMethionineBehavior.Variable, start, end, level1SiteKeys);
+
+        private static (DigestionProduct, DigestionAgent, IEnumerable<int>) Psm(Protein protein, string protease,
+            InitiatorMethionineBehavior initiatorMethionineBehavior, int start, int end, params int[] level1SiteKeys) =>
+            (new PeptideWithSetModifications(protein, new DigestionParams(protease, initiatorMethionineBehavior: initiatorMethionineBehavior),
+                start, end, CleavageSpecificity.Full, "", 0, new Dictionary<int, Modification>(), 0), ProteaseDictionary.Dictionary[protease],
              level1SiteKeys.Length == 0 ? null : level1SiteKeys);
 
         private static string Row(CleavageRuleSite s) =>
@@ -58,6 +62,16 @@ namespace Test
                 "S4 forbidden implied 1, agreeing 0, against 1, others with 0, without 0",
                 "T5 required implied 1, agreeing 0, against 0, others with 0, without 0",
             }));
+        }
+
+        /// <summary>MTSTGGG from T2: only with the initiator Met kept did OpeRATOR cut before T2, so only then does T2 need a glycan.</summary>
+        [Test]
+        [TestCase(InitiatorMethionineBehavior.Retain, "T2 required implied 1, agreeing 1, against 0, others with 0, without 0")]
+        [TestCase(InitiatorMethionineBehavior.Variable, null)]
+        public static void AfterTheInitiatorMet_OnlyARetainedMetImpliesASite(InitiatorMethionineBehavior behavior, string expected)
+        {
+            var sites = CleavageRuleSite.Find(new[] { Psm(new Protein("MTSTGGG", "P1"), "OpeRATOR", behavior, 2, 7, 2) });
+            Assert.That(sites.Select(Row), Is.EqualTo(expected is null ? new string[0] : new[] { expected }));
         }
 
         [Test]
