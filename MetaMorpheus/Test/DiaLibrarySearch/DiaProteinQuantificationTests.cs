@@ -1,5 +1,7 @@
 #nullable enable
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using EngineLayer;
@@ -131,5 +133,33 @@ public class DiaProteinQuantificationTests
         Assert.That(c.OrderBy(kv => ((SpectraFileInfo)kv.Key).FullFilePathWithExtension).Select(kv => kv.Value), Is.EqualTo(new[] { 100.0, 10.0 }));
         Assert.That(results.AmbiguousSpectralMatchesExcluded, Is.EqualTo(0));
         Assert.That(results.WrittenFiles, Is.Empty);
+    }
+
+    /// <summary>
+    /// The engine's Raw, Peptide and ProteinGroup quantification tables are isobaric output (mzLib #1610 refuses them for
+    /// any other design, and dataRepo and PXReprise read them as a TMT search), so the DIA search never writes them, even
+    /// given a folder: it writes its own tables (QuantProject DIA-Q5).
+    /// </summary>
+    [Test]
+    public void QuantifyingWritesNoneOfTheEnginesQuantificationTables()
+    {
+        string folder = Path.Combine(Path.GetTempPath(), "DiaProteinQuantificationTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        try
+        {
+            string run1 = Path.Combine(folder, "run1.raw");
+            var inference = Infer(run1, Run1);
+            var quantified = DiaProteinQuantification.QuantifiedPrecursors(run1, Run1, inference, 0.01);
+
+            var results = DiaProteinQuantification.Quantify(quantified, inference.ProteinGroups, outputDirectory: folder);
+
+            Assert.That(results.Success, Is.True, results.Summary);
+            Assert.That(results.WrittenFiles, Is.Empty);
+            Assert.That(Directory.GetFiles(folder, "*Quantification.tsv", SearchOption.AllDirectories), Is.Empty);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
     }
 }
