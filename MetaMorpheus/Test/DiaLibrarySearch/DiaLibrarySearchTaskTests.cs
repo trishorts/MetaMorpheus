@@ -93,7 +93,10 @@ public class DiaLibrarySearchTaskTests
     [Test]
     public void TheTaskRoundTripsThroughToml()
     {
-        var task = new DiaLibrarySearchTask(new DiaLibrarySearchTaskParameters { FragmentTolerancePpm = 15, Ms1TolerancePpm = 4, ClassifierSeed = 3, QValueThreshold = 0.05 });
+        var task = new DiaLibrarySearchTask(new DiaLibrarySearchTaskParameters { FragmentTolerancePpm = 15, Ms1TolerancePpm = 4, ClassifierSeed = 3 })
+        {
+            CommonParameters = new CommonParameters(filterThreshold: 0.05),
+        };
         string path = Path.Combine(_directory, "DiaLibrarySearchTask.toml");
         Toml.WriteFile(task, path, MetaMorpheusTask.tomlConfig);
 
@@ -103,8 +106,10 @@ public class DiaLibrarySearchTaskTests
         Assert.That(read.Parameters.FragmentTolerancePpm, Is.EqualTo(15));
         Assert.That(read.Parameters.Ms1TolerancePpm, Is.EqualTo(4));
         Assert.That(read.Parameters.ClassifierSeed, Is.EqualTo(3));
-        Assert.That(read.Parameters.QValueThreshold, Is.EqualTo(0.05));
-        Assert.That(new DiaLibrarySearchTask().Parameters.QValueThreshold, Is.EqualTo(0.01));
+        Assert.That(read.CommonParameters.FilterThreshold, Is.EqualTo(0.05), "the search's one threshold");
+        Assert.That(new DiaLibrarySearchTask().CommonParameters.FilterThreshold, Is.EqualTo(0.01));
+        Assert.That(typeof(DiaLibrarySearchTaskParameters).GetProperty("QValueThreshold"), Is.Null,
+            "no second threshold: precursors, peptides, protein evidence and protein groups all use FilterThreshold");
         Assert.That(new DiaLibrarySearchTask().CommonParameters, Is.Not.Null);
     }
 
@@ -545,6 +550,130 @@ public class DiaLibrarySearchTaskTests
         var peptides = new DiaPeptideFile(Path.Combine(output, "AllDiaPeptides.tsv"));
         peptides.LoadResults();
         Assert.That(peptides.Results, Is.Not.Empty);
+    }
+
+    /// <summary>
+    /// The task's one threshold is the search's FilterThreshold (MetaMorpheus #2982: one identification filter, used at
+    /// every step), so protein evidence and the groups written are cut alike (acesnik's #2984 review), and results.txt
+    /// says which threshold it used.
+    /// </summary>
+    [Test]
+    public void TheSearchsFilterThresholdIsTheTasksOneThreshold()
+    {
+        // Enough noise that decoys are scored and some targets fall between 1% and 5%
+        var (mzml, library, _) = WriteInputs("threshold5", noisePeaksPerScan: 1500);
+        List<double> Run(double threshold, string folder)
+        {
+            string output = Path.Combine(_directory, "threshold5", folder, "Task1");
+            Directory.CreateDirectory(output);
+            new DiaLibrarySearchTask { CommonParameters = new CommonParameters(filterThreshold: threshold) }
+                .RunTask(output, [new DbForTask(library, false)], [mzml], "Task1");
+            Assert.That(File.ReadAllText(Path.Combine(output, "results.txt")),
+                Does.Contain($"All target precursors with q-value <= {threshold.ToString(System.Globalization.CultureInfo.InvariantCulture)}: "));
+            var table = new DiaPrecursorFile(Path.Combine(output, "AllDiaPrecursors.tsv"));
+            table.LoadResults();
+            return table.Results.Select(r => Math.Max(r.QValuePrecursorRun, r.QValuePrecursorGlobal)).ToList();
+        }
+
+        var atOne = Run(0.01, "one");
+        var atFive = Run(0.05, "five");
+
+        Assert.That(atOne, Is.Not.Empty.And.All.LessThanOrEqualTo(0.01));
+        Assert.That(atFive, Is.All.LessThanOrEqualTo(0.05));
+        Assert.That(atFive.Count(q => q > 0.01), Is.GreaterThan(0), "the fixture has precursors between 1% and 5%");
+        Assert.That(atFive.Count, Is.EqualTo(atOne.Count + atFive.Count(q => q > 0.01)));
+    }
+
+    /// <summary>
+    /// Targets the database does not yield (a modification or cleavage the settings do not allow, or a library built from
+    /// another database) are no protein evidence, while their decoys still map by the library's accessions, so the target
+    /// side alone shrinks. The task says how many (acesnik's #2984 review), and says so too when none maps at all, rather
+    /// than write an empty protein table in silence.
+    /// </summary>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void TargetsTheDatabaseDoesNotYieldAreWarnedAbout(bool half)
+    {
+        string name = half ? "unmappedHalf" : "unmappedAll";
+        var (mzml, library, run) = WriteInputs(name, noisePeaksPerScan: 1500, accessions: true);
+        string folder = Path.GetDirectoryName(mzml)!;
+        var targets = run.Library.Where(e => !e.IsDecoy).ToList();
+        string fasta = half
+            ? WriteFasta(Path.Combine(folder, "half.fasta"), targets.Where((_, i) => i % 2 == 0))
+            : WriteUnrelatedFasta(Path.Combine(folder, "unrelated.fasta"));
+        string output = Path.Combine(folder, "output", "Task1");
+        Directory.CreateDirectory(output);
+        var warnings = new List<string>();
+        EventHandler<StringEventArgs> onWarn = (_, e) => warnings.Add(e.S);
+        MetaMorpheusTask.WarnHandler += onWarn;
+        try
+        {
+            new DiaLibrarySearchTask { CommonParameters = new CommonParameters(listOfModsFixed: new List<(string, string)>()) }
+                .RunTask(output, [new DbForTask(library, false), new DbForTask(fasta, false)], [mzml], "Task1");
+        }
+        finally
+        {
+            MetaMorpheusTask.WarnHandler -= onWarn;
+        }
+
+        var warning = warnings.Single(w => w.Contains("target peptides map to no protein"));
+        var counts = Regex.Match(warning, @"(\d+) of (\d+) target peptides");
+        int unmapped = int.Parse(counts.Groups[1].Value), scored = int.Parse(counts.Groups[2].Value);
+        Assert.That(unmapped, Is.GreaterThan(0), warning);
+        if (half)
+            Assert.That(unmapped, Is.LessThan(scored), warning);
+        else
+            Assert.That(unmapped, Is.EqualTo(scored), warning);
+    }
+
+    /// <summary>
+    /// One run calibration cannot use (here, one with no DIA MS2 scans) is skipped with a warning naming it and why, and
+    /// the other runs are searched and written; results.txt lists the run skipped (acesnik's #2984 review). Only when no
+    /// run can be searched does the task fail, naming each run and its reason.
+    /// </summary>
+    [Test]
+    public void ARunCalibrationCannotUseIsSkippedAndTheOthersAreWritten()
+    {
+        var (mzml, library, run) = WriteInputs("badRun");
+        string folder = Path.GetDirectoryName(mzml)!;
+        string ms1Only = Path.Combine(folder, "ms1only.mzML");
+        MzmlMethods.CreateAndWriteMyMzmlWithCalibratedSpectra(new GenericMsDataFile(run.Scans.Where(s => s.MsnOrder == 1).ToArray(),
+            new SourceFile("no nativeID format", "mzML format", null, null, null)), ms1Only, false);
+        string output = Path.Combine(folder, "output", "Task1");
+        Directory.CreateDirectory(output);
+        var warnings = new List<string>();
+        EventHandler<StringEventArgs> onWarn = (_, e) => warnings.Add(e.S);
+        MetaMorpheusTask.WarnHandler += onWarn;
+        try
+        {
+            new DiaLibrarySearchTask().RunTask(output, [new DbForTask(library, false)], [mzml, ms1Only], "Task1");
+        }
+        finally
+        {
+            MetaMorpheusTask.WarnHandler -= onWarn;
+        }
+
+        Assert.That(warnings.Single(w => w.Contains("ms1only.mzML")), Does.Contain("no DIA MS2 scans"));
+        string results = File.ReadAllText(Path.Combine(output, "results.txt"));
+        Assert.That(results, Does.Contain("ms1only.mzML: skipped").And.Contain("no DIA MS2 scans"));
+        Assert.That(int.Parse(Regex.Match(results, @"All target precursors with q-value <= 0\.01: (\d+)").Groups[1].Value), Is.GreaterThan(0));
+        var table = new DiaPrecursorFile(Path.Combine(output, "AllDiaPrecursors.tsv"));
+        table.LoadResults();
+        Assert.That(table.Results.Select(r => r.FileName).Distinct(), Is.EqualTo(new[] { "badRun.mzML" }));
+        Assert.That(File.ReadAllLines(Path.Combine(output, "DiaCalibrationSummary.tsv")).Skip(1).Select(l => l.Split('\t')[0]),
+            Is.EqualTo(new[] { "badRun.mzML" }));
+
+        string nothingUsable = Path.Combine(folder, "output", "Task2");
+        Directory.CreateDirectory(nothingUsable);
+        Assert.That(() => new DiaLibrarySearchTask().RunTask(nothingUsable, [new DbForTask(library, false)], [ms1Only], "Task2"),
+            Throws.InstanceOf<MetaMorpheusException>().With.Message.Contains("ms1only.mzML").And.Message.Contains("no DIA MS2 scans"));
+    }
+
+    /// <summary>A FASTA of one protein no library target comes from.</summary>
+    private static string WriteUnrelatedFasta(string path)
+    {
+        File.WriteAllLines(path, new[] { ">sp|U00001|UNREL_SYNTH Unrelated protein OS=Synthetic OX=1 GN=UNREL", "MWWHHCCYYWWHHCCYYK" });
+        return path;
     }
 
     /// <summary>
