@@ -96,12 +96,12 @@ public static class DiaProteinQuantification
 
     /// <summary>
     /// Quantifies peptides and protein groups across the runs the precursors come from, one label-free sample per run.
+    /// Nothing is written: the engine's Raw, Peptide and ProteinGroup quantification tables are isobaric output (mzLib
+    /// refuses them for a label-free design), and the DIA search writes its own tables.
     /// </summary>
-    /// <param name="outputDirectory">Where mzLib writes its quantification tables; null writes nothing.</param>
     /// <returns>mzLib's results. A failure is reported in them (Success false, with a summary), never thrown.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    public static QuantificationResults Quantify(IReadOnlyList<DiaQuantifiedPrecursor> precursors, IReadOnlyList<ProteinGroup> proteinGroups,
-        string? outputDirectory)
+    public static QuantificationResults Quantify(IReadOnlyList<DiaQuantifiedPrecursor> precursors, IReadOnlyList<ProteinGroup> proteinGroups)
     {
         ArgumentNullException.ThrowIfNull(precursors);
         ArgumentNullException.ThrowIfNull(proteinGroups);
@@ -111,7 +111,6 @@ public static class DiaProteinQuantification
             .Distinct(StringComparer.Ordinal).OrderBy(path => path, StringComparer.Ordinal)
             .Select((path, i) => new SpectraFileInfo(path, "", i, 0, 0)));
 
-        bool write = outputDirectory is not null;
         var parameters = new QuantificationParameters
         {
             SpectralMatchNormalizationStrategy = new NoNormalization(),
@@ -121,10 +120,9 @@ public static class DiaProteinQuantification
             CollapseAggregationStrategy = new SumAggregation(),
             PeptideToProteinRollUpStrategy = new SumRollUp(),
             ProteinNormalizationStrategy = new NoNormalization(),
-            OutputDirectory = outputDirectory ?? "",
-            WriteRawInformation = write,
-            WritePeptideInformation = write,
-            WriteProteinInformation = write,
+            WriteRawInformation = false,
+            WritePeptideInformation = false,
+            WriteProteinInformation = false,
         };
 
         var peptides = precursors.SelectMany(p => p.GetIdentifiedBioPolymersWithSetMods()).Distinct().ToList();

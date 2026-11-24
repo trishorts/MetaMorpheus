@@ -123,7 +123,7 @@ public class DiaProteinQuantificationTests
             .Concat(DiaProteinQuantification.QuantifiedPrecursors(@"C:\data\run2.raw", Run2, inference, 0.01))
             .ToList();
 
-        var results = DiaProteinQuantification.Quantify(quantified, inference.ProteinGroups, outputDirectory: null);
+        var results = DiaProteinQuantification.Quantify(quantified, inference.ProteinGroups);
 
         Assert.That(results.Success, Is.True, results.Summary);
         var a = results.ProteinIntensities.Single(p => p.Key.BioPolymerGroupName == "A").Value;
@@ -137,8 +137,9 @@ public class DiaProteinQuantificationTests
 
     /// <summary>
     /// The engine's Raw, Peptide and ProteinGroup quantification tables are isobaric output (mzLib #1610 refuses them for
-    /// any other design, and dataRepo and PXReprise read them as a TMT search), so the DIA search never writes them, even
-    /// given a folder: it writes its own tables (QuantProject DIA-Q5).
+    /// any other design, and dataRepo and PXReprise read them as a TMT search), so the DIA search never writes them: it
+    /// writes its own tables (QuantProject DIA-Q5). The spectra sit in the folder because an engine told to write, with no
+    /// folder of its own, writes beside them.
     /// </summary>
     [Test]
     public void QuantifyingWritesNoneOfTheEnginesQuantificationTables()
@@ -151,7 +152,7 @@ public class DiaProteinQuantificationTests
             var inference = Infer(run1, Run1);
             var quantified = DiaProteinQuantification.QuantifiedPrecursors(run1, Run1, inference, 0.01);
 
-            var results = DiaProteinQuantification.Quantify(quantified, inference.ProteinGroups, outputDirectory: folder);
+            var results = DiaProteinQuantification.Quantify(quantified, inference.ProteinGroups);
 
             Assert.That(results.Success, Is.True, results.Summary);
             Assert.That(results.WrittenFiles, Is.Empty);
