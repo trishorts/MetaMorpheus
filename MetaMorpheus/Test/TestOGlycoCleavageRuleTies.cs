@@ -17,9 +17,9 @@ using TaskLayer;
 namespace Test
 {
     /// <summary>
-    /// <see cref="GlycoSearchParameters.BreakLocalizationTiesByCleavageRule"/>: when the spectrum scores several glycan
+    /// <see cref="GlycoSearchParameters.ApplyGlycoproteaseCleavageRule"/>: when the spectrum scores several glycan
     /// placements equally, keep those the glycoprotease's cleavage rule allows. A placement the spectrum prefers is never
-    /// overridden, and identifications do not change.
+    /// overridden.
     /// </summary>
     [TestFixture]
     public static class TestOGlycoCleavageRuleTies
@@ -127,21 +127,21 @@ namespace Test
         [Test]
         public static void TheOption_IsOffByDefault_RoundTripsThroughToml_AndIsOffInAnOlderToml()
         {
-            Assert.That(new GlycoSearchTask()._glycoSearchParameters.BreakLocalizationTiesByCleavageRule, Is.False);
+            Assert.That(new GlycoSearchTask()._glycoSearchParameters.ApplyGlycoproteaseCleavageRule, Is.False);
 
             string path = Path.Combine(TestContext.CurrentContext.TestDirectory, $"{nameof(TestOGlycoCleavageRuleTies)}.toml");
             try
             {
                 var task = new GlycoSearchTask();
-                task._glycoSearchParameters.BreakLocalizationTiesByCleavageRule = true;
+                task._glycoSearchParameters.ApplyGlycoproteaseCleavageRule = true;
                 Toml.WriteFile(task, path, MetaMorpheusTask.tomlConfig);
-                Assert.That(Toml.ReadFile<GlycoSearchTask>(path, MetaMorpheusTask.tomlConfig)._glycoSearchParameters.BreakLocalizationTiesByCleavageRule, Is.True);
+                Assert.That(Toml.ReadFile<GlycoSearchTask>(path, MetaMorpheusTask.tomlConfig)._glycoSearchParameters.ApplyGlycoproteaseCleavageRule, Is.True);
 
                 var lines = File.ReadAllLines(path);
-                var older = lines.Where(line => !line.TrimStart().StartsWith(nameof(GlycoSearchParameters.BreakLocalizationTiesByCleavageRule))).ToArray();
+                var older = lines.Where(line => !line.TrimStart().StartsWith(nameof(GlycoSearchParameters.ApplyGlycoproteaseCleavageRule))).ToArray();
                 Assert.That(older.Length, Is.LessThan(lines.Length), "premise: the option was written");
                 File.WriteAllLines(path, older);
-                Assert.That(Toml.ReadFile<GlycoSearchTask>(path, MetaMorpheusTask.tomlConfig)._glycoSearchParameters.BreakLocalizationTiesByCleavageRule, Is.False);
+                Assert.That(Toml.ReadFile<GlycoSearchTask>(path, MetaMorpheusTask.tomlConfig)._glycoSearchParameters.ApplyGlycoproteaseCleavageRule, Is.False);
             }
             finally
             {
@@ -184,7 +184,7 @@ namespace Test
         // The routes as written (the first 10 at most) and how many there were; the reported placement's one-based glycan
         // positions; whether the composition column is their sum; and the PSM's missed cleavages and q-value.
         private static (List<HashSet<int>> Routes, int Total, HashSet<int> Placed, bool ComposedOfPlaced, int MissedCleavages, double QValue)
-            SearchLeukosialin(bool breakTies) => SearchLeukosialin(breakTies, 1).Single();
+            SearchLeukosialin(bool applyRule) => SearchLeukosialin(applyRule, 1).Single();
 
         /// <summary>
         /// Two copies of the spectrum are searched at once, which builds the engine at the task's other construction site (the
@@ -200,7 +200,7 @@ namespace Test
 
         // One entry per PSM of the glycopeptide, over this many copies of the spectrum.
         private static List<(List<HashSet<int>> Routes, int Total, HashSet<int> Placed, bool ComposedOfPlaced, int MissedCleavages, double QValue)>
-            SearchLeukosialin(bool breakTies, int files)
+            SearchLeukosialin(bool applyRule, int files)
         {
             string dataFolder = Path.Combine(TestContext.CurrentContext.TestDirectory, "GlycoTestData");
             string settings = File.ReadAllText(Path.Combine(dataFolder, "GlycoSearchTaskconfigOGlycoTest_Run.toml"));
@@ -210,7 +210,7 @@ namespace Test
                 .Replace("\nDissociationType = \"EThcD\"", "\nDissociationType = \"HCD\"")
                 .Replace("MaxMissedCleavages = 5", "MaxMissedCleavages = 10"); // OpeRATOR's |S,|T put 7 sites inside the peptide
 
-            string outputFolder = Path.Combine(TestContext.CurrentContext.TestDirectory, $"{nameof(TestOGlycoCleavageRuleTies)}_{breakTies}_{files}");
+            string outputFolder = Path.Combine(TestContext.CurrentContext.TestDirectory, $"{nameof(TestOGlycoCleavageRuleTies)}_{applyRule}_{files}");
             string settingsPath = outputFolder + ".toml";
             try
             {
@@ -220,7 +220,7 @@ namespace Test
                 File.WriteAllText(settingsPath, settings);
                 var task = MetaMorpheusTask.ReadTaskTomlWithLowResFallback<GlycoSearchTask>(settingsPath);
                 Assert.That(task.CommonParameters.DissociationType, Is.EqualTo(MassSpectrometry.DissociationType.HCD), "premise: b/y ions only");
-                task._glycoSearchParameters.BreakLocalizationTiesByCleavageRule = breakTies;
+                task._glycoSearchParameters.ApplyGlycoproteaseCleavageRule = applyRule;
 
                 string spectra = Path.Combine(dataFolder, "2019_09_16_StcEmix_35trig_EThcD25_rep1_9906.mgf");
                 var spectraFiles = files == 1 ? new List<string> { spectra } : Enumerable.Range(0, files).Select(i =>

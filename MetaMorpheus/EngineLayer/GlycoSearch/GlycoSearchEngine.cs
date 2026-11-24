@@ -34,10 +34,10 @@ namespace EngineLayer.GlycoSearch
         public double CustomOxoniumThreshold { get; init; } = GlycoPeptides.DefaultCustomOxoniumThreshold;
 
         /// <summary>
-        /// GlycoSearchParameters.BreakLocalizationTiesByCleavageRule: an O-glyco PSM reports the first of its tied placements
+        /// GlycoSearchParameters.ApplyGlycoproteaseCleavageRule: an O-glyco PSM reports the first of its tied placements
         /// the cleavage rule allows, and counts only the missed cleavages its placed glycans allow.
         /// </summary>
-        public bool BreakLocalizationTiesByCleavageRule { get; init; }
+        public bool ApplyGlycoproteaseCleavageRule { get; init; }
 
         private GlycoSearchType GlycoSearchType;
         private readonly int TopN;              // DDA top Peak number.
@@ -567,7 +567,7 @@ namespace EngineLayer.GlycoSearch
 
         private GlycoSpectralMatch CreateGsm(Ms2ScanWithSpecificMass theScan, int scanIndex, int rank, PeptideWithSetModifications peptide, Route localization, double[] oxoniumIonIntensities, List<LocalizationGraph> localizationGraphs)
         {
-            int? missedCleavages = BreakLocalizationTiesByCleavageRule && localization.ModSitePairs.All(pair => pair.ModId >= 0)
+            int? missedCleavages = ApplyGlycoproteaseCleavageRule && localization.ModSitePairs.All(pair => pair.ModId >= 0)
                 ? GlycoPeptides.MissedCleavagesGivenGlycans(peptide, localization, CommonParameters.DigestionParams.DigestionAgent)
                 : null;
             var peptideWithMod = GlycoPeptides.OGlyGetTheoreticalPeptide(localization, peptide, missedCleavages);
@@ -805,7 +805,7 @@ namespace EngineLayer.GlycoSearch
             {
                 var firstPath = LocalizationGraph.GetFirstPath(localizationGraphs[0].array, localizationGraphs[0].ChildModBoxes); //Get the first path from the localization graph.
                 var localizationCandidate = LocalizationGraph.GetLocalizedPath(localizationGraphs[0], firstPath); //Get the route of the localization from the first path inforation
-                if (BreakLocalizationTiesByCleavageRule)
+                if (ApplyGlycoproteaseCleavageRule)
                 {
                     localizationCandidate = RouteTheRuleReports(localizationGraphs, theScanBestPeptide, localizationCandidate);
                 }

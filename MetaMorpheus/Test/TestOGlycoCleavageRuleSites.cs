@@ -15,7 +15,7 @@ namespace Test
     /// <summary>
     /// <see cref="CleavageRuleSite"/>: the residues where a protease's cuts say a glycan must, or must not, be, with what the
     /// Level 1 identifications say about each. Written as oglyco_cleavage_rule_sites.tsv when
-    /// <see cref="GlycoSearchParameters.BreakLocalizationTiesByCleavageRule"/> is on.
+    /// <see cref="GlycoSearchParameters.ApplyGlycoproteaseCleavageRule"/> is on.
     /// </summary>
     [TestFixture]
     public static class TestOGlycoCleavageRuleSites
@@ -92,7 +92,7 @@ namespace Test
                 Directory.CreateDirectory(outputFolder);
                 File.WriteAllText(settingsPath, editSettings(settings));
                 var task = MetaMorpheusTask.ReadTaskTomlWithLowResFallback<GlycoSearchTask>(settingsPath);
-                task._glycoSearchParameters.BreakLocalizationTiesByCleavageRule = on;
+                task._glycoSearchParameters.ApplyGlycoproteaseCleavageRule = on;
                 new EverythingRunnerEngine(new List<(string, MetaMorpheusTask)> { ("Task", task) },
                     new List<string> { Path.Combine(dataFolder, "2019_09_16_StcEmix_35trig_EThcD25_rep1_9906.mgf") },
                     new List<DbForTask> { new DbForTask(Path.Combine(dataFolder, "P16150.fasta"), false) },

@@ -62,12 +62,13 @@ namespace TaskLayer
         public bool OxoniumIonFilt { get; set; }
 
         /// <summary>
-        /// When the spectrum scores several O-glycan placements equally, keep those the protease's cleavage rule allows: a
-        /// glycoprotease cut needs a glycan at its subsite (OpeRATOR at P1', StcE at P2), and IMPa forbids one at P1. A
-        /// placement the spectrum prefers is never overridden, and identifications do not change. Off by default; not for
-        /// a non-specific search. TOMLs written before this existed omit it and get off.
+        /// Applies the glycoprotease's cleavage rule in an O-glyco search: a cut needs a glycan at its subsite (OpeRATOR at
+        /// P1', StcE at P2), and IMPa forbids one at P1. Among placements the spectrum scores equally, a PSM reports the
+        /// first the rule allows; a placement the spectrum prefers is never overridden. Missed cleavages are counted from
+        /// the placed glycans, and oglyco_cleavage_rule_sites.tsv is written. Off by default; not for a non-specific
+        /// search. TOMLs written before this existed omit it and get off.
         /// </summary>
-        public bool BreakLocalizationTiesByCleavageRule { get; set; }
+        public bool ApplyGlycoproteaseCleavageRule { get; set; }
 
         /// <summary>
         /// With <see cref="OxoniumIonFilt"/> on, a custom-monosaccharide diagnostic ion (MonosaccharidesCustom.tsv) counts as

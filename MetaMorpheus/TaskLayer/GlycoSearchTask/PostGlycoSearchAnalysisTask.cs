@@ -112,7 +112,7 @@ namespace TaskLayer
                         var protein_oglyco_localization_file = Path.Combine(OutputFolder, "protein_oglyco_localization.tsv");
                         WriteGlycoFile.WriteProteinGlycoLocalization(ProteinLevelLocalization, protein_oglyco_localization_file);
 
-                        if (glycoSearchParameters.BreakLocalizationTiesByCleavageRule)
+                        if (glycoSearchParameters.ApplyGlycoproteaseCleavageRule)
                         {
                             var cleavageRuleSites = CleavageRuleSite.Find(OglyInAllPsms
                                 .Where(p => p.FdrInfo.QValue <= 0.01 && !p.IsDecoy && !p.IsContaminant && p.Accession != null && p.OneBasedStartResidue.HasValue)
