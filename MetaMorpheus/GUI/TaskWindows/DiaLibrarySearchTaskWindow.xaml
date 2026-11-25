@@ -1,0 +1,313 @@
+<Window x:Class="MetaMorpheusGUI.DiaLibrarySearchTaskWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:MetaMorpheusGUI"
+        mc:Ignorable="d"
+        xmlns:sys="clr-namespace:System;assembly=mscorlib"
+        xmlns:guiFunctions="clr-namespace:GuiFunctions;assembly=GuiFunctions"
+        KeyDown="KeyPressed"
+        Title="DIA Library Search Task" Width="750" Height="750" WindowStartupLocation="CenterScreen">
+
+    <Window.Resources>
+        <Style TargetType="GroupBox">
+            <Setter Property="BorderThickness" Value="3 1 1 1"/>
+            <Setter Property="Padding" Value="5"/>
+            <Setter Property="BorderBrush" Value="DarkSlateGray"/>
+            <Setter Property="Margin" Value="5 0"/>
+            <Setter Property="HeaderTemplate">
+                <Setter.Value>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}" Foreground="Black" FontWeight="Bold"/>
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="50" />
+        </Grid.RowDefinitions>
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal">
+                    <Label Content="Task Name" />
+                    <TextBox x:Name="OutputFileNameTextBox" Width="150">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox">
+                                <Style.Resources>
+                                    <VisualBrush x:Key="CueBannerBrush" AlignmentX="Left" AlignmentY="Center" Stretch="None">
+                                        <VisualBrush.Visual>
+                                            <Label Content="DiaLibrarySearchTask" Foreground="Gray" />
+                                        </VisualBrush.Visual>
+                                    </VisualBrush>
+                                </Style.Resources>
+                                <Style.Triggers>
+                                    <Trigger Property="Text" Value="{x:Static sys:String.Empty}">
+                                        <Setter Property="Background" Value="{StaticResource CueBannerBrush}" />
+                                    </Trigger>
+                                    <Trigger Property="Text" Value="{x:Null}">
+                                        <Setter Property="Background" Value="{StaticResource CueBannerBrush}" />
+                                    </Trigger>
+                                    <Trigger Property="IsKeyboardFocused" Value="True">
+                                        <Setter Property="Background" Value="White" />
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+                </StackPanel>
+
+                <!-- What the task does with the databases it is given -->
+                <GroupBox Header="Library" DockPanel.Dock="Top">
+                    <TextBlock TextWrapping="Wrap" Margin="5">
+                        Give one .msl spectral library, with its decoys, in the database list: only its spectra are searched, and a protein database beside it adds none (it is used to infer protein groups).
+                        <LineBreak />
+                        Give no .msl and a protein database (FASTA or XML) instead: a library is predicted from it, complete with targets and decoys, through Koina (network access required; a proteome takes tens of minutes). It is written to the output folder as DiaPredictedLibrary.msl, which later searches can be given as their library.
+                    </TextBlock>
+                </GroupBox>
+
+                <GroupBox Header="DIA Search Parameters" DockPanel.Dock="Top">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1*"/>
+                            <ColumnDefinition Width="1*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="1*"/>
+                            <RowDefinition Height="1*"/>
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Orientation="Horizontal" Margin="5 5 5 0" Grid.Column="0" Grid.Row="0">
+                            <Label Content="Fragment Tolerance (ppm):" Width="170" />
+                            <local:DoubleTextBoxControl x:Name="FragmentToleranceTextBox" Width="45" ToolTipService.ShowDuration="999999" ToolTipService.InitialShowDelay="500">
+                                <TextBox.ToolTip>
+                                    <TextBlock>
+                                        Accepted tolerance between library and observed fragment m/z.
+                                        <LineBreak />
+                                        20 ppm suits Orbitrap MS2; 10 ppm suits Orbitrap Astral MS2.
+                                    </TextBlock>
+                                </TextBox.ToolTip>
+                            </local:DoubleTextBoxControl>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="5 5 5 0" Grid.Column="1" Grid.Row="0">
+                            <Label Content="MS1 Tolerance (ppm):" Width="170" />
+                            <local:DoubleTextBoxControl x:Name="Ms1ToleranceTextBox" Width="45" ToolTipService.ShowDuration="999999" ToolTipService.InitialShowDelay="500">
+                                <TextBox.ToolTip>
+                                    <TextBlock>Accepted tolerance between a precursor's m/z and its MS1 signal.</TextBlock>
+                                </TextBox.ToolTip>
+                            </local:DoubleTextBoxControl>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="5 5 5 0" Grid.Column="0" Grid.Row="1">
+                            <Label Content="Q-value Threshold:" Width="170" />
+                            <local:DoubleTextBoxControl x:Name="FilterThresholdTextBox" Width="45" ToolTipService.ShowDuration="999999" ToolTipService.InitialShowDelay="500">
+                                <TextBox.ToolTip>
+                                    <TextBlock>The q-value at or below which precursors, peptides and protein groups are reported as identified.</TextBlock>
+                                </TextBox.ToolTip>
+                            </local:DoubleTextBoxControl>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="5 5 5 0" Grid.Column="1" Grid.Row="1">
+                            <Label Content="Max Threads:" Width="170" />
+                            <local:IntegerTexBoxControl x:Name="MaxThreadsTextBox" Width="45" ToolTipService.ShowDuration="999999" ToolTipService.InitialShowDelay="500">
+                                <TextBox.ToolTip>
+                                    <TextBlock>
+                                        By default, MetaMorpheus uses this machine's number of threads minus one.
+                                        <LineBreak />
+                                        Enter a lower number to limit CPU usage.
+                                    </TextBlock>
+                                </TextBox.ToolTip>
+                            </local:IntegerTexBoxControl>
+                        </StackPanel>
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Header="Predicted Library (used only when no .msl is given)" DockPanel.Dock="Top">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1*"/>
+                            <ColumnDefinition Width="1*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="1*"/>
+                            <RowDefinition Height="1*"/>
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Orientation="Horizontal" Margin="5 5 5 0" Grid.Column="0" Grid.Row="0">
+                            <Label Content="Precursor Charges:" Width="170" />
+                            <TextBox x:Name="LibraryChargesTextBox" Width="80" ToolTipService.ShowDuration="999999" ToolTipService.InitialShowDelay="500">
+                                <TextBox.ToolTip>
+                                    <TextBlock>The precursor charges to predict each peptide at, as a list such as "2, 3".</TextBlock>
+                                </TextBox.ToolTip>
+                            </TextBox>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="5 5 5 0" Grid.Column="1" Grid.Row="0">
+                            <Label Content="Collision Energy (NCE):" Width="170" />
+                            <local:IntegerTexBoxControl x:Name="LibraryNceTextBox" Width="45" ToolTipService.ShowDuration="999999" ToolTipService.InitialShowDelay="500">
+                                <TextBox.ToolTip>
+                                    <TextBlock>The normalized collision energy the fragment intensities are predicted at; match the runs'.</TextBlock>
+                                </TextBox.ToolTip>
+                            </local:IntegerTexBoxControl>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="5 5 5 0" Grid.Column="0" Grid.Row="1">
+                            <Label Content="Decoys:" Width="170" />
+                            <ComboBox x:Name="LibraryDecoysComboBox" ToolTipService.ShowDuration="999999" ToolTipService.InitialShowDelay="500">
+                                <ComboBox.ToolTip>
+                                    <TextBlock>
+                                        Permuted: each target peptide's residues rearranged, cleavage sites held (the default).
+                                        <LineBreak />
+                                        Reversed: for digestions the permuter cannot hold, such as semi-specific ones.
+                                    </TextBlock>
+                                </ComboBox.ToolTip>
+                            </ComboBox>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="5 5 5 0" Grid.Column="1" Grid.Row="1">
+                            <Label Content="Dissociation Type:" Width="170" />
+                            <ComboBox x:Name="DissociationTypeComboBox" ToolTipService.ShowDuration="999999" ToolTipService.InitialShowDelay="500">
+                                <ComboBox.ToolTip>
+                                    <TextBlock>The fragmentation the spectra are predicted for. The task says, before predicting, if the model cannot predict it.</TextBlock>
+                                </ComboBox.ToolTip>
+                            </ComboBox>
+                        </StackPanel>
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Header="Digestion (for protein groups, and for a predicted library)" DockPanel.Dock="Top">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1*"/>
+                            <ColumnDefinition Width="1*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="1*"/>
+                            <RowDefinition Height="1*"/>
+                            <RowDefinition Height="1*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- shown only for a loaded task this window cannot show as it is (see TaskWindowSearchMode) -->
+                        <TextBlock x:Name="SearchModeWarningTextBlock" Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Visibility="Collapsed" TextWrapping="Wrap" MaxWidth="450" HorizontalAlignment="Left" Margin="10,0,5,5" Foreground="DarkRed" FontWeight="DemiBold" />
+
+                        <StackPanel Orientation="Horizontal" Margin="5 5 5 0" Grid.Column="0" Grid.Row="0">
+                            <Label Content="Protease:" Width="150" />
+                            <ComboBox x:Name="ProteaseComboBox" ToolTipService.ShowDuration="999999" ToolTipService.InitialShowDelay="500">
+                                <ComboBox.ToolTip>
+                                    <TextBlock>Protease used for digestion.</TextBlock>
+                                </ComboBox.ToolTip>
+                            </ComboBox>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="5 5 5 0" Grid.Column="1" Grid.Row="0">
+                            <Label Content="Max Missed Cleavages:" Width="150" />
+                            <local:IntegerTexBoxControl x:Name="MissedCleavagesTextBox" Width="45" />
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="5 5 5 0" Grid.Column="0" Grid.Row="1">
+                            <Label Content="Min Peptide Length:" Width="150" />
+                            <local:IntegerTexBoxControl x:Name="MinPeptideLengthTextBox" Width="45" />
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="5 5 5 0" Grid.Column="1" Grid.Row="1">
+                            <Label Content="Max Peptide Length:" Width="150" />
+                            <local:IntegerTexBoxControl x:Name="MaxPeptideLengthTextBox" Width="45" ToolTipService.ShowDuration="999999" ToolTipService.InitialShowDelay="500">
+                                <TextBox.ToolTip>
+                                    <TextBlock>Leave empty for no limit. A predicted library stops at the longest peptide its models take.</TextBlock>
+                                </TextBox.ToolTip>
+                            </local:IntegerTexBoxControl>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="5 5 5 0" Grid.Column="0" Grid.Row="2">
+                            <Label Content="Max Mods Per Peptide:" Width="150" />
+                            <local:IntegerTexBoxControl x:Name="MaxModsPerPeptideTextBox" Width="45" />
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="5 5 5 0" Grid.Column="1" Grid.Row="2">
+                            <Label Content="Initiator Methionine:" Width="150" />
+                            <ComboBox x:Name="InitiatorMethionineBehaviorComboBox" />
+                        </StackPanel>
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Header="Modifications" DockPanel.Dock="Top">
+                    <StackPanel Height="145">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1*" />
+                                <ColumnDefinition Width="1*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Margin="5 0 5 0">
+                                <Label Content="Fixed:" />
+                                <TreeView x:Name="FixedModsTreeView" ItemsSource="{Binding}" DataContext="{x:Type guiFunctions:ModTypeForTreeViewModel}" Height="118">
+                                    <TreeView.Resources>
+                                        <HierarchicalDataTemplate DataType="{x:Type guiFunctions:ModTypeForTreeViewModel}" ItemsSource="{Binding Children}">
+                                            <StackPanel Orientation="Horizontal" Background="{Binding Background}">
+                                                <CheckBox IsChecked="{Binding Use}" />
+                                                <TextBlock Text="{Binding DisplayName}" />
+                                            </StackPanel>
+                                        </HierarchicalDataTemplate>
+                                        <DataTemplate DataType="{x:Type guiFunctions:ModForTreeViewModel}">
+                                            <StackPanel Orientation="Horizontal" Background="{Binding Background}" ToolTip="{Binding ToolTipStuff}">
+                                                <CheckBox IsChecked="{Binding Use}" />
+                                                <TextBlock Text="{Binding DisplayName}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </TreeView.Resources>
+                                </TreeView>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Margin="5 0 3 0">
+                                <Label Content="Variable:" />
+                                <TreeView x:Name="VariableModsTreeView" ItemsSource="{Binding}" DataContext="{x:Type guiFunctions:ModTypeForTreeViewModel}" Height="118">
+                                    <TreeView.Resources>
+                                        <HierarchicalDataTemplate DataType="{x:Type guiFunctions:ModTypeForTreeViewModel}" ItemsSource="{Binding Children}">
+                                            <StackPanel Orientation="Horizontal" Background="{Binding Background}">
+                                                <CheckBox IsChecked="{Binding Use}" />
+                                                <TextBlock Text="{Binding DisplayName}" />
+                                            </StackPanel>
+                                        </HierarchicalDataTemplate>
+                                        <DataTemplate DataType="{x:Type guiFunctions:ModForTreeViewModel}">
+                                            <StackPanel Orientation="Horizontal" Background="{Binding Background}" ToolTip="{Binding ToolTipStuff}">
+                                                <CheckBox IsChecked="{Binding Use}" />
+                                                <TextBlock Text="{Binding DisplayName}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </TreeView.Resources>
+                                </TreeView>
+                            </StackPanel>
+                            <TextBox x:Name="SearchFixMod" TextChanged="TextChanged_Fixed" HorizontalAlignment="Left" Margin="82,4,0,410" TextWrapping="Wrap" Width="140" />
+                            <TextBox x:Name="SearchVarMod" TextChanged="TextChanged_Var" Grid.Column="1" HorizontalAlignment="Left" Margin="82,4,0,410" TextWrapping="Wrap" Width="140" />
+                        </Grid>
+                    </StackPanel>
+                </GroupBox>
+
+                <Expander Header="Advanced Options" DockPanel.Dock="Top" Margin="8 4">
+                    <StackPanel Orientation="Horizontal" Margin="5">
+                        <Label Content="Classifier Seed:" Width="170" />
+                        <local:IntegerTexBoxControl x:Name="ClassifierSeedTextBox" Width="60" AllowNegative="True" ToolTipService.ShowDuration="999999" ToolTipService.InitialShowDelay="500">
+                            <TextBox.ToolTip>
+                                <TextBlock>The seed of the classifier's training. Searches with the same seed give the same results.</TextBlock>
+                            </TextBox.ToolTip>
+                        </local:IntegerTexBoxControl>
+                    </StackPanel>
+                </Expander>
+            </DockPanel>
+        </ScrollViewer>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Grid.Row="1" Margin="5">
+            <Button x:Name="CancelButton" Content="Cancel" Click="CancelButton_Click" />
+            <Button x:Name="SaveButton" Content="Save DIA Library Search Task" Click="SaveButton_Click" FontSize="24" />
+            <Button x:Name="SetDefaultbutton" Click="SaveAsDefault_Click" Width="100">
+                <TextBlock Text="Save As Default" TextWrapping="Wrap" TextAlignment="Center"/>
+                <ToolTipService.ToolTip>
+                    <ToolTip Content="Save these parameters as the default. MetaMorpheus can return to original defaults by deleting the folder 'DefaultParameters'" ToolTipService.ShowDuration="999999" ToolTipService.InitialShowDelay="500" />
+                </ToolTipService.ToolTip>
+            </Button>
+        </StackPanel>
+    </Grid>
+</Window>

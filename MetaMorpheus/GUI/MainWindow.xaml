@@ -217,6 +217,18 @@
                         </Style>
                     </MenuItem.Style>
                 </MenuItem>
+                <MenuItem Header="Add new DIA library search task" Click="AddDiaLibrarySearchTask_Click" >
+                    <MenuItem.Style>
+                        <Style TargetType="MenuItem">
+                            <Setter Property="Visibility" Value="Visible"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Source={x:Static guiFunctions:GuiGlobalParamsViewModel.Instance}, Path=IsRnaMode}" Value="True">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </MenuItem.Style>
+                </MenuItem>
                 <Separator/>
                 <MenuItem Header="Load task from .toml file" Click="LoadTask_Click" />
             </ContextMenu>
@@ -685,6 +697,7 @@
                             <ColumnDefinition Width="140"/>
                             <ColumnDefinition Width="140"/>
                             <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="140"/>
                         </Grid.ColumnDefinitions>
 
                         <Button Name="AddCalibTaskButton" Grid.Column="0" Content="+ADD CALIBRATION" HorizontalAlignment="Right" Click="AddCalibrateTaskButton_Click" 
@@ -697,7 +710,9 @@
                             Style="{StaticResource ImportantButtonStyle}" Margin="0,0,1,0" Width="140"/>
                         <Button Name="AddXlTaskButton" Grid.Column="4" Content="+ADD XL SEARCH" HorizontalAlignment="Right" Click="AddCrosslinkTask_Click" 
                             Style="{StaticResource ImportantButtonStyleNotForRna}" Margin="0,0,1,0" Width="140"/>
-                        <Button Name="AddGlycoTaskButton" Grid.Column="5" Content="+ADD GLYCO SEARCH" HorizontalAlignment="Right" Click="AddGlycoSearchTask_Click" 
+                        <Button Name="AddGlycoTaskButton" Grid.Column="5" Content="+ADD GLYCO SEARCH" HorizontalAlignment="Right" Click="AddGlycoSearchTask_Click"
+                            Style="{StaticResource ImportantButtonStyleNotForRna}" Margin="0,0,1,0" Width="140"/>
+                        <Button Name="AddDiaLibrarySearchTaskButton" Grid.Column="6" Content="+ADD DIA SEARCH" HorizontalAlignment="Right" Click="AddDiaLibrarySearchTask_Click"
                             Style="{StaticResource ImportantButtonStyleNotForRna}" Margin="0,0,0,0" Width="140"/>
                     </Grid>
 
